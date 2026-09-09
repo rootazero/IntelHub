@@ -8,6 +8,7 @@ rsync -az --delete \
   --exclude '.git/' --exclude 'backups/' --exclude '.DS_Store' \
   --exclude 'compose/.env' --exclude 'docs/' --exclude 'build/' \
   --exclude 'config/searxng/' --exclude 'hub-core/target/' \
+  --exclude 'console/node_modules/' --exclude 'console/dist/' \
   --exclude 'core/' --exclude 'data/' \
   "$REPO/" IntelHub:/home/zou/IntelHub/
 ssh IntelHub 'chmod +x /home/zou/IntelHub/scripts/*.sh'

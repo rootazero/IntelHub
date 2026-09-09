@@ -38,6 +38,8 @@ pub struct Config {
     /// §40: documents shorter than this are not auto-embedded.
     pub embed_min_words: u32,
     pub embed_enabled: bool,
+    /// SP3: directory holding the built console SPA (index.html + assets).
+    pub console_dir: String,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -98,6 +100,7 @@ impl Config {
             scripts_dir: env_or("HUB_SCRIPTS_DIR", "/home/zou/IntelHub/scripts"),
             embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "300").parse().unwrap_or(300),
             embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
+            console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
         }
     }
 }

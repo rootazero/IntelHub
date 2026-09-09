@@ -64,13 +64,16 @@ pub async fn check_rate_limit(state: &AppState, agent: &AgentIdentity) -> bool {
     }
 }
 
-/// Axum middleware: authenticate + rate-limit + trace. Skipped for /healthz.
+/// Axum middleware: authenticate + rate-limit + trace. Only /api/* and /mcp
+/// are protected; static console assets and /healthz are public (the SPA
+/// shell holds no data — every data request still requires a key, §24).
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
-    if req.uri().path() == "/healthz" {
+    let path = req.uri().path();
+    if path == "/healthz" || (!path.starts_with("/api/") && !path.starts_with("/mcp")) {
         return next.run(req).await;
     }
     let Some(token) = bearer_token(req.headers()) else {

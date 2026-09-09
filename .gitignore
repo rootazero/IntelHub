@@ -3,3 +3,5 @@ backups/
 .DS_Store
 .pi/
 hub-core/target/
+console/node_modules/
+console/dist/
