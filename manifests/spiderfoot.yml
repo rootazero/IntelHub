@@ -1,0 +1,20 @@
+name: spiderfoot
+type: sensor/osint-enrichment
+tier: 2
+deployment: docker
+image: RESOLVED_AT_DEPLOY       # official hub repo preferred; else ghcr digest-pinned
+version: RESOLVED_AT_DEPLOY
+digest: RESOLVED_AT_DEPLOY
+channel: "stable"
+profile: optional               # stopped by default (minimum mode, spec §1)
+volumes: []
+networks: [sensor-net, egress-net]
+resources: { memory: 512m, cpus: 0.75 }
+healthcheck: "GET / on 5001"
+backup: "stateless in SP1 (scan DB inside container — export before enabling long scans)"
+upgrade: "manual: re-resolve image, then scripts/hub-compose.sh --profile optional up -d spiderfoot"
+rollback: "re-pin previous image ref"
+native_ui: "http://10.10.10.41:5001 (LAN-only, when profile active)"
+notes: "Output must pass through the normalization/ingest layer before any graph write (spec §48)."
+production_version: RESOLVED_AT_DEPLOY
+last_known_good: RESOLVED_AT_DEPLOY

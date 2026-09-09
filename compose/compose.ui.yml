@@ -1,0 +1,4 @@
+# compose.ui.yml — reserved for SP3/SP4 (grafana, unified console).
+# Intentionally empty of services in Sub-project 1.
+
+services: {}

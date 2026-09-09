@@ -1,0 +1,18 @@
+name: redis
+type: cache/coordination
+tier: 1
+deployment: docker
+image: redis
+version: PINNED_IN_ENV          # REDIS_VERSION
+digest: RECORDED_AFTER_PULL
+channel: "7.x stable (-alpine)"
+volumes: [intelhub-redisdata]
+networks: [data-net]
+resources: { memory: 384m, cpus: 0.5 }
+healthcheck: "redis-cli ping → PONG"
+backup: "AOF inside volume; tar via config backup. Transient layer — not a system of record (spec §37)."
+upgrade: "scripts/upgrade.sh redis <new-version>"
+rollback: "scripts/rollback.sh redis"
+native_ui: null
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV

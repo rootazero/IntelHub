@@ -1,0 +1,19 @@
+name: crawl4ai
+type: sensor/crawler
+tier: 2
+deployment: docker
+image: unclecode/crawl4ai
+version: PINNED_IN_ENV          # CRAWL4AI_VERSION
+digest: RECORDED_AFTER_PULL
+channel: "0.x semver"
+volumes: []
+networks: [sensor-net, egress-net]
+resources: { memory: 3g, cpus: 2.0, shm_size: 1g, max_concurrent_pages: 2 }
+healthcheck: "GET /health on 11235"
+backup: "stateless — nothing to back up"
+upgrade: "scripts/upgrade.sh crawl4ai <new-version>"
+rollback: "scripts/rollback.sh crawl4ai"
+native_ui: "http://10.10.10.41:11235/playground (LAN-only)"
+notes: "Limits per spec §47: memory/CPU/concurrency capped; tune from telemetry."
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV

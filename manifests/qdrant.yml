@@ -1,0 +1,19 @@
+name: qdrant
+type: vector-database
+tier: 1
+deployment: docker
+image: qdrant/qdrant
+version: PINNED_IN_ENV          # QDRANT_VERSION (v1.x)
+digest: RECORDED_AFTER_PULL
+channel: "v1 stable patch"
+volumes: [intelhub-qdrantdata, backups/qdrant-snapshots]
+networks: [data-net]
+resources: { memory: 2g, cpus: 1.5 }
+healthcheck: "tcp connect 6333"
+backup: "scripts/backup.sh → per-collection snapshot API → backups/qdrant-snapshots"
+upgrade: "scripts/upgrade.sh qdrant <new-version>"
+rollback: "scripts/rollback.sh qdrant"
+native_ui: null                  # REST API on data-net; SP3 console
+notes: "Semantic memory only; embedding generation is external (spec §39)."
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV

@@ -1,0 +1,38 @@
+name: intelhub
+
+# compose.base.yml — networks, volumes, shared anchors
+# Networks per spec §4. data-net is internal (no internet egress).
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+
+networks:
+  mgmt-net:
+    name: intelhub-mgmt
+    driver: bridge
+  data-net:
+    name: intelhub-data
+    driver: bridge
+    internal: true
+  sensor-net:
+    name: intelhub-sensor
+    driver: bridge
+  egress-net:
+    name: intelhub-egress
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: intelhub-pgdata
+  redisdata:
+    name: intelhub-redisdata
+  neo4jdata:
+    name: intelhub-neo4jdata
+  neo4jlogs:
+    name: intelhub-neo4jlogs
+  qdrantdata:
+    name: intelhub-qdrantdata

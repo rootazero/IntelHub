@@ -1,0 +1,19 @@
+name: neo4j
+type: graph-database
+tier: 1
+deployment: docker
+image: neo4j
+version: PINNED_IN_ENV          # NEO4J_VERSION (5.26.x-community LTS)
+digest: RECORDED_AFTER_PULL
+channel: "5.26 LTS community"
+volumes: [intelhub-neo4jdata, intelhub-neo4jlogs]
+networks: [data-net]
+resources: { memory: 2g, cpus: 1.5, heap_max: 1200m, pagecache: 512m }
+healthcheck: "cypher-shell 'RETURN 1'"
+backup: "scripts/backup.sh → offline neo4j-admin database dump (brief stop/start)"
+upgrade: "scripts/upgrade.sh neo4j <new-version>"
+rollback: "scripts/rollback.sh neo4j"
+native_ui: "http://10.10.10.41:7474 (Neo4j Browser, LAN-only, temporary until SP3)"
+notes: "Agents never run arbitrary Cypher (spec §38); SP2 Hub Core mediates via typed graph intents."
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV

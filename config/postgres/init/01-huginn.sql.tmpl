@@ -1,0 +1,5 @@
+-- 01-huginn.sql — dedicated database + role for Huginn (profile: optional).
+-- Password is substituted by deploy (envsubst) at first boot only;
+-- docker-entrypoint-initdb.d runs only on an empty PGDATA.
+CREATE ROLE huginn LOGIN PASSWORD '@HUGINN_DB_PASSWORD@';
+CREATE DATABASE huginn OWNER huginn;

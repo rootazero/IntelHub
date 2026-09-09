@@ -1,0 +1,100 @@
+# compose.sensor.yml — Tier 2 sensors (spec §4)
+# searxng + crawl4ai run by default; spiderfoot + huginn are profile `optional`
+# (minimum mode per spec §1) and start only with --profile optional.
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  searxng:
+    image: searxng/searxng:${SEARXNG_VERSION}
+    container_name: intelhub-searxng
+    <<: [*restart-policy, *security]
+    environment:
+      SEARXNG_BASE_URL: http://${LAN_IP}:8080/
+    volumes:
+      - ../config/searxng:/etc/searxng:rw
+    networks: [sensor-net, egress-net]
+    ports:
+      - "${LAN_IP}:8080:8080"
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://localhost:8080/healthz',timeout=5)\""]
+      interval: 15s
+      timeout: 8s
+      retries: 6
+      start_period: 30s
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  crawl4ai:
+    image: unclecode/crawl4ai:${CRAWL4AI_VERSION}
+    container_name: intelhub-crawl4ai
+    <<: [*restart-policy, *security]
+    environment:
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
+      MAX_CONCURRENT_PAGES: "2"
+    shm_size: 1g
+    networks: [sensor-net, egress-net]
+    ports:
+      - "${LAN_IP}:11235:11235"
+    mem_limit: 3g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://localhost:11235/health',timeout=5)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+
+  spiderfoot:
+    image: ${SPIDERFOOT_IMAGE}
+    container_name: intelhub-spiderfoot
+    profiles: ["optional"]
+    <<: [*restart-policy, *security]
+    networks: [sensor-net, egress-net]
+    ports:
+      - "${LAN_IP}:5001:5001"
+    mem_limit: 512m
+    cpus: 0.75
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:5001/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  huginn:
+    image: huginn/huginn${HUGINN_REF}
+    container_name: intelhub-huginn
+    profiles: ["optional"]
+    <<: [*restart-policy, *security]
+    environment:
+      DATABASE_ADAPTER: postgresql
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: huginn
+      DATABASE_USERNAME: huginn
+      DATABASE_PASSWORD: ${HUGINN_DB_PASSWORD}
+      RAILS_ENV: production
+    networks: [sensor-net, egress-net, data-net]
+    ports:
+      - "${LAN_IP}:3000:3000"
+    mem_limit: 768m
+    cpus: 1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

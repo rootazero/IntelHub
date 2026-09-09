@@ -1,0 +1,25 @@
+# SearXNG settings for IntelHub sensor fabric.
+# The official image entrypoint replaces "ultrasecretkey" with a random
+# secret on first start (requires the config volume to be writable).
+use_default_settings: true
+
+server:
+  secret_key: "ultrasecretkey"
+  limiter: false          # no redis-backed limiter in SP1; Hub Gateway enforces policy in SP2
+  image_proxy: true
+  method: "GET"
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+ui:
+  infinite_scroll: false
+  query_in_title: true
+
+enabled_plugins:
+  - "Hash plugin"
+  - "Self Information"
+  - "Tracker URL remover"

@@ -1,0 +1,20 @@
+name: huginn
+type: sensor/watchers
+tier: 2
+deployment: docker
+image: huginn/huginn
+version: DIGEST_PINNED          # upstream publishes no semver tags; pinned by digest in .env (HUGINN_REF)
+digest: PINNED_IN_ENV
+channel: "latest-by-digest"
+profile: optional               # stopped by default (minimum mode, spec §1)
+volumes: []
+networks: [sensor-net, egress-net, data-net]
+resources: { memory: 768m, cpus: 1.0 }
+healthcheck: "GET / on 3000"
+backup: "huginn postgres database via pg_dumpall in scripts/backup.sh"
+upgrade: "re-resolve digest → scripts/hub-compose.sh --profile optional up -d huginn"
+rollback: "re-pin previous digest"
+native_ui: "http://10.10.10.41:3000 (LAN-only, when profile active)"
+notes: "No high-privilege system command agents by default (spec §49)."
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV

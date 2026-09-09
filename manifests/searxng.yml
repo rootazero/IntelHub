@@ -1,0 +1,19 @@
+name: searxng
+type: sensor/search
+tier: 2
+deployment: docker
+image: searxng/searxng
+version: PINNED_IN_ENV          # SEARXNG_VERSION (date-tag)
+digest: RECORDED_AFTER_PULL
+channel: "date-tagged releases"
+volumes: [config/searxng]
+networks: [sensor-net, egress-net]
+resources: { memory: 768m, cpus: 1.0 }
+healthcheck: "GET /healthz"
+backup: "config tar (settings.yml) via scripts/backup.sh"
+upgrade: "scripts/upgrade.sh searxng <new-version>"
+rollback: "scripts/rollback.sh searxng"
+native_ui: "http://10.10.10.41:8080 (LAN-only)"
+notes: "Federated search + source discovery only; no deep reasoning (spec §46)."
+production_version: PINNED_IN_ENV
+last_known_good: PINNED_IN_ENV
