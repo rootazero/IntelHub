@@ -3,7 +3,7 @@ type: graph-database
 tier: 1
 deployment: docker
 image: neo4j
-version: PINNED_IN_ENV          # NEO4J_VERSION (5.26.x-community LTS)
+version: 5.26.30-community
 digest: RECORDED_AFTER_PULL
 channel: "5.26 LTS community"
 volumes: [intelhub-neo4jdata, intelhub-neo4jlogs]
@@ -15,5 +15,5 @@ upgrade: "scripts/upgrade.sh neo4j <new-version>"
 rollback: "scripts/rollback.sh neo4j"
 native_ui: "http://10.10.10.41:7474 (Neo4j Browser, LAN-only, temporary until SP3)"
 notes: "Agents never run arbitrary Cypher (spec §38); SP2 Hub Core mediates via typed graph intents."
-production_version: PINNED_IN_ENV
-last_known_good: PINNED_IN_ENV
+production_version: 5.26.30-community
+last_known_good: 5.26.30-community

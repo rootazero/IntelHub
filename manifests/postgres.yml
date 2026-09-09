@@ -3,7 +3,7 @@ type: database
 tier: 1
 deployment: docker
 image: postgres
-version: PINNED_IN_ENV          # exact tag in compose/.env (POSTGRES_VERSION)
+version: 17.11-trixie
 digest: RECORDED_AFTER_PULL
 channel: "17 stable patch (-trixie variant)"
 volumes: [intelhub-pgdata]
@@ -14,5 +14,5 @@ backup: "scripts/backup.sh → pg_dumpall (custom via stdout|pigz)"
 upgrade: "scripts/upgrade.sh postgres <new-version>"
 rollback: "scripts/rollback.sh postgres"
 native_ui: null                  # psql / SP3 console
-production_version: PINNED_IN_ENV
-last_known_good: PINNED_IN_ENV   # mirrors <VAR>_PREVIOUS in .env
+production_version: 17.11-trixie
+last_known_good: 17.11-trixie

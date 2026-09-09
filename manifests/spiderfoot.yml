@@ -2,9 +2,9 @@ name: spiderfoot
 type: sensor/osint-enrichment
 tier: 2
 deployment: docker
-image: RESOLVED_AT_DEPLOY       # official hub repo preferred; else ghcr digest-pinned
-version: RESOLVED_AT_DEPLOY
-digest: RESOLVED_AT_DEPLOY
+image: intelhub/spiderfoot (local build)
+version: 0f815a203afe
+digest: commit 0f815a203afe
 channel: "stable"
 profile: optional               # stopped by default (minimum mode, spec §1)
 volumes: []
@@ -16,5 +16,5 @@ upgrade: "manual: re-resolve image, then scripts/hub-compose.sh --profile option
 rollback: "re-pin previous image ref"
 native_ui: "http://10.10.10.41:5001 (LAN-only, when profile active)"
 notes: "Output must pass through the normalization/ingest layer before any graph write (spec §48)."
-production_version: RESOLVED_AT_DEPLOY
-last_known_good: RESOLVED_AT_DEPLOY
+production_version: 0f815a203afe
+last_known_good: 0f815a203afe

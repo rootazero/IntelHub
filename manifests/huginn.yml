@@ -3,8 +3,8 @@ type: sensor/watchers
 tier: 2
 deployment: docker
 image: huginn/huginn
-version: DIGEST_PINNED          # upstream publishes no semver tags; pinned by digest in .env (HUGINN_REF)
-digest: PINNED_IN_ENV
+version: latest@2026-09-09
+digest: sha256:abd6f18ad181df5cf55e36b1f6caaef960d4b910320ba5a8386570ad59575f3c
 channel: "latest-by-digest"
 profile: optional               # stopped by default (minimum mode, spec §1)
 volumes: []
@@ -16,5 +16,5 @@ upgrade: "re-resolve digest → scripts/hub-compose.sh --profile optional up -d 
 rollback: "re-pin previous digest"
 native_ui: "http://10.10.10.41:3000 (LAN-only, when profile active)"
 notes: "No high-privilege system command agents by default (spec §49)."
-production_version: PINNED_IN_ENV
-last_known_good: PINNED_IN_ENV
+production_version: sha256:abd6f18ad181
+last_known_good: sha256:abd6f18ad181

@@ -3,7 +3,7 @@ type: cache/coordination
 tier: 1
 deployment: docker
 image: redis
-version: PINNED_IN_ENV          # REDIS_VERSION
+version: 7.4.11-alpine
 digest: RECORDED_AFTER_PULL
 channel: "7.x stable (-alpine)"
 volumes: [intelhub-redisdata]
@@ -14,5 +14,5 @@ backup: "AOF inside volume; tar via config backup. Transient layer — not a sys
 upgrade: "scripts/upgrade.sh redis <new-version>"
 rollback: "scripts/rollback.sh redis"
 native_ui: null
-production_version: PINNED_IN_ENV
-last_known_good: PINNED_IN_ENV
+production_version: 7.4.11-alpine
+last_known_good: 7.4.11-alpine

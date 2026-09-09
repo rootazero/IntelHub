@@ -138,3 +138,39 @@ Forbidden: bare `docker compose pull && up -d` as an "upgrade".
 - Any single container failure → `unless-stopped` restart; alert visibility via `health-check.sh` (SP2 adds Event Bus)
 - Backup before every upgrade is enforced by `upgrade.sh`, not by convention
 - Qdrant/Neo4j loss tolerated by SP1: no irreplaceable data yet; backups exist from first boot
+
+---
+
+## Amendment 2026-09-09 — Deployment Record (as-built)
+
+Deployed and acceptance-tested 2026-09-09. Actual pinned versions:
+
+| Component | Version | Notes |
+|---|---|---|
+| Template | VMID 9000 `debian-13-cloud` | debian-13-genericcloud-amd64.qcow2, SHA512-verified |
+| VM | VMID 410 `IntelHub` @ 10.10.10.41 | 4 vCPU host, 16G (balloon 8G), 100G scsi local-lvm |
+| Docker | CE 29.8.0 / Compose v5.5.1 | official Docker repo, daemon pools 172.30.0.0/16 |
+| postgres | 17.11-trixie | healthy |
+| redis | 7.4.11-alpine | healthy |
+| neo4j | 5.26.30-community | healthy, APOC enabled |
+| qdrant | v1.19.1 | healthy |
+| searxng | 2026.9.8-3fdc6d753 | healthy, JSON API verified from LAN |
+| crawl4ai | 0.9.3 | healthy |
+| spiderfoot | local build `intelhub/spiderfoot:0f815a203afe` | upstream has NO prebuilt image; built from pinned commit, profile `optional` |
+| huginn | digest sha256:abd6f18ad181… | no semver tags upstream; digest-pinned, profile `optional` |
+
+Acceptance results: all criteria in §7 PASS, including data-net egress
+isolation (`Network is unreachable` from postgres), SearXNG JSON query,
+backup artifacts (pg_dumpall / neo4j.dump / config.tar.gz / qdrant
+snapshot path), nftables enabled at boot.
+
+Deviations from original plan (documented inline above):
+1. Docker 29 firewall rework — DOCKER-USER is no longer jumped from FORWARD;
+   container-port LAN gating implemented in our own `inet filter` forward chain.
+2. `NEO4J_PASSWORD` must NOT be a container env var (strict config validation);
+   healthcheck uses compose-time interpolation instead.
+3. SearXNG requires a real random `secret_key` at first boot (patched by
+   resolve-versions.sh); its config dir is container-chowned, so rsync deploys
+   exclude `config/searxng/`.
+4. SpiderFoot has no official prebuilt image — built locally from a pinned
+   upstream commit rather than trusting third-party images.

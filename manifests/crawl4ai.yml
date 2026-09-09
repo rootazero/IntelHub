@@ -3,7 +3,7 @@ type: sensor/crawler
 tier: 2
 deployment: docker
 image: unclecode/crawl4ai
-version: PINNED_IN_ENV          # CRAWL4AI_VERSION
+version: 0.9.3
 digest: RECORDED_AFTER_PULL
 channel: "0.x semver"
 volumes: []
@@ -15,5 +15,5 @@ upgrade: "scripts/upgrade.sh crawl4ai <new-version>"
 rollback: "scripts/rollback.sh crawl4ai"
 native_ui: "http://10.10.10.41:11235/playground (LAN-only)"
 notes: "Limits per spec §47: memory/CPU/concurrency capped; tune from telemetry."
-production_version: PINNED_IN_ENV
-last_known_good: PINNED_IN_ENV
+production_version: 0.9.3
+last_known_good: 0.9.3
