@@ -33,25 +33,14 @@ for v in POSTGRES_VERSION REDIS_VERSION NEO4J_VERSION QDRANT_VERSION CRAWL4AI_VE
 done
 
 echo "==> resolving optional-profile images..."
-# SpiderFoot: prefer official hub repo, fall back to digest-pinned ghcr
-SPIDERFOOT_IMAGE=""
-if hub_api spiderfoot/spiderfoot >/dev/null 2>&1; then
-  SF_TAG=$(latest_tag spiderfoot/spiderfoot '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || true)
-  [[ -n "$SF_TAG" ]] && SPIDERFOOT_IMAGE="spiderfoot/spiderfoot:${SF_TAG}"
-fi
-if [[ -z "$SPIDERFOOT_IMAGE" ]]; then
-  # ghcr.io/smicallef/spiderfoot — pin by digest via registry API
-  SF_TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:smicallef/spiderfoot:pull" | jq -r .token)
-  SF_DIGEST=$(curl -fsSL -H "Authorization: Bearer $SF_TOKEN" -H "Accept: application/vnd.oci.image.index.v1+json" \
-    https://ghcr.io/v2/smicallef/spiderfoot/manifests/latest | jq -r '.manifests[0].digest // empty')
-  if [[ -z "$SF_DIGEST" ]]; then
-    SF_DIGEST=$(curl -fsSI -H "Authorization: Bearer $SF_TOKEN" -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
-      https://ghcr.io/v2/smicallef/spiderfoot/manifests/latest | grep -i docker-content-digest | awk '{print $2}' | tr -d '\r')
-  fi
-  [[ -n "$SF_DIGEST" ]] && SPIDERFOOT_IMAGE="ghcr.io/smicallef/spiderfoot@${SF_DIGEST}"
-fi
-[[ -z "$SPIDERFOOT_IMAGE" ]] && { echo "ERROR: could not resolve spiderfoot image" >&2; exit 1; }
-echo "    SPIDERFOOT_IMAGE=$SPIDERFOOT_IMAGE"
+# SpiderFoot: NO official prebuilt image exists (hub 404 / ghcr 403; upstream
+# ships a Dockerfile for local build). Pin upstream commit; the image is built
+# locally on the hub by scripts/build-spiderfoot.sh — keeps the component
+# Dockerized, versioned, and reproducible without trusting third-party images.
+SPIDERFOOT_COMMIT=$(git ls-remote https://github.com/smicallef/spiderfoot.git refs/heads/master | awk '{print $1}')
+[[ -z "$SPIDERFOOT_COMMIT" ]] && { echo "ERROR: could not resolve spiderfoot commit" >&2; exit 1; }
+SPIDERFOOT_IMAGE="intelhub/spiderfoot:${SPIDERFOOT_COMMIT:0:12}"
+echo "    SPIDERFOOT_IMAGE=$SPIDERFOOT_IMAGE (local build from upstream commit)"
 
 # Huginn: pin current :latest by digest (upstream does not publish semver tags)
 HUB_TOKEN=$(curl -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:huginn/huginn:pull" | jq -r .token)
@@ -85,6 +74,7 @@ CRAWL4AI_VERSION=${CRAWL4AI_VERSION}
 CRAWL4AI_API_TOKEN=$(rand)
 
 SPIDERFOOT_IMAGE=${SPIDERFOOT_IMAGE}
+SPIDERFOOT_COMMIT=${SPIDERFOOT_COMMIT}
 HUGINN_REF=@${HUGINN_DIGEST}
 HUGINN_DB_PASSWORD=$(rand)
 EOF

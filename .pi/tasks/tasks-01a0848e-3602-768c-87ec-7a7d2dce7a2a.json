@@ -65,25 +65,25 @@
       "id": "6",
       "subject": "Author project files (compose, configs, scripts, manifests)",
       "description": "Author locally in repo: compose/{base,data,sensor,ui}.yml + .env with pinned versions; 4 networks (data-net internal:true); Tier1 postgres17/redis7/neo4j5-community/qdrant1 with resource limits and healthchecks; Tier2 searxng+crawl4ai (concurrency 2, 3G) plus profile-disabled spiderfoot/huginn; scripts/{bootstrap,backup,upgrade,rollback,health}.sh; manifests per component; searxng settings.yml; nftables config.",
-      "status": "in_progress",
+      "status": "completed",
       "activeForm": "Authoring project files",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
       "createdAt": 1788931781831,
-      "updatedAt": 1788932346867
+      "updatedAt": 1788932637636
     },
     {
       "id": "7",
       "subject": "Deploy stack to IntelHub and start services",
       "description": "Rsync project to /home/zou/IntelHub, resolve latest stable image tags/digests and pin into .env, pull images, docker compose up for data+sensor stacks, confirm all healthchecks green.",
-      "status": "pending",
+      "status": "in_progress",
       "activeForm": "Deploying stack to IntelHub",
       "metadata": {},
       "blocks": [],
       "blockedBy": [],
       "createdAt": 1788931781832,
-      "updatedAt": 1788931781832
+      "updatedAt": 1788932637645
     },
     {
       "id": "8",
