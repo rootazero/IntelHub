@@ -41,6 +41,12 @@ services:
     environment:
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
       MAX_CONCURRENT_PAGES: "2"
+      # Upstream SSRF check resolves the target and blocks reserved ranges.
+      # Our egress DNS answers with fake-ips (198.18.0.0/15, transparent proxy),
+      # so EVERY public domain looks "reserved" and gets blocked. Destination
+      # policy lives at the OPNsense egress layer (directive §16); the hub
+      # validates scheme before forwarding. Port is LAN-bound regardless.
+      CRAWL4AI_ALLOW_INTERNAL_URLS: "true"
     shm_size: 1g
     networks: [sensor-net, egress-net]
     ports:

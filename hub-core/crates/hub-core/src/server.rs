@@ -28,10 +28,15 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
     }
 
     let mcp_state = state.clone();
+    let mcp_config = StreamableHttpServerConfig::default()
+        .with_cancellation_token(ct.child_token())
+        // DNS-rebinding protection: allow our LAN address/hostname (default
+        // allowlist is localhost-only, which 403s LAN clients).
+        .with_allowed_hosts(state.config.mcp_allowed_hosts.clone());
     let mcp_service = StreamableHttpService::new(
         move || Ok(crate::mcp::HubMcp::new(mcp_state.clone())),
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
+        mcp_config,
     );
 
     let app = crate::api::router()

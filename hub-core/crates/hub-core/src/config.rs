@@ -22,6 +22,7 @@ pub struct Config {
     pub raw_dir: String,
     pub rate_limit_rpm: u32,
     pub simhash_max_hamming: u32,
+    pub mcp_allowed_hosts: Vec<String>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -62,6 +63,14 @@ impl Config {
             raw_dir: env_or("HUB_RAW_DIR", "/home/zou/IntelHub/data/raw"),
             rate_limit_rpm: env_or("HUB_RATE_LIMIT_RPM", "120").parse().unwrap_or(120),
             simhash_max_hamming: env_or("SIMHASH_MAX_HAMMING", "3").parse().unwrap_or(3),
+            mcp_allowed_hosts: env_or(
+                "HUB_MCP_ALLOWED_HOSTS",
+                "10.10.10.41,10.10.10.41:8800,localhost,127.0.0.1,::1,intel.local",
+            )
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         }
     }
 }
