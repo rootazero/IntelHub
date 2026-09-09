@@ -89,6 +89,31 @@ pub async fn overview(state: &AppState) -> Result<Value> {
         }));
     }
 
+    // SP4 §26: crucix signal layer status + fresh geo event count.
+    let (geo_24h,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM geo_events WHERE ingested_at > now() - interval '24 hours'",
+    )
+    .fetch_one(&state.pg)
+    .await?;
+    let crucix_health = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        state.http.get(format!("{}/api/health", state.config.crucix_url)).send(),
+    )
+    .await;
+    let crucix_meta: Value = match crucix_health {
+        Ok(Ok(r)) => match r.json::<Value>().await {
+            Ok(j) => json!({
+                "up": true,
+                "sources_ok": j.get("sourcesOk").cloned().unwrap_or(Value::Null),
+                "sources_failed": j.get("sourcesFailed").cloned().unwrap_or(Value::Null),
+                "last_sweep": j.get("lastSweep").cloned().unwrap_or(Value::Null),
+                "next_sweep": j.get("nextSweep").cloned().unwrap_or(Value::Null),
+            }),
+            Err(_) => json!({ "up": false }),
+        },
+        _ => json!({ "up": false }),
+    };
+
     Ok(json!({
         "ts": chrono::Utc::now(),
         "health": health,
@@ -102,6 +127,7 @@ pub async fn overview(state: &AppState) -> Result<Value> {
             "embedding_tokens_today": embed_tokens,
             "est_cost_usd": (embed_tokens * 0.02 / 1_000_000.0 * 10000.0).round() / 10000.0,
         },
+        "radar": { "geo_events_24h": geo_24h, "crucix": crucix_meta },
     }))
 }
 
@@ -556,5 +582,119 @@ pub async fn investigation_workspace(state: &AppState, id: Uuid) -> Result<Value
         "tasks": tasks,
         "alerts": alerts,
         "audit": audit,
+    }))
+}
+
+// ---------- SP4: radar + metrics (§26, §52) ----------
+
+/// Radar events for the console map. All filters optional; ISO-8601 strings
+/// for from/to. Bounded result set (limit capped at 2000 by the handler).
+pub async fn radar_events(
+    state: &AppState,
+    from: Option<&str>,
+    to: Option<&str>,
+    severity: Option<&str>,
+    source: Option<&str>,
+    kind: Option<&str>,
+    limit: i64,
+) -> Result<Value> {
+    let from_ts = from
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
+    let to_ts = to
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .unwrap_or_else(chrono::Utc::now);
+
+    let mut sql = String::from(
+        "SELECT event_id, source, kind, title, lat, lon, severity, occurred_at, payload
+         FROM geo_events
+         WHERE lat IS NOT NULL AND occurred_at BETWEEN $1 AND $2",
+    );
+    let mut n = 2;
+    let mut text_binds: Vec<(&str, String)> = Vec::new();
+    for (clause, val) in [
+        ("severity", severity),
+        ("source", source),
+        ("kind", kind),
+    ] {
+        if let Some(v) = val {
+            n += 1;
+            sql.push_str(&format!(" AND {clause} = ${n}"));
+            text_binds.push((clause, v.to_string()));
+        }
+    }
+    sql.push_str(" ORDER BY occurred_at DESC");
+    n += 1;
+    sql.push_str(&format!(" LIMIT ${n}"));
+
+    let mut q = sqlx::query_as::<
+        _,
+        (Uuid, String, String, String, Option<f64>, Option<f64>, String, chrono::DateTime<chrono::Utc>, Value),
+    >(&sql)
+    .bind(from_ts)
+    .bind(to_ts);
+    for (_, v) in &text_binds {
+        q = q.bind(v);
+    }
+    q = q.bind(limit);
+
+    let rows = q.fetch_all(&state.pg).await?;
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(event_id, source, kind, title, lat, lon, severity, occurred_at, payload)| {
+            json!({
+                "event_id": event_id, "source": source, "kind": kind, "title": title,
+                "lat": lat, "lon": lon, "severity": severity,
+                "occurred_at": occurred_at, "payload": payload,
+            })
+        })
+        .collect();
+    Ok(json!({ "items": items, "count": items.len(), "from": from_ts, "to": to_ts }))
+}
+
+/// §52 metrics summary aggregated from Prometheus instant queries.
+/// Graceful degradation: `{"telemetry": "unavailable"}` when Prometheus is down.
+pub async fn metrics_summary(state: &AppState) -> Result<Value> {
+    let base = &state.config.prometheus_url;
+    async fn prom(state: &AppState, base: &str, q: &str) -> Option<f64> {
+        let url = format!("{base}/api/v1/query?query={q}");
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            state.http.get(&url).send(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        let j: Value = r.json().await.ok()?;
+        j.pointer("/data/result/0/value/1")?
+            .as_str()?
+            .parse::<f64>()
+            .ok()
+    }
+    // All five instant queries concurrently — sequential 4s timeouts would
+    // stack to 20s when Prometheus is down (§72: bounded degradation).
+    let (cpu, ram, disk, net_rx, net_tx) = tokio::join!(
+        prom(state, base, "100%20-%20(avg(rate(node_cpu_seconds_total%7Bmode%3D%22idle%22%7D%5B5m%5D))%20*%20100)"),
+        prom(state, base, "(1%20-%20(node_memory_MemAvailable_bytes%20%2F%20node_memory_MemTotal_bytes))%20*%20100"),
+        prom(state, base, "(1%20-%20(node_filesystem_avail_bytes%7Bmountpoint%3D%22%2F%22%2Cfstype!%3D%22tmpfs%22%7D%20%2F%20node_filesystem_size_bytes%7Bmountpoint%3D%22%2F%22%2Cfstype!%3D%22tmpfs%22%7D))%20*%20100"),
+        prom(state, base, "sum(rate(node_network_receive_bytes_total%7Bdevice!~%22lo%7Cveth.*%7Cbr-.*%7Cdocker.*%22%7D%5B5m%5D))"),
+        prom(state, base, "sum(rate(node_network_transmit_bytes_total%7Bdevice!~%22lo%7Cveth.*%7Cbr-.*%7Cdocker.*%22%7D%5B5m%5D))"),
+    );
+
+    if cpu.is_none() && ram.is_none() {
+        return Ok(json!({ "telemetry": "unavailable" }));
+    }
+    Ok(json!({
+        "telemetry": "ok",
+        "ts": chrono::Utc::now(),
+        "host": {
+            "cpu_pct": cpu.map(|v| (v * 10.0).round() / 10.0),
+            "ram_pct": ram.map(|v| (v * 10.0).round() / 10.0),
+            "disk_pct": disk.map(|v| (v * 10.0).round() / 10.0),
+            "net_rx_bps": net_rx.map(|v| v.round()),
+            "net_tx_bps": net_tx.map(|v| v.round()),
+        },
     }))
 }

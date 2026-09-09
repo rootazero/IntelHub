@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
 import Overview from "./pages/Overview";
+import Radar from "./pages/Radar";
 import Investigations from "./pages/Investigations";
 import InvestigationWorkspace from "./pages/InvestigationWorkspace";
 import SearchPage from "./pages/SearchPage";
@@ -15,6 +16,7 @@ import System from "./pages/System";
 
 const NAV = [
   ["/", "Overview"],
+  ["/radar", "Radar"],
   ["/investigations", "Investigations"],
   ["/search", "Search"],
   ["/evidence", "Evidence"],
@@ -97,6 +99,7 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/radar" element={<Radar />} />
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationWorkspace />} />
           <Route path="/search" element={<SearchPage />} />

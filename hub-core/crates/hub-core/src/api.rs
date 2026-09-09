@@ -50,6 +50,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/audit", get(console_audit))
         .route("/api/v1/tasks", get(console_tasks))
         .route("/api/v1/investigations/{id}/workspace", get(console_workspace))
+        // SP4
+        .route("/api/v1/radar/events", get(console_radar_events))
+        .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP3 static console (public shell; every data call still needs a key)
         .fallback(serve_static)
 }
@@ -128,6 +131,22 @@ pub async fn system_health(state: &AppState) -> Value {
     })
     .await;
 
+    // SP4 components (§68): crucix signal layer + observability stack.
+    let crucix = probe(|| async {
+        let url = format!("{}/api/health", state.config.crucix_url);
+        matches!(state.http.get(&url).send().await, Ok(r) if r.status().is_success())
+    })
+    .await;
+    let prometheus = probe(|| async {
+        let url = format!("{}/-/healthy", state.config.prometheus_url);
+        matches!(state.http.get(&url).send().await, Ok(r) if r.status().is_success())
+    })
+    .await;
+    let grafana = probe(|| async {
+        matches!(state.http.get("http://172.30.3.22:3000/api/health").send().await, Ok(r) if r.status().is_success())
+    })
+    .await;
+
     let containers = docker_containers().await;
 
     json!({
@@ -141,6 +160,9 @@ pub async fn system_health(state: &AppState) -> Value {
             "qdrant": qdrant,
             "searxng": searxng,
             "crawl4ai": crawl4ai,
+            "crucix": crucix,
+            "prometheus": prometheus,
+            "grafana": grafana,
         },
         "containers": containers,
     })
@@ -543,6 +565,42 @@ async fn console_workspace(
         .await
         .map(Json)
         .map_err(hub_err)
+}
+
+// ---------- SP4: radar + metrics ----------
+
+#[derive(Debug, Deserialize)]
+struct RadarParams {
+    from: Option<String>,
+    to: Option<String>,
+    severity: Option<String>,
+    source: Option<String>,
+    kind: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn console_radar_events(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<RadarParams>,
+) -> Result<Json<Value>, Response> {
+    crate::console::radar_events(
+        &state,
+        p.from.as_deref(),
+        p.to.as_deref(),
+        p.severity.as_deref(),
+        p.source.as_deref(),
+        p.kind.as_deref(),
+        p.limit.unwrap_or(500).min(2000),
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
+}
+
+async fn console_metrics_summary(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, Response> {
+    crate::console::metrics_summary(&state).await.map(Json).map_err(hub_err)
 }
 
 // ---------- SP3: static console serving (public shell, SPA fallback) ----------

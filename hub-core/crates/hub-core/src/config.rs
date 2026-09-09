@@ -40,6 +40,11 @@ pub struct Config {
     pub embed_enabled: bool,
     /// SP3: directory holding the built console SPA (index.html + assets).
     pub console_dir: String,
+    // ── SP4 ────────────────────────────────────────────────────────
+    /// Crucix base URL (mgmt-net static IP).
+    pub crucix_url: String,
+    /// Prometheus base URL for §52 metrics aggregation.
+    pub prometheus_url: String,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -101,6 +106,8 @@ impl Config {
             embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "300").parse().unwrap_or(300),
             embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
+            crucix_url: env_or("HUB_CRUCIX_URL", "http://172.30.3.21:3117"),
+            prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),
         }
     }
 }

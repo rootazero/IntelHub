@@ -1,0 +1,19 @@
+name: node-exporter
+type: observability/host-telemetry
+tier: 2
+deployment: docker
+image: prom/node-exporter
+version: v1.12.1
+digest: RECORDED_AFTER_PULL
+channel: "semver releases"
+volumes: []
+networks: [mgmt-net]
+resources: { memory: 128m, cpus: 0.2 }
+healthcheck: "GET /metrics"
+backup: "stateless"
+upgrade: "scripts/upgrade.sh node-exporter <new-version>"
+rollback: "scripts/rollback.sh node-exporter"
+native_ui: "internal only (172.30.1.23:9100)"
+notes: "Host /proc /sys read-only via /host mount; pid: host."
+production_version: v1.12.1
+last_known_good: v1.12.1

@@ -17,6 +17,10 @@ interface OverviewData {
   graph: { entities: number; relationships: number; changes_today: number };
   memory: { embedded_docs: number; chunks: number };
   cloud: { embedding_tokens_today: number; est_cost_usd: number };
+  radar?: {
+    geo_events_24h: number;
+    crucix: { up: boolean; sources_ok?: number | null; sources_failed?: number | null; last_sweep?: string | null };
+  };
 }
 
 export default function Overview() {
@@ -94,10 +98,29 @@ export default function Overview() {
           )}
         </Panel>
 
-        <Panel title="Global Intelligence Radar" className="min-h-32">
-          <div className="flex h-full flex-col items-center justify-center text-center">
-            <div className="text-dim text-xs">地理情报雷达</div>
-            <div className="mt-1 text-[10px] text-dim">activates with Crucix collectors — SP4</div>
+        <Panel title="Global Intelligence Radar" className="min-h-32" right={<Link to="/radar" className="text-[10px] text-accent">map →</Link>}>
+          <div className="flex h-full flex-col justify-center gap-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-bold mono">{data.radar?.geo_events_24h ?? 0}</span>
+              <span className="text-[10px] uppercase tracking-wider text-dim">geo events / 24h</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <StatusDot up={data.radar?.crucix.up ?? false} />
+              <span className="text-dim">Crucix</span>
+              {data.radar?.crucix.up && (
+                <span className="mono text-[10px] text-dim">
+                  {data.radar.crucix.sources_ok ?? "?"} sources ok
+                  {(data.radar.crucix.sources_failed ?? 0) > 0 && (
+                    <span className="text-amber-400"> · {data.radar.crucix.sources_failed} failed</span>
+                  )}
+                </span>
+              )}
+            </div>
+            {data.radar?.crucix.last_sweep && (
+              <div className="text-[10px] text-dim">
+                last sweep <TimeAgo ts={data.radar.crucix.last_sweep} />
+              </div>
+            )}
           </div>
         </Panel>
       </div>

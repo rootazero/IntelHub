@@ -1,4 +1,147 @@
-# compose.ui.yml — reserved for SP3/SP4 (grafana, unified console).
-# Intentionally empty of services in Sub-project 1.
+# compose.ui.yml — SP4: Crucix signal layer + observability stack (spec SP4 §3)
+# crucix: source-built image pinned by git SHA (upstream has no release tags).
+# prometheus/node-exporter/cadvisor/grafana: pinned upstream images.
 
-services: {}
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-security: &security
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  crucix:
+    image: ${CRUCIX_IMAGE}
+    container_name: intelhub-crucix
+    <<: [*restart-policy, *security]
+    env_file:
+      - .env.crucix
+    environment:
+      PORT: "3117"
+      REFRESH_INTERVAL_MINUTES: "15"
+    volumes:
+      - crucixruns:/app/runs
+    networks:
+      mgmt-net:
+        ipv4_address: 172.30.3.21
+      egress-net: {}
+    ports:
+      - "${LAN_IP}:3117:3117"
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3117/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: intelhub-prometheus
+    <<: [*restart-policy, *security]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ../config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    networks:
+      mgmt-net:
+        ipv4_address: 172.30.3.20
+    mem_limit: 1g
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"
+
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION}
+    container_name: intelhub-node-exporter
+    <<: [*restart-policy, *security]
+    pid: host
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      mgmt-net:
+        ipv4_address: 172.30.3.23
+    mem_limit: 128m
+    cpus: 0.2
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9100/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION}
+    container_name: intelhub-cadvisor
+    <<: [*restart-policy, *security]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg
+    networks:
+      mgmt-net:
+        ipv4_address: 172.30.3.24
+    mem_limit: 256m
+    cpus: 0.3
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: intelhub-grafana
+    <<: [*restart-policy, *security]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      mgmt-net:
+        ipv4_address: 172.30.3.22
+    ports:
+      - "${LAN_IP}:3001:3000"
+    mem_limit: 512m
+    cpus: 0.5
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      options:
+        max-size: 5m
+        max-file: "2"

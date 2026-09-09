@@ -1,0 +1,19 @@
+name: grafana
+type: observability/dashboards
+tier: 2
+deployment: docker
+image: grafana/grafana
+version: "13.2.1"
+digest: RECORDED_AFTER_PULL
+channel: "semver releases"
+volumes: [grafanadata, config/grafana]
+networks: [mgmt-net]
+resources: { memory: 512m, cpus: 0.5 }
+healthcheck: "GET /api/health"
+backup: "grafanadata volume tar + config/grafana via scripts/backup.sh"
+upgrade: "scripts/upgrade.sh grafana <new-version>"
+rollback: "scripts/rollback.sh grafana"
+native_ui: "http://10.10.10.41:3001 (LAN-only, admin password in compose/.env)"
+notes: "§52 professional observability UI. Provisioned Prometheus datasource + IntelHub Overview dashboard. Linked, never iframed (§24)."
+production_version: "13.2.1"
+last_known_good: "13.2.1"

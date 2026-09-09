@@ -77,6 +77,12 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         let t = ct.child_token();
         tokio::spawn(async move { crate::components::run_update_watcher(s, t).await });
     }
+    {
+        // SP4: Crucix macro-signal ingestion → geo_events (§26/§51).
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::crucix::run_crucix_sync(s, t).await });
+    }
 
     // Qdrant collection provisioning (idempotent; failure is non-fatal —
     // the embedding worker will surface outages as alerts).

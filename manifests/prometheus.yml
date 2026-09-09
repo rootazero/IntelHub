@@ -1,0 +1,19 @@
+name: prometheus
+type: observability/metrics
+tier: 2
+deployment: docker
+image: prom/prometheus
+version: v3.14.0
+digest: RECORDED_AFTER_PULL
+channel: "semver releases"
+volumes: [promdata]
+networks: [mgmt-net]
+resources: { memory: 1g, cpus: 0.5 }
+healthcheck: "GET /-/healthy"
+backup: "TSDB snapshot optional; config in config/prometheus/prometheus.yml"
+upgrade: "scripts/upgrade.sh prometheus <new-version>"
+rollback: "scripts/rollback.sh prometheus"
+native_ui: "internal only (172.30.1.20:9090)"
+notes: "§52 metrics substrate. Scrapes node-exporter, cAdvisor. 15d retention."
+production_version: v3.14.0
+last_known_good: v3.14.0

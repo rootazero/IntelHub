@@ -6,7 +6,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # settings changes are applied VM-side with sudo.
 rsync -az --delete \
   --exclude '.git/' --exclude 'backups/' --exclude '.DS_Store' \
-  --exclude 'compose/.env' --exclude 'docs/' --exclude 'build/' \
+  --exclude 'compose/.env' --exclude 'compose/.env.crucix' --exclude 'docs/' --exclude 'build/' \
   --exclude 'config/searxng/' --exclude 'hub-core/target/' \
   --exclude 'console/node_modules/' --exclude 'console/dist/' \
   --exclude 'core/' --exclude 'data/' \

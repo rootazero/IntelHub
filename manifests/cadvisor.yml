@@ -1,0 +1,19 @@
+name: cadvisor
+type: observability/container-telemetry
+tier: 2
+deployment: docker
+image: gcr.io/cadvisor/cadvisor
+version: v0.55.1
+digest: RECORDED_AFTER_PULL
+channel: "semver releases"
+volumes: []
+networks: [mgmt-net]
+resources: { memory: 256m, cpus: 0.3 }
+healthcheck: "GET /healthz"
+backup: "stateless"
+upgrade: "scripts/upgrade.sh cadvisor <new-version>"
+rollback: "scripts/rollback.sh cadvisor"
+native_ui: "internal only (172.30.1.24:8080)"
+notes: "Container resource metrics; docker state dirs mounted read-only."
+production_version: v0.55.1
+last_known_good: v0.55.1

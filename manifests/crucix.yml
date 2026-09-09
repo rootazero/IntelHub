@@ -1,0 +1,19 @@
+name: crucix
+type: application/macro-signal
+tier: 2
+deployment: docker
+image: crucix (source-built)
+version: sha-3db7068
+digest: RECORDED_AFTER_BUILD
+channel: "git-commit (upstream has no release tags)"
+volumes: [crucixruns]
+networks: [mgmt-net, egress-net]
+resources: { memory: 1g, cpus: 1.0 }
+healthcheck: "GET /api/health"
+backup: "runs/ volume tar via scripts/backup.sh"
+upgrade: "scripts/build-crucix.sh <new-sha> && up -d"
+rollback: "re-point CRUCIX_IMAGE to previous sha tag && up -d"
+native_ui: "http://10.10.10.41:3117 (LAN-only)"
+notes: "Macro Intelligence / Global Signal Layer (§51). Hub aggregates key events/alerts/geo — does not replicate. LLM layer patched to T8star relay at build time (CRUCIX_LLM_PATCH=1)."
+production_version: sha-3db7068
+last_known_good: sha-3db7068

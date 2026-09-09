@@ -1,0 +1,24 @@
+# prometheus.yml — SP4 observability (spec SP4 §3)
+# Scrape: node-exporter (host), cAdvisor (containers), prometheus itself.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    hub: intelhub
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["172.30.3.23:9100"]
+        labels:
+          instance: intelhub-vm
+
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["172.30.3.24:8080"]
+        labels:
+          instance: intelhub-vm

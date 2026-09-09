@@ -7,6 +7,7 @@ pub mod components;
 pub mod config;
 pub mod console;
 pub mod cost;
+pub mod crucix;
 pub mod embed;
 pub mod error;
 pub mod events;

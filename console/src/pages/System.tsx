@@ -23,15 +23,44 @@ interface Component {
   note?: string;
 }
 
+interface Metrics {
+  telemetry: string;
+  host?: {
+    cpu_pct?: number;
+    ram_pct?: number;
+    disk_pct?: number;
+    net_rx_bps?: number;
+    net_tx_bps?: number;
+  };
+}
+
+function fmtBps(v?: number): string {
+  if (v === undefined) return "—";
+  if (v > 1_048_576) return `${(v / 1_048_576).toFixed(1)} MB/s`;
+  if (v > 1024) return `${(v / 1024).toFixed(1)} KB/s`;
+  return `${v.toFixed(0)} B/s`;
+}
+
+function MetricStat({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div className={`rounded border px-2 py-1.5 ${warn ? "border-red-500/60" : "border-edge"}`}>
+      <div className="text-[10px] uppercase tracking-wider text-dim">{label}</div>
+      <div className={`mono text-lg font-semibold ${warn ? "text-red-400" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
 export default function System() {
   const [health, setHealth] = useState<Health | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [actionLog, setActionLog] = useState<string>("");
 
   const load = useCallback(() => {
     api<Health>("/api/v1/health").then(setHealth).catch(setError);
     api<{ items: Component[] }>("/api/v1/components").then((r) => setComponents(r.items ?? [])).catch(setError);
+    api<Metrics>("/api/v1/metrics/summary").then(setMetrics).catch(() => setMetrics(null));
   }, []);
   useEffect(() => {
     load();
@@ -74,6 +103,28 @@ export default function System() {
                 <div className="mt-0.5 mono text-[10px] text-dim">{c.status} · {c.latency_ms}ms</div>
               </div>
             ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel
+        title="Telemetry (§52 — via Prometheus)"
+        right={
+          <span className="flex gap-3 text-[10px]">
+            <a href="http://10.10.10.41:3001" target="_blank" rel="noreferrer" className="text-accent">grafana →</a>
+            <a href="http://10.10.10.41:3117" target="_blank" rel="noreferrer" className="text-accent">crucix →</a>
+          </span>
+        }
+      >
+        {!metrics || metrics.telemetry !== "ok" ? (
+          <div className="text-xs text-dim">telemetry unavailable (prometheus down?)</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+            <MetricStat label="CPU" value={`${metrics.host?.cpu_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.cpu_pct ?? 0) > 85} />
+            <MetricStat label="RAM" value={`${metrics.host?.ram_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.ram_pct ?? 0) > 85} />
+            <MetricStat label="Disk /" value={`${metrics.host?.disk_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.disk_pct ?? 0) > 85} />
+            <MetricStat label="Net RX" value={fmtBps(metrics.host?.net_rx_bps)} />
+            <MetricStat label="Net TX" value={fmtBps(metrics.host?.net_tx_bps)} />
           </div>
         )}
       </Panel>

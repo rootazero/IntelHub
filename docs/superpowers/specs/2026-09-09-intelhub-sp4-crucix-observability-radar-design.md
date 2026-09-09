@@ -97,3 +97,23 @@ hub-core crucix-sync worker ──► geo_events (PG) ──► GET /api/v1/rada
 - No sensor start/stop orchestration (SP3 decision stands).
 - No PostGIS (plain lat/lon doubles are sufficient at this scale).
 - No Prometheus alerting rules (hub alerts remain the single alert center, §54).
+
+---
+
+## Amendment 2026-09-09 — Deployment Record (as-built)
+
+Deployed and acceptance-tested 2026-09-09. **SP4 acceptance 25/25 + regressions SP2A 16/16, SP2B 32/32, SP3 19/19 — all green.**
+
+As-built facts:
+
+- **Crucix**: source-built image `crucix:sha-3db7068` (pinned commit, no upstream tags exist); LLM base-URL build patch to T8star relay verified live (`llmEnabled: true`, model gpt-4.1-mini); first sweep 26/29 sources OK (3 failures are the key-gated sources — FIRMS/ACLED/EIA per Q1=A; env slots ready in `compose/.env.crucix`).
+- **Observability**: prom/prometheus v3.14.0, prom/node-exporter v1.12.1, gcr.io/cadvisor/cadvisor v0.55.1, grafana/grafana 13.2.1 — all healthy; Prometheus targets 3/3 up; Grafana has provisioned Prometheus datasource + "IntelHub Overview" dashboard (uid intelhub-overview); native UI at http://10.10.10.41:3001 (admin password in VM compose/.env).
+- **Hub**: migration `0003_geo.sql` (geo_events); `crucix.rs` worker (60s poll → new sweep → normalize → idempotent upsert; FLASH/PRIORITY → hub alerts); `GET /api/v1/radar/events` (time/severity/source/kind filters, SQL-level time bounds); `GET /api/v1/metrics/summary` (5 concurrent Prometheus instant queries, 3s cap, graceful `telemetry:unavailable`); system_health += crucix/prometheus/grafana probes; overview += radar block.
+- **Console**: `/radar` page (Leaflet 1.9.4, CARTO dark tiles default → auto-fallback to bundled Natural Earth 110m countries GeoJSON 426KB on tileerror burst/5s timeout, TILES ONLINE/OFFLINE badge + manual retry, severity-colored markers, kind/severity/time filters, detail sidebar + 转为调查, SSE live refresh on `crucix_sweep_ingested`); Overview radar card live; System page §52 telemetry section + Grafana/Crucix native-UI links.
+
+Deviations/incidents (fixed, regression-covered):
+
+19. **mgmt-net subnet collision**: directive-style 172.30.1.0/24 was already auto-assigned to intelhub-egress by Docker in SP1 → mgmt-net pinned to **172.30.3.0/24** (data=.2, egress=.1, sensor=.0, mgmt=.3). Static IPs: prometheus .20, crucix .21, grafana .22, node-exporter .23, cadvisor .24.
+20. **Crucix /api/data serves the synthesized dashboard payload** (top-level sections: thermal, acled, chokepoints, news, …), NOT the raw `sources{}` briefing (that lives in runs/latest.json). Normalizer walks top-level sections with a skip-list.
+21. metrics/summary ran 5 sequential 3s-timeout Prometheus queries (up to 15s hang when Prometheus down) → parallelized with tokio::join! (bounded ≤3s).
+22. Acceptance scripts must query mgmt-net services VM-side (static IPs unreachable from Mac); Grafana is on 172.30.3.22:3000 internally, LAN 10.10.10.41:3001.
