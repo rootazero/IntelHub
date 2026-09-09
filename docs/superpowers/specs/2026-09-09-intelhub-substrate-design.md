@@ -49,8 +49,8 @@ Mac-side ssh config entry `Host IntelHub` (10.10.10.41, user zou, `~/.ssh/debian
 - journald: `Storage=persistent`
 - systemd-timesyncd enabled; unattended-upgrades security updates enabled
 - nftables: inet filter table
-  - input: default drop; accept lo, established/related, ICMP, tcp/22 from 10.10.10.0/24, tcp published-service ports (7474, 8080, 11235; 5001/3000 when optional profiles active) from 10.10.10.0/24
-  - `DOCKER-USER` chain jump: accept established/related; accept 10.10.10.0/24; drop all other forwarded traffic to published container ports
+  - input: default drop; accept lo, established/related, ICMP, tcp/22 from 10.10.10.0/24, tcp published-service ports (7474, 7687, 8080, 11235; 5001/3000 when optional profiles active) from 10.10.10.0/24
+  - forward: policy accept; `ct state new` to published container ports from non-LAN sources is dropped (inet-level, verdict final). **Deviation:** Docker 29's nftables-managed layout (FORWARD → DOCKER-FORWARD) no longer jumps to `DOCKER-USER`, so DOCKER-USER rules would be inert — the guard lives in our own inet forward chain instead
   - rules persisted via `/etc/nftables.conf`, enabled at boot
 - Directory init: `/home/zou/IntelHub/{compose,manifests,config,scripts,backups}` (user-mandated path, overrides directive's /opt/intelligence-hub)
 

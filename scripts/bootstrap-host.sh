@@ -32,19 +32,17 @@ table inet filter {
     ip6 nexthdr icmpv6 accept
     ip saddr ${LAN} tcp dport { 22, 7474, 7687, 8080, 11235, 5001, 3000 } accept
   }
+  chain forward {
+    type filter hook forward priority 0; policy accept;
+    # Docker 29's nftables-managed layout no longer jumps to DOCKER-USER,
+    # so container-port gating lives here instead: new inbound connections
+    # to published container ports are LAN-only. A drop here is final
+    # across all forward-hook base chains; policy stays accept so Docker's
+    # own ip/filter chains keep working untouched.
+    ct state new ip daddr 172.30.0.0/16 tcp dport { 7474, 7687, 8080, 11235, 5001, 3000 } ip saddr != ${LAN} counter drop
+  }
   chain output {
     type filter hook output priority 0; policy accept;
-  }
-  # NOTE: no inet forward chain here on purpose.
-  # Docker owns ip/FORWARD (policy DROP + its own rules); an inet-level
-  # forward chain would shadow and break container NAT.
-}
-
-table ip filter {
-  chain DOCKER-USER {
-    ct state established,related accept
-    ip saddr ${LAN} accept
-    counter drop
   }
 }
 NFT
