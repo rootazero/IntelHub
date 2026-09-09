@@ -65,7 +65,6 @@ services:
     <<: [*restart-policy, *security]
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}  # for healthcheck
       NEO4J_server_memory_heap_max__size: 1200m
       NEO4J_server_memory_pagecache_size: 512m
       NEO4J_PLUGINS: '["apoc"]'
@@ -81,7 +80,10 @@ services:
     mem_limit: 2g
     cpus: 1.5
     healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p \"$${NEO4J_PASSWORD}\" 'RETURN 1' >/dev/null 2>&1"]
+      # NOTE: password is compose-interpolated into the healthcheck below.
+      # Do NOT add NEO4J_PASSWORD as an env var — neo4j parses every NEO4J_*
+      # var as a config setting and strict validation fails on unknown keys.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p '${NEO4J_PASSWORD}' 'RETURN 1' >/dev/null 2>&1"]
       interval: 15s
       timeout: 10s
       retries: 8

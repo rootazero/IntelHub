@@ -84,4 +84,8 @@ chmod 600 "$ENV_FILE"
 sed "s/@HUGINN_DB_PASSWORD@/$(grep '^HUGINN_DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2)/" \
   "$HUB_DIR/config/postgres/init/01-huginn.sql.tmpl" > "$HUB_DIR/config/postgres/init/01-huginn.sql"
 
-echo "==> done. .env written (0600), huginn init sql rendered."
+# SearXNG refuses the default "ultrasecretkey" — inject a real random secret
+sed -i "s/secret_key: \"ultrasecretkey\"/secret_key: \"$(rand)\"/" \
+  "$HUB_DIR/config/searxng/settings.yml"
+
+echo "==> done. .env written (0600), huginn init sql rendered, searxng secret injected."
