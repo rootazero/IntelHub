@@ -1,3 +1,4 @@
 .env
 backups/
 .DS_Store
+.pi/
