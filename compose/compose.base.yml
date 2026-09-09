@@ -18,6 +18,9 @@ networks:
     name: intelhub-data
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.30.2.0/24   # pinned: services get static IPs (Docker 29 does not program port bindings for internal-network-only containers)
   sensor-net:
     name: intelhub-sensor
     driver: bridge
