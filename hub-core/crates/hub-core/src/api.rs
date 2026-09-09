@@ -181,7 +181,7 @@ async fn create_investigation(
     Extension(agent): Extension<AgentIdentity>,
     Json(body): Json<CreateInvestigationBody>,
 ) -> Result<Json<Value>, Response> {
-    crate::store::create_investigation(
+    let id = crate::store::create_investigation(
         &state.pg,
         &body.title,
         body.question.as_deref(),
@@ -190,8 +190,19 @@ async fn create_investigation(
         &format!("agent:{}", agent.name),
     )
     .await
-    .map(|id| Json(json!({ "investigation_id": id })))
-    .map_err(hub_err)
+    .map_err(hub_err)?;
+    // REST and MCP must behave identically — publish the same event.
+    crate::events::publish(
+        &state,
+        crate::types::BusEvent::new(
+            "TASK_CREATED",
+            &format!("agent:{}", agent.name),
+            json!({ "investigation_id": id, "title": body.title }),
+        )
+        .with_investigation(id),
+    )
+    .await;
+    Ok(Json(json!({ "investigation_id": id })))
 }
 
 async fn get_investigation(

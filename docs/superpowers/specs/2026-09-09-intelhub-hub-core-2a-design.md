@@ -109,3 +109,25 @@ Redis Stream `hub.events`; envelope: event_id, type, ts, actor, investigation_id
 6. Seeded Neo4j data: `query_entity` / `find_path` correct; Cypher-injection attempt rejected + audited
 7. Qdrant collection exists with dim 1536
 8. Failure drill: neo4j stopped → graph tools error cleanly, search still works; qdrant stopped → no evidence loss
+
+---
+
+## Amendment 2026-09-09 — Deployment Record (as-built)
+
+Deployed and acceptance-tested 2026-09-09. **16/16 acceptance checks + failure drills pass.**
+
+As-built facts:
+
+- `hub` binary: 13 MB glibc release build (rust:trixie container == host glibc), systemd `hub-core.service` (hardened: NoNewPrivileges, ProtectSystem=strict, MemoryMax=1G, Restart=always), listening `10.10.10.41:8800`
+- Dependencies pinned in committed `Cargo.lock`: rmcp 3.2.0, axum 0.8.9, sqlx 0.8.6, neo4rs 0.8.0, redis 0.27.6, reqwest 0.12.28
+- Agents provisioned (`hub create-agent`): codex / claude-code / aleph; plaintext keys only in VM `/home/zou/IntelHub/core/agent-keys.txt` (0600); DB stores SHA-256 hashes
+- Qdrant collection created at startup: `evidence__text-embedding-3-small__1536` (Cosine) — naming uses model id without provider prefix (deviation from spec text, harmless)
+- Verified: 17 tools over Streamable HTTP; crawl→dedupe→evidence-bound finding chain; per-call attribution (agent_id+trace_id in tool_calls); SSE live events; neo4j down → clean `graph_unavailable` + search unaffected + auto-recover; qdrant down → zero evidence loss
+
+Deviations discovered during implementation (all documented in code):
+
+5. **rmcp DNS-rebinding protection** defaults to localhost-only Host allowlist → LAN clients got 403. Fixed via `with_allowed_hosts` (env `HUB_MCP_ALLOWED_HOSTS`).
+6. **Crawl4AI 0.9.3 built-in SSRF check is incompatible with our egress DNS**: the network resolves all domains to fake-ips (198.18.0.0/15, transparent proxy), which the SSRF blocklist treats as reserved — every public URL was blocked. Set `CRAWL4AI_ALLOW_INTERNAL_URLS=true`; destination policy enforcement lives at the OPNsense egress layer per directive §16 (that's its designed role), hub still validates scheme. Port stays LAN-bound.
+7. Config is env-based (systemd EnvironmentFile), not a TOML file — simpler and matches the single-binary/systemd model.
+8. REST `create_investigation` now publishes the same bus event as the MCP tool (parity fix found by SSE acceptance probe).
+9. Neo4j Browser is NOT LAN-published (Docker 29 does not program port bindings for internal-network-only containers — same finding as SP1 amendment); diagnostics via `ssh -L 7474:172.30.2.12:7474 IntelHub`.

@@ -1,0 +1,24 @@
+name: hub-core
+type: native-core
+tier: 0
+deployment: native (systemd, single binary)
+image: n/a — built from source (hub-core/ workspace, Cargo.lock pinned)
+version: 0.1.0
+digest: Cargo.lock + git commit
+channel: "workspace HEAD"
+volumes: [data/raw (evidence raw captures)]
+networks: [host — reaches data-net via static IPs 172.30.2.10-13]
+resources: { memory: 1G (MemoryMax), cpus: shared }
+healthcheck: "GET /healthz on 10.10.10.41:8800"
+backup: "postgres dumpall covers all hub state; raw captures under data/raw (hash-addressed, re-crawlable)"
+upgrade: "edit source → scripts/build-hub.sh → systemctl restart hub-core"
+rollback: "git checkout previous commit → rebuild → restart"
+native_ui: null  # SP3 console
+endpoints:
+  mcp: "POST http://10.10.10.41:8800/mcp (Streamable HTTP, bearer per-agent key)"
+  api: "http://10.10.10.41:8800/api/v1/* (bearer)"
+  sse: "GET /api/v1/events"
+  health: "GET /healthz"
+notes: "The trusted capability boundary (directive §2). Agents: codex/claude-code/aleph provisioned; keys in VM core/agent-keys.txt (0600)."
+production_version: 0.1.0
+last_known_good: 0.1.0
