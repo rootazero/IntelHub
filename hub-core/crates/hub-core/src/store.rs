@@ -370,13 +370,14 @@ pub async fn recent_simhashes(pg: &PgPool, window: i64) -> Result<Vec<(Uuid, i64
         .collect())
 }
 
-pub async fn enqueue_embedding_job(pg: &PgPool, document_id: Uuid, model: &str) -> Result<()> {
+pub async fn enqueue_embedding_job(pg: &PgPool, document_id: Uuid, model: &str, force: bool) -> Result<()> {
     sqlx::query(
-        "INSERT INTO embedding_jobs (job_id, document_id, status, model) VALUES ($1, $2, 'PENDING', $3)",
+        "INSERT INTO embedding_jobs (job_id, document_id, status, model, force) VALUES ($1, $2, 'PENDING', $3, $4)",
     )
     .bind(Uuid::new_v4())
     .bind(document_id)
     .bind(model)
+    .bind(force)
     .execute(pg)
     .await?;
     Ok(())

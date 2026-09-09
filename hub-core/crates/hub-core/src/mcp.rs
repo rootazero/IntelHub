@@ -36,6 +36,7 @@ fn agent_of(ctx: &RequestContext<RoleServer>) -> AgentIdentity {
             agent_id: Uuid::nil(),
             name: "unknown".to_string(),
             key_id: Uuid::nil(),
+            admin: false,
         })
 }
 
@@ -66,6 +67,10 @@ fn map_err(e: crate::error::HubError) -> McpError {
         BadRequest(m) => McpError::invalid_params(m, None),
         NotFound(m) => McpError::invalid_params(format!("not_found: {m}"), None),
         GraphUnavailable(m) => McpError::internal_error(format!("graph_unavailable: {m}"), None),
+        PolicyDenied(m) => McpError::internal_error(format!("policy_denied: {m}"), None),
+        BudgetDenied { state, reason } => {
+            McpError::internal_error(format!("budget_denied ({state}): {reason}"), None)
+        }
         other => McpError::internal_error(other.to_string(), None),
     }
 }
@@ -98,6 +103,8 @@ pub struct CrawlUrlArgs {
     pub url: String,
     /// Optional investigation UUID to attach the crawl task to
     pub investigation_id: Option<String>,
+    /// Embedding decision (§40): "auto" (default, decision rules) | "force" | "skip"
+    pub embed: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -208,6 +215,75 @@ pub struct TaskIdArgs {
     pub task_id: String,
 }
 
+// ---------- SP2B argument structs ----------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateEntityArgs {
+    /// person|org|domain|ip|location|event|infrastructure|software|handle|email|phone|crypto_wallet
+    pub kind: String,
+    /// Entity name (normalized)
+    pub name: String,
+    /// Optional aliases (max 10)
+    pub aliases: Option<Vec<String>>,
+    /// Optional attributes (allowlist: description,url,country,confidence,severity,first_seen,last_seen,tags,source)
+    pub attributes: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ClaimEntityRefArgs {
+    pub kind: String,
+    pub name: String,
+    /// subject|object|mentioned (default mentioned)
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateClaimArgs {
+    /// Claim text (8–4000 chars)
+    pub text: String,
+    /// Entities the claim is about (created if missing)
+    pub entities: Option<Vec<ClaimEntityRefArgs>>,
+    /// §43: at least one evidence document UUID is REQUIRED
+    pub evidence_document_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateRelationshipArgs {
+    pub from_kind: String,
+    pub from_name: String,
+    pub to_kind: String,
+    pub to_name: String,
+    /// controls|owns|communicates_with|resolves_to|located_in|affiliated_with|uses|hosts|registered_by|related_to
+    pub rel_type: String,
+    pub attributes: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListAlertsArgs {
+    /// open|ack|muted (omit for all)
+    pub status: Option<String>,
+    /// osint|agent|sensor|infra|budget|security
+    pub source: Option<String>,
+    /// info|warning|critical
+    pub severity: Option<String>,
+    /// Max results (default 50, max 200)
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AlertIdArgs {
+    /// Alert UUID
+    pub alert_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ComponentActionArgs {
+    /// postgres|redis|neo4j|qdrant|searxng|crawl4ai|spiderfoot|huginn
+    pub component: String,
+    /// upgrade|rollback|backup
+    pub action: String,
+}
+
 // ---------- tool implementations ----------
 
 #[tool_router]
@@ -244,6 +320,32 @@ impl HubMcp {
         {
             tracing::warn!(error = %e, "tool_call record failed");
         }
+        // SP2B §59: every tool call is metered into the gas model.
+        if let Some(aid) = agent_id {
+            let _ = crate::cost::record_cost(
+                &self.state,
+                Some(aid),
+                None,
+                "tool_call",
+                1.0,
+                "call",
+                serde_json::json!({ "tool": tool, "status": status }),
+            )
+            .await;
+        }
+    }
+
+    /// SP2B governance gate — the single enforcement point. Every tool passes
+    /// through policy (§61 levels) + budget (§60 states) before executing.
+    async fn gate(
+        &self,
+        ctx: &RequestContext<RoleServer>,
+        tool: &str,
+    ) -> Result<crate::cost::BudgetState, McpError> {
+        let agent = agent_of(ctx);
+        crate::policy::preflight(&self.state, &agent, tool)
+            .await
+            .map_err(map_err)
     }
 
     #[tool(description = "Search the web via the SearXNG federated sensor. Returns normalized results (url/title/snippet/engine).")]
@@ -253,7 +355,12 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
-        let limit = args.limit.unwrap_or(10).min(25);
+        let bs = self.gate(&ctx, "search_web").await?;
+        let mut limit = args.limit.unwrap_or(10).min(25);
+        // §60 YELLOW: reduce exploration breadth.
+        if bs.state >= crate::cost::State::Yellow {
+            limit = (limit / 2).max(3);
+        }
         let result = crate::sensors::search_web(&self.state, &args.query, limit).await;
         let out = match result {
             Ok(items) => ok_text(json!({ "query": args.query, "count": items.len(), "results": items })),
@@ -270,9 +377,21 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "crawl_url").await?;
         let agent = agent_of(&ctx);
         let investigation_id = parse_uuid_opt(&args.investigation_id, "investigation_id")?;
-        let result = self.crawl_and_ingest(&agent, &args.url, investigation_id).await;
+        let embed_mode = match args.embed.as_deref() {
+            None | Some("auto") => "auto",
+            Some("force") => "force",
+            Some("skip") => "skip",
+            Some(other) => {
+                return Err(McpError::invalid_params(
+                    format!("embed must be auto|force|skip, got '{other}'"),
+                    None,
+                ))
+            }
+        };
+        let result = self.crawl_and_ingest(&agent, &args.url, investigation_id, embed_mode).await;
         let out = match result {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
@@ -286,6 +405,7 @@ impl HubMcp {
         agent: &AgentIdentity,
         url: &str,
         investigation_id: Option<Uuid>,
+        embed_mode: &str,
     ) -> crate::error::Result<serde_json::Value> {
         let parsed = url::Url::parse(url)
             .map_err(|_| crate::error::HubError::bad_request("invalid URL"))?;
@@ -318,8 +438,24 @@ impl HubMcp {
             page.metadata.clone(),
             json!({ "sensor": "crawl4ai", "agent": agent.name, "task_id": task_id }),
             Some(task_id),
+            embed_mode,
         )
         .await?;
+
+        // §59: meter the actual crawl (dedupe hits cost no sensor work).
+        if !outcome.duplicate {
+            let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
+            let _ = crate::cost::record_cost(
+                &self.state,
+                agent_id,
+                Some(task_id),
+                "crawl_page",
+                1.0,
+                "page",
+                json!({ "url": url }),
+            )
+            .await;
+        }
 
         crate::store::finish_task(
             &self.state.pg,
@@ -352,6 +488,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "fetch_document").await?;
         let canonical = crate::ingest::canonicalize_url(&args.url);
         let existing: Option<Uuid> = sqlx::query_scalar(
             "SELECT document_id FROM documents WHERE url_canonical = $1 ORDER BY retrieved_at DESC LIMIT 1",
@@ -365,7 +502,7 @@ impl HubMcp {
             ok_text(json!({ "source": "store", "document": doc }))
         } else {
             let agent = agent_of(&ctx);
-            match self.crawl_and_ingest(&agent, &args.url, None).await {
+            match self.crawl_and_ingest(&agent, &args.url, None, "auto").await {
                 Ok(v) => {
                     let doc = crate::store::get_document(
                         &self.state.pg,
@@ -390,6 +527,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "get_evidence").await?;
         let doc_id = parse_uuid(&args.document_id, "document_id")?;
         let out = match self.get_evidence_inner(doc_id).await {
             Ok(v) => ok_text(v),
@@ -433,6 +571,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "get_document").await?;
         let doc_id = parse_uuid(&args.document_id, "document_id")?;
         let out = match crate::store::get_document(&self.state.pg, doc_id).await {
             Ok(v) => ok_text(v),
@@ -449,6 +588,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "keyword_search").await?;
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
         let out = match crate::store::keyword_search(&self.state.pg, &args.query, limit).await {
             Ok(v) => ok_text(v),
@@ -458,53 +598,161 @@ impl HubMcp {
         out
     }
 
-    #[tool(description = "Hybrid retrieval over evidence: keyword + metadata filters (SP2A). The vector/semantic channel is schema-reserved and activates in SP2B.")]
+    #[tool(description = "Hybrid retrieval over evidence: keyword + vector channels fused with reciprocal-rank fusion (§41 candidate set → rerank → evidence set).")]
     async fn hybrid_search(
         &self,
         Parameters(args): Parameters<KeywordSearchArgs>,
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "hybrid_search").await?;
+        let agent = agent_of(&ctx);
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let base = crate::store::keyword_search(&self.state.pg, &args.query, limit).await;
-        let out = match base {
-            Ok(mut v) => {
-                if let Some(filter) = &args.url_contains {
-                    if let Some(items) = v.get_mut("items").and_then(|i| i.as_array_mut()) {
-                        items.retain(|it| {
-                            it.get("url").and_then(|u| u.as_str()).map(|u| u.contains(filter.as_str())).unwrap_or(false)
-                        });
-                    }
-                }
-                v["mode"] = json!("keyword+metadata");
-                v["vector_channel"] = json!("reserved (SP2B)");
-                ok_text(v)
-            }
+        let out = match self
+            .hybrid_inner(&agent, &args.query, limit, args.url_contains.as_deref())
+            .await
+        {
+            Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "hybrid_search", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
     }
 
-    #[tool(description = "Semantic similarity search over evidence. SP2A: returns an explicit keyword fallback (the embedding pipeline and vector channel activate in SP2B — results are NOT semantic yet).")]
+    /// RRF (k=60) fusion of the keyword channel and the vector channel.
+    /// A vector-channel outage degrades to keyword-only — never an error.
+    async fn hybrid_inner(
+        &self,
+        agent: &AgentIdentity,
+        query: &str,
+        limit: i64,
+        url_contains: Option<&str>,
+    ) -> crate::error::Result<serde_json::Value> {
+        const K: f64 = 60.0;
+        let kw = crate::store::keyword_search(&self.state.pg, query, (limit * 3).clamp(10, 150)).await?;
+        let mut rrf: std::collections::HashMap<uuid::Uuid, f64> = std::collections::HashMap::new();
+        if let Some(items) = kw.get("items").and_then(|i| i.as_array()) {
+            for (rank, it) in items.iter().enumerate() {
+                if let Some(id) = it
+                    .get("document_id")
+                    .and_then(|d| d.as_str())
+                    .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                {
+                    *rrf.entry(id).or_default() += 1.0 / (K + rank as f64 + 1.0);
+                }
+            }
+        }
+        let vec_ok = match crate::embed::query_embedding(&self.state, query).await {
+            Ok((qvec, tokens)) => {
+                if tokens > 0 {
+                    let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
+                    let _ = crate::cost::record_cost(
+                        &self.state, agent_id, None, "embedding_tokens", tokens as f64, "token",
+                        json!({ "purpose": "hybrid_query" }),
+                    ).await;
+                }
+                match crate::vector::search(&self.state, &qvec, (limit * 3) as u64).await {
+                    Ok(hits) => {
+                        for (rank, (id, _)) in hits.iter().enumerate() {
+                            *rrf.entry(*id).or_default() += 1.0 / (K + rank as f64 + 1.0);
+                        }
+                        !hits.is_empty()
+                    }
+                    Err(_) => false,
+                }
+            }
+            Err(_) => false,
+        };
+        let mut ranked: Vec<(uuid::Uuid, f64)> = rrf.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut items = Vec::new();
+        for (doc_id, score) in ranked {
+            if items.len() >= limit as usize {
+                break;
+            }
+            let row: Option<(String, Option<String>, String)> = sqlx::query_as(
+                "SELECT url_canonical, title, left(content_text, 400) FROM documents WHERE document_id = $1",
+            )
+            .bind(doc_id)
+            .fetch_optional(&self.state.pg)
+            .await?;
+            if let Some((url, title, excerpt)) = row {
+                if let Some(f) = url_contains {
+                    if !url.contains(f) {
+                        continue;
+                    }
+                }
+                items.push(json!({
+                    "document_id": doc_id,
+                    "rrf_score": (score * 1e6).round() / 1e6,
+                    "url": url, "title": title, "excerpt": excerpt,
+                }));
+            }
+        }
+        Ok(json!({
+            "query": query,
+            "mode": if vec_ok { "hybrid-rrf" } else { "keyword (vector channel unavailable or empty)" },
+            "count": items.len(),
+            "items": items,
+        }))
+    }
+
+    #[tool(description = "Semantic similarity search over embedded evidence (vector channel, §39–42). Falls back to labeled keyword results only when nothing is embedded yet.")]
     async fn semantic_search(
         &self,
         Parameters(args): Parameters<KeywordSearchArgs>,
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "semantic_search").await?;
+        let agent = agent_of(&ctx);
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let base = crate::store::keyword_search(&self.state.pg, &args.query, limit).await;
-        let out = match base {
-            Ok(mut v) => {
-                v["mode"] = json!("keyword-fallback");
-                v["note"] = json!("semantic channel activates in SP2B; these are keyword results, not vector similarity");
-                ok_text(v)
-            }
+        let out = match self.semantic_inner(&agent, &args.query, limit).await {
+            Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "semantic_search", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
+    }
+
+    async fn semantic_inner(
+        &self,
+        agent: &AgentIdentity,
+        query: &str,
+        limit: i64,
+    ) -> crate::error::Result<serde_json::Value> {
+        let (qvec, tokens) = crate::embed::query_embedding(&self.state, query).await?;
+        if tokens > 0 {
+            let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
+            let _ = crate::cost::record_cost(
+                &self.state, agent_id, None, "embedding_tokens", tokens as f64, "token",
+                json!({ "purpose": "query", "query": query }),
+            ).await;
+        }
+        let hits = crate::vector::search(&self.state, &qvec, (limit * 3) as u64).await?;
+        if hits.is_empty() {
+            // Honest fallback: nothing embedded yet — label it, never pretend.
+            let mut v = crate::store::keyword_search(&self.state.pg, query, limit).await?;
+            v["mode"] = json!("keyword-fallback");
+            v["note"] = json!("no embedded documents yet; these are keyword results, not vector similarity");
+            return Ok(v);
+        }
+        let mut items = Vec::new();
+        for (doc_id, score) in hits.iter().take(limit as usize) {
+            let row: Option<(String, Option<String>, String)> = sqlx::query_as(
+                "SELECT url_canonical, title, left(content_text, 400) FROM documents WHERE document_id = $1",
+            )
+            .bind(doc_id)
+            .fetch_optional(&self.state.pg)
+            .await?;
+            if let Some((url, title, excerpt)) = row {
+                items.push(json!({
+                    "document_id": doc_id, "score": score, "url": url,
+                    "title": title, "excerpt": excerpt,
+                }));
+            }
+        }
+        Ok(json!({ "query": query, "mode": "vector", "count": items.len(), "items": items }))
     }
 
     #[tool(description = "Query entities in the relationship graph by name (read-only, parameterized — no arbitrary Cypher).")]
@@ -514,6 +762,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "query_entity").await?;
         let limit = args.limit.unwrap_or(20);
         let out = match crate::graph::query_entity(&self.state, &args.name, args.kind.as_deref(), limit).await {
             Ok(v) => ok_text(v),
@@ -530,6 +779,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "query_relationship").await?;
         let limit = args.limit.unwrap_or(50);
         let out = match crate::graph::query_relationship(&self.state, &args.name, limit).await {
             Ok(v) => ok_text(v),
@@ -546,6 +796,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "find_path").await?;
         let out = match crate::graph::find_path(&self.state, &args.from, &args.to).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
@@ -561,6 +812,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "create_investigation").await?;
         let agent = agent_of(&ctx);
         let res = crate::store::create_investigation(
             &self.state.pg,
@@ -593,6 +845,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "update_investigation").await?;
         if let Some(s) = &args.status {
             if !["open", "paused", "closed"].contains(&s.as_str()) {
                 return Err(McpError::invalid_params("status must be open|paused|closed", None));
@@ -625,6 +878,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "create_finding").await?;
         let agent = agent_of(&ctx);
         let investigation_id = parse_uuid(&args.investigation_id, "investigation_id")?;
         let task_id = parse_uuid_opt(&args.task_id, "task_id")?;
@@ -669,6 +923,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "list_investigations").await?;
         let limit = args.limit.unwrap_or(20).clamp(1, 100);
         let out = match crate::store::list_investigations(&self.state.pg, args.status.as_deref(), limit).await {
             Ok(v) => ok_text(v),
@@ -685,6 +940,7 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "get_task_status").await?;
         let task_id = parse_uuid(&args.task_id, "task_id")?;
         let out = match crate::store::get_task(&self.state.pg, task_id).await {
             Ok(v) => ok_text(v),
@@ -700,8 +956,205 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
+        self.gate(&ctx, "get_system_health").await?;
         let out = ok_text(crate::api::system_health(&self.state).await);
         self.record(&ctx, "get_system_health", started, "ok").await;
+        out
+    }
+
+    // ---------- SP2B: governance & write plane ----------
+
+    #[tool(description = "Create an entity in the intelligence graph (typed intent → schema validation → PG canonical + Neo4j relationship memory). Level 2 governed.")]
+    async fn create_entity(
+        &self,
+        Parameters(args): Parameters<CreateEntityArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "create_entity").await?;
+        let agent = agent_of(&ctx);
+        let actor = format!("agent:{}", agent.name);
+        let out = match crate::graphw::create_entity(
+            &self.state,
+            &actor,
+            crate::graphw::EntityIntent {
+                kind: args.kind,
+                name: args.name,
+                aliases: args.aliases,
+                attributes: args.attributes,
+            },
+        )
+        .await
+        {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "create_entity", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Create a claim bound to evidence (§43: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.")]
+    async fn create_claim(
+        &self,
+        Parameters(args): Parameters<CreateClaimArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "create_claim").await?;
+        let agent = agent_of(&ctx);
+        let actor = format!("agent:{}", agent.name);
+        let out = match crate::graphw::create_claim(
+            &self.state,
+            &actor,
+            crate::graphw::ClaimIntent {
+                text: args.text,
+                entities: args.entities.map(|v| {
+                    v.into_iter()
+                        .map(|e| crate::graphw::ClaimEntityRef { kind: e.kind, name: e.name, role: e.role })
+                        .collect()
+                }),
+                evidence_document_ids: args.evidence_document_ids,
+            },
+        )
+        .await
+        {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "create_claim", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Create a typed relationship between two existing entities (endpoints must exist — create them first). Level 2 governed.")]
+    async fn create_relationship(
+        &self,
+        Parameters(args): Parameters<CreateRelationshipArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "create_relationship").await?;
+        let agent = agent_of(&ctx);
+        let actor = format!("agent:{}", agent.name);
+        let out = match crate::graphw::create_relationship(
+            &self.state,
+            &actor,
+            crate::graphw::RelationshipIntent {
+                from_kind: args.from_kind,
+                from_name: args.from_name,
+                to_kind: args.to_kind,
+                to_name: args.to_name,
+                rel_type: args.rel_type,
+                attributes: args.attributes,
+            },
+        )
+        .await
+        {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "create_relationship", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "List alerts from the unified alert center (§54): severity, source, links, recommended action.")]
+    async fn list_alerts(
+        &self,
+        Parameters(args): Parameters<ListAlertsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "list_alerts").await?;
+        let out = match crate::alerts::list(
+            &self.state,
+            args.status.as_deref(),
+            args.source.as_deref(),
+            args.severity.as_deref(),
+            args.limit.unwrap_or(50),
+        )
+        .await
+        {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "list_alerts", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Acknowledge an open alert.")]
+    async fn acknowledge_alert(
+        &self,
+        Parameters(args): Parameters<AlertIdArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "acknowledge_alert").await?;
+        let agent = agent_of(&ctx);
+        let id = parse_uuid(&args.alert_id, "alert_id")?;
+        let out = match crate::alerts::set_status(&self.state, id, "ack", &format!("agent:{}", agent.name)).await {
+            Ok(true) => ok_text(json!({ "alert_id": id, "status": "ack" })),
+            Ok(false) => Err(McpError::invalid_params("alert not found or not open", None)),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "acknowledge_alert", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Mute an open alert (stops dedupe-bumping and webhook noise for this alert).")]
+    async fn mute_alert(
+        &self,
+        Parameters(args): Parameters<AlertIdArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "mute_alert").await?;
+        let agent = agent_of(&ctx);
+        let id = parse_uuid(&args.alert_id, "alert_id")?;
+        let out = match crate::alerts::set_status(&self.state, id, "muted", &format!("agent:{}", agent.name)).await {
+            Ok(true) => ok_text(json!({ "alert_id": id, "status": "muted" })),
+            Ok(false) => Err(McpError::invalid_params("alert not found or not open", None)),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "mute_alert", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Get YOUR current budget state (GREEN/YELLOW/RED/KILL) with today's usage vs limits (§58–60). Self-throttle accordingly.")]
+    async fn get_budget_status(
+        &self,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "get_budget_status").await?;
+        let agent = agent_of(&ctx);
+        let out = match crate::cost::budget_state(&self.state, &agent).await {
+            Ok(bs) => ok_text(serde_json::to_value(&bs).unwrap_or_else(|_| json!({}))),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "get_budget_status", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "LEVEL 3 (requires X-Admin-Token, default DENY per §61): run a whitelisted lifecycle action on a component — upgrade|rollback|backup via the pinned VM scripts.")]
+    async fn run_component_action(
+        &self,
+        Parameters(args): Parameters<ComponentActionArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "run_component_action").await?;
+        let agent = agent_of(&ctx);
+        let out = match crate::components::run_action(
+            &self.state,
+            &args.component,
+            &args.action,
+            &format!("agent:{} (admin)", agent.name),
+        )
+        .await
+        {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "run_component_action", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
     }
 }
@@ -712,12 +1165,16 @@ impl ServerHandler for HubMcp {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("intelhub-core", env!("CARGO_PKG_VERSION")))
             .with_instructions(
-                "IntelHub data & tool plane (SP2A). Agent-neutral capability tools: \
-                 search_web, crawl_url, fetch_document, get_evidence, get_document, \
-                 keyword_search, hybrid_search, semantic_search (SP2A keyword fallback), \
-                 query_entity, query_relationship, find_path (graph read-only, parameterized), \
+                "IntelHub Hub Core (SP2B). Data & tool plane: search_web, crawl_url (embed:auto|force|skip), \
+                 fetch_document, get_evidence, get_document, keyword_search, hybrid_search (RRF), \
+                 semantic_search (vector), query_entity, query_relationship, find_path, \
                  create_investigation, update_investigation, create_finding (evidence-bound), \
-                 list_investigations, get_task_status, get_system_health.".to_string(),
+                 list_investigations, get_task_status, get_system_health. \
+                 Governance & write plane: create_entity, create_claim (evidence REQUIRED), \
+                 create_relationship (typed intents → PG canonical + Neo4j), \
+                 list_alerts, acknowledge_alert, mute_alert, get_budget_status (self-throttle), \
+                 run_component_action (LEVEL 3: needs X-Admin-Token). \
+                 Every call is policy-gated (§61) and budget-metered (§58–60).".to_string(),
             )
     }
 }

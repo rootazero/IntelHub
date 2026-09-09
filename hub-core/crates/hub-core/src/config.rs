@@ -23,6 +23,21 @@ pub struct Config {
     pub rate_limit_rpm: u32,
     pub simhash_max_hamming: u32,
     pub mcp_allowed_hosts: Vec<String>,
+    // ── SP2B governance ─────────────────────────────────────────────
+    /// Level-3 admin token (secrets.env). None = Level 3 permanently denied.
+    pub admin_token: Option<String>,
+    pub budget_agent_tool_calls: f64,
+    pub budget_agent_crawl_pages: f64,
+    pub budget_agent_embed_tokens: f64,
+    pub budget_global_crawl_pages: f64,
+    pub budget_global_embed_tokens: f64,
+    pub alert_webhook_url: Option<String>,
+    pub alert_webhook_min_severity: String,
+    pub manifests_dir: String,
+    pub scripts_dir: String,
+    /// §40: documents shorter than this are not auto-embedded.
+    pub embed_min_words: u32,
+    pub embed_enabled: bool,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -71,6 +86,18 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect(),
+            admin_token: std::env::var("HUB_ADMIN_TOKEN").ok().filter(|s| !s.is_empty()),
+            budget_agent_tool_calls: env_or("HUB_BUDGET_AGENT_TOOL_CALLS", "2000").parse().unwrap_or(2000.0),
+            budget_agent_crawl_pages: env_or("HUB_BUDGET_AGENT_CRAWL_PAGES", "300").parse().unwrap_or(300.0),
+            budget_agent_embed_tokens: env_or("HUB_BUDGET_AGENT_EMBED_TOKENS", "1000000").parse().unwrap_or(1e6),
+            budget_global_crawl_pages: env_or("HUB_BUDGET_GLOBAL_CRAWL_PAGES", "1000").parse().unwrap_or(1000.0),
+            budget_global_embed_tokens: env_or("HUB_BUDGET_GLOBAL_EMBED_TOKENS", "5000000").parse().unwrap_or(5e6),
+            alert_webhook_url: std::env::var("HUB_ALERT_WEBHOOK_URL").ok().filter(|s| !s.is_empty()),
+            alert_webhook_min_severity: env_or("HUB_ALERT_WEBHOOK_MIN_SEVERITY", "warning"),
+            manifests_dir: env_or("HUB_MANIFESTS_DIR", "/home/zou/IntelHub/manifests"),
+            scripts_dir: env_or("HUB_SCRIPTS_DIR", "/home/zou/IntelHub/scripts"),
+            embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "300").parse().unwrap_or(300),
+            embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
         }
     }
 }

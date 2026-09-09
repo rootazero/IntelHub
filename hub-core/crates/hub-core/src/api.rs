@@ -35,6 +35,11 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/search", get(search))
         .route("/api/v1/events", get(events_sse))
         .route("/api/v1/events/recent", get(events_recent))
+        .route("/api/v1/alerts", get(list_alerts))
+        .route("/api/v1/alerts/{id}/ack", axum::routing::post(ack_alert))
+        .route("/api/v1/alerts/{id}/mute", axum::routing::post(mute_alert))
+        .route("/api/v1/components", get(list_components))
+        .route("/api/v1/components/{name}/actions", axum::routing::post(component_action))
 }
 
 async fn healthz() -> &'static str {
@@ -50,6 +55,10 @@ fn hub_err(e: crate::error::HubError) -> Response {
     match e {
         NotFound(m) => err(StatusCode::NOT_FOUND, m),
         BadRequest(m) => err(StatusCode::BAD_REQUEST, m),
+        PolicyDenied(m) => err(StatusCode::FORBIDDEN, format!("policy_denied: {m}")),
+        BudgetDenied { state, reason } => {
+            err(StatusCode::TOO_MANY_REQUESTS, format!("budget_denied ({state}): {reason}"))
+        }
         other => err(StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
     }
 }
@@ -181,6 +190,10 @@ async fn create_investigation(
     Extension(agent): Extension<AgentIdentity>,
     Json(body): Json<CreateInvestigationBody>,
 ) -> Result<Json<Value>, Response> {
+    // SP2B: REST goes through the same governance gate as MCP.
+    crate::policy::preflight(&state, &agent, "create_investigation")
+        .await
+        .map_err(hub_err)?;
     let id = crate::store::create_investigation(
         &state.pg,
         &body.title,
@@ -223,9 +236,13 @@ struct UpdateInvestigationBody {
 
 async fn update_investigation(
     State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateInvestigationBody>,
 ) -> Result<Json<Value>, Response> {
+    crate::policy::preflight(&state, &agent, "update_investigation")
+        .await
+        .map_err(hub_err)?;
     crate::store::update_investigation(
         &state.pg,
         id,
@@ -301,4 +318,86 @@ async fn events_recent(
         .await
         .map(Json)
         .map_err(hub_err)
+}
+
+// ---------- SP2B: alerts (§54) ----------
+
+#[derive(Debug, Deserialize)]
+struct AlertListParams {
+    status: Option<String>,
+    source: Option<String>,
+    severity: Option<String>,
+    limit: Option<i64>,
+}
+
+async fn list_alerts(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<AlertListParams>,
+) -> Result<Json<Value>, Response> {
+    crate::alerts::list(
+        &state,
+        p.status.as_deref(),
+        p.source.as_deref(),
+        p.severity.as_deref(),
+        p.limit.unwrap_or(50),
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
+}
+
+async fn ack_alert(
+    State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Response> {
+    crate::alerts::set_status(&state, id, "ack", &format!("agent:{}", agent.name))
+        .await
+        .map(|ok| Json(json!({ "alert_id": id, "updated": ok })))
+        .map_err(hub_err)
+}
+
+async fn mute_alert(
+    State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>, Response> {
+    crate::alerts::set_status(&state, id, "muted", &format!("agent:{}", agent.name))
+        .await
+        .map(|ok| Json(json!({ "alert_id": id, "updated": ok })))
+        .map_err(hub_err)
+}
+
+// ---------- SP2B: component lifecycle (§68–69) ----------
+
+async fn list_components(
+    State(state): State<Arc<AppState>>,
+) -> Json<Value> {
+    Json(crate::components::list_components(&state).await)
+}
+
+#[derive(Debug, Deserialize)]
+struct ComponentActionBody {
+    action: String,
+}
+
+/// Level 3 — policy::preflight enforces the admin token (default DENY, §61).
+async fn component_action(
+    State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+    Path(name): Path<String>,
+    Json(body): Json<ComponentActionBody>,
+) -> Result<Json<Value>, Response> {
+    crate::policy::preflight(&state, &agent, "run_component_action")
+        .await
+        .map_err(hub_err)?;
+    crate::components::run_action(
+        &state,
+        &name,
+        &body.action,
+        &format!("agent:{} (admin, REST)", agent.name),
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
 }

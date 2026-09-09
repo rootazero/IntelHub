@@ -21,10 +21,38 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tokio::spawn(async move { crate::ingest::run_worker(worker_state, wct).await });
     }
 
+    // SP2B workers: embedding pipeline, graph-sync replay, alert webhook
+    // dispatcher, sensor flap watcher, component update watcher.
+    {
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::embed::run_worker(s, t).await });
+    }
+    {
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::graphw::run_replay(s, t).await });
+    }
+    {
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::alerts::run_dispatcher(s, t).await });
+    }
+    {
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::alerts::run_sensor_watcher(s, t).await });
+    }
+    {
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::components::run_update_watcher(s, t).await });
+    }
+
     // Qdrant collection provisioning (idempotent; failure is non-fatal —
-    // vector plane is unused in SP2A).
+    // the embedding worker will surface outages as alerts).
     if let Err(e) = crate::vector::ensure_collection(&state).await {
-        tracing::warn!(error = %e, "qdrant collection init failed (non-fatal in SP2A)");
+        tracing::warn!(error = %e, "qdrant collection init failed (non-fatal)");
     }
 
     let mcp_state = state.clone();

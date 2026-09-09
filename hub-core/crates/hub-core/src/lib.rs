@@ -1,13 +1,19 @@
-//! hub-core: IntelHub data & tool plane library (SP2A).
+//! hub-core: IntelHub Hub Core library (SP2A data/tool plane + SP2B governance/write plane).
 
 pub mod admin;
+pub mod alerts;
 pub mod auth;
+pub mod components;
 pub mod config;
+pub mod cost;
+pub mod embed;
 pub mod error;
 pub mod events;
 pub mod graph;
+pub mod graphw;
 pub mod ingest;
 pub mod mcp;
+pub mod policy;
 pub mod sensors;
 pub mod server;
 pub mod state;

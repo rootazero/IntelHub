@@ -100,6 +100,7 @@ pub async fn ingest_content(
     metadata: serde_json::Value,
     provenance: serde_json::Value,
     parent_task: Option<Uuid>,
+    embed_mode: &str, // "auto"|"force"|"skip" (SP2B §40)
 ) -> Result<IngestOutcome> {
     let canonical = canonicalize_url(url);
     let hash = content_hash(content);
@@ -148,8 +149,25 @@ pub async fn ingest_content(
     .await?;
 
     if !inserted.duplicate {
-        store::enqueue_embedding_job(&state.pg, inserted.document_id, &state.config.embedding_model)
-            .await?;
+        match embed_mode {
+            "skip" => {
+                let _ = sqlx::query(
+                    "UPDATE documents SET embedding_status='SKIPPED' WHERE document_id=$1",
+                )
+                .bind(inserted.document_id)
+                .execute(&state.pg)
+                .await;
+            }
+            mode => {
+                store::enqueue_embedding_job(
+                    &state.pg,
+                    inserted.document_id,
+                    &state.config.embedding_model,
+                    mode == "force",
+                )
+                .await?;
+            }
+        }
         let ev_out = BusEvent::new(
             "DOCUMENT_INGESTED",
             "system:ingest",
@@ -226,6 +244,7 @@ pub async fn run_worker(state: AppState, ct: tokio_util::sync::CancellationToken
                             ev.metadata.clone(),
                             ev.provenance.clone(),
                             None,
+                            "auto",
                         )
                         .await
                         {

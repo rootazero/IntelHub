@@ -35,7 +35,16 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<String> {
 /// lookup is a single indexed row read and Postgres absorbs it easily.
 pub async fn authenticate(state: &AppState, presented: &str) -> Option<AgentIdentity> {
     let (agent_id, key_id, name) = crate::store::resolve_key(&state.pg, presented).await.ok()??;
-    Some(AgentIdentity { agent_id, name, key_id })
+    Some(AgentIdentity { agent_id, name, key_id, admin: false })
+}
+
+/// Constant-time-ish comparison for the admin token (no early exit on mismatch).
+pub fn token_matches(configured: &str, presented: &str) -> bool {
+    let (a, b) = (configured.as_bytes(), presented.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Per-agent token bucket (Redis INCR + EXPIRE, 1-minute window).
@@ -72,6 +81,15 @@ pub async fn auth_middleware(
     };
     if !check_rate_limit(&state, &identity).await {
         return (StatusCode::TOO_MANY_REQUESTS, "rate limit exceeded").into_response();
+    }
+    // SP2B Level 3: X-Admin-Token upgrades this request to admin (flag only,
+    // token value never stored/logged).
+    let mut identity = identity;
+    if let (Some(cfg), Some(hdr)) = (
+        state.config.admin_token.as_deref(),
+        req.headers().get("x-admin-token").and_then(|v| v.to_str().ok()),
+    ) {
+        identity.admin = token_matches(cfg, hdr);
     }
     req.extensions_mut().insert(identity);
     req.extensions_mut().insert(RequestTrace::new());

@@ -37,9 +37,20 @@ pub enum HubError {
     #[error("graph service unavailable: {0}")]
     GraphUnavailable(String),
 
+    #[error("policy denied: {0}")]
+    PolicyDenied(String),
+
+    #[error("budget denied ({state}): {reason}")]
+    BudgetDenied { state: String, reason: String },
+
     #[error("internal error: {0}")]
     Internal(String),
 }
+
+impl HubError {
+    pub fn policy_denied(msg: impl Into<String>) -> Self {
+        HubError::PolicyDenied(msg.into())
+    }
 
 impl HubError {
     pub fn internal(msg: impl Into<String>) -> Self {

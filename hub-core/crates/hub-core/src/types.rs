@@ -64,6 +64,9 @@ pub struct AgentIdentity {
     pub agent_id: Uuid,
     pub name: String,
     pub key_id: Uuid,
+    /// True when the request also carried a valid X-Admin-Token (SP2B Level 3).
+    /// The token itself is never logged; only this derived flag is audited.
+    pub admin: bool,
 }
 
 /// Trace context for a single MCP/HTTP request.
