@@ -116,11 +116,10 @@ pub async fn query_embedding(state: &AppState, text: &str) -> Result<(Vec<f32>, 
         "hub:qemb:{}",
         crate::auth::hash_key(&format!("{}:{}", state.config.embedding_model, text))
     );
-    let mut conn = state.redis.clone();
-    if let Ok(Some(cached)) = redis::cmd("GET")
-        .arg(&cache_key)
-        .query_async::<Option<String>>(&mut conn)
+    if let Some(cached) = state
+        .redis_timed::<Option<String>>(redis::cmd("GET").arg(&cache_key).clone(), 2000)
         .await
+        .flatten()
     {
         if let Ok(v) = serde_json::from_str::<Vec<f32>>(&cached) {
             return Ok((v, 0)); // cache hit: zero billed tokens
@@ -132,12 +131,8 @@ pub async fn query_embedding(state: &AppState, text: &str) -> Result<(Vec<f32>, 
         .next()
         .ok_or_else(|| HubError::sensor("empty embedding response"))?;
     if let Ok(s) = serde_json::to_string(&v) {
-        let _: redis::RedisResult<()> = redis::cmd("SET")
-            .arg(&cache_key)
-            .arg(s)
-            .arg("EX")
-            .arg(86400)
-            .query_async(&mut conn)
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("SET").arg(&cache_key).arg(s).arg("EX").arg(86400).clone(), 2000)
             .await;
     }
     Ok((v, tokens))

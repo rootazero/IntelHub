@@ -17,16 +17,19 @@ pub async fn publish(state: &AppState, ev: BusEvent) {
         tracing::warn!(error = %e, "event persist failed");
     }
 
-    let mut conn = state.redis.clone();
     let payload = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".to_string());
-    let res: redis::RedisResult<String> = redis::cmd("XADD")
-        .arg(STREAM)
-        .arg("MAXLEN").arg("~").arg(10000)
-        .arg("*")
-        .arg("data").arg(payload)
-        .query_async(&mut conn)
+    let res: Option<String> = state
+        .redis_timed(
+            redis::cmd("XADD")
+                .arg(STREAM)
+                .arg("MAXLEN").arg("~").arg(10000)
+                .arg("*")
+                .arg("data").arg(payload)
+                .clone(),
+            2000,
+        )
         .await;
-    if let Err(e) = res {
-        tracing::warn!(error = %e, "event XADD failed");
+    if res.is_none() {
+        tracing::warn!("event XADD failed or timed out (redis mid-failure)");
     }
 }

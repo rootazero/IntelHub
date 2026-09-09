@@ -61,3 +61,25 @@ Radar map (§26 → SP4), sensor start/stop control (§53), user management/role
 5. Component Manager L3 button without admin token → `policy_denied`
 6. Regressions: accept-sp2a 16/16 + accept-sp2b 32/32 green
 7. package-lock committed; clean-checkout build reproduces
+
+---
+
+## Amendment 2026-09-09 — Deployment Record (as-built)
+
+Deployed and acceptance-tested 2026-09-09. **SP3 acceptance 19/19 + SP2A regression 16/16 + SP2B regression 32/32, all green.**
+
+As-built facts:
+
+- Console: React 19 + Vite 6 + TS + Tailwind v4 SPA (84.6 kB gzip JS), built reproducibly on the VM via `scripts/build-console.sh` (docker node:22-trixie, npm ci from committed package-lock — bit-identical asset hashes across machines)
+- Served by hub-core from `/home/zou/IntelHub/console/dist` (`HUB_CONSOLE_DIR`): `/` → index.html, `/assets/*` immutable 1y cache, SPA fallback (non-asset paths), traversal-guarded; static public / `/api`+`/mcp` bearer-protected
+- 8 console API endpoints live (overview, search/unified, documents, entities(+id), agents/activity, audit, tasks, investigations/{id}/workspace) + documents/{id} upgraded to reverse-reference detail
+- console agent key issued (4th agent identity, audit attribution `agent:console`)
+- 11 pages: Overview (§25 full + SSE live stream), Investigations + Workspace (§27–29 epistemic badges FACT/OBSERVATION/AGENT CLAIM/HYPOTHESIS), Search (§67), Evidence + DocumentDetail (§29/§43 provenance + reverse refs), EntityDetail, Alerts (§54), Agents (§55/56 budget bars), Audit (§66), System (§68/69 + per-use admin-token L3 actions)
+- Access: http://10.10.10.41:8800/ (paste console key once)
+
+Deviations/incidents discovered during implementation (all fixed + regression-covered):
+
+15. **Blocking Redis command on shared multiplexed connection** (the big one): ingest worker's XREAD BLOCK shared the single MultiplexedConnection; Redis is strictly FIFO per connection → head-of-line blocking stalled ALL redis commands (≤5s normally; forever when a conn died mid-block). SP3 symptom: /api/v1/overview hung permanently. Fix: dedicated blocking connection for ingest XREAD + redis supervisor (15s timed PING → slot replace) + `redis_timed()` hard timeouts on every user-facing redis call. Zero reconnects post-fix; regression: all suites.
+16. Health probes had no timeouts (a hung dependency could hang /api/v1/health) → every probe now capped at 3s, docker ps at 5s.
+17. accept-sp2b.py used a live Wikipedia page as the embedding fixture — content drift made runs non-reproducible (near-dup SKIP by design). Fixture changed to RFC 2544 text (immutable).
+18. npm/node on the VM stays containerized; Mac node 24 used only to generate the lockfile (lockfile v3 is toolchain-agnostic).

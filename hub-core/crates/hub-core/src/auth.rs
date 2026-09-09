@@ -51,13 +51,20 @@ pub fn token_matches(configured: &str, presented: &str) -> bool {
 pub async fn check_rate_limit(state: &AppState, agent: &AgentIdentity) -> bool {
     let limit = state.config.rate_limit_rpm as i64;
     let key = format!("hub:ratelimit:{}:{}", agent.agent_id, chrono::Utc::now().timestamp() / 60);
-    let mut conn = state.redis.clone();
-    let res: redis::RedisResult<(i64,)> = redis::pipe()
-        .atomic()
-        .cmd("INCR").arg(&key)
-        .cmd("EXPIRE").arg(&key).arg(70).ignore()
-        .query_async(&mut conn)
-        .await;
+    let mut conn = state.redis().await;
+    let res: redis::RedisResult<(i64,)> = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        redis::pipe()
+            .atomic()
+            .cmd("INCR").arg(&key)
+            .cmd("EXPIRE").arg(&key).arg(70).ignore()
+            .query_async(&mut conn),
+    )
+    .await
+    .unwrap_or_else(|_| Err(redis::RedisError::from((
+        redis::ErrorKind::IoError,
+        "ratelimit redis timeout",
+    ))));
     match res {
         Ok((n,)) => n <= limit,
         Err(_) => true, // redis down: degrade open, failure model §8 (budgets are SP2B)

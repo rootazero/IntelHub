@@ -254,20 +254,15 @@ async fn check_sensor_flaps(state: &AppState) -> Result<()> {
     let Some(components) = health.get("components").and_then(|c| c.as_object()) else {
         return Ok(());
     };
-    let mut conn = state.redis.clone();
     for (name, probe) in components {
         let cur = probe.get("status").and_then(|s| s.as_str()).unwrap_or("down");
         let key = format!("hub:sensor_state:{name}");
-        let prev: Option<String> = redis::cmd("GET")
-            .arg(&key)
-            .query_async(&mut conn)
+        let prev: Option<String> = state
+            .redis_timed::<Option<String>>(redis::cmd("GET").arg(&key).clone(), 2000)
             .await
-            .ok()
             .flatten();
-        let _: redis::RedisResult<()> = redis::cmd("SET")
-            .arg(&key)
-            .arg(cur)
-            .query_async(&mut conn)
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("SET").arg(&key).arg(cur).clone(), 2000)
             .await;
         match (prev.as_deref(), cur) {
             (Some("up"), "down") => {

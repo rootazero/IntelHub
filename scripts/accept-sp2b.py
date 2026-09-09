@@ -166,7 +166,7 @@ while time.time() < deadline:
 check("graph op auto-replayed after recovery", replayed, f"done={done}")
 
 # ── 4. Embedding pipeline + real semantic search ─────────────────────
-r = tool_json(tool(sid, "crawl_url", {"url": "https://en.wikipedia.org/wiki/Open-source_intelligence"}, 30))
+r = tool_json(tool(sid, "crawl_url", {"url": "https://www.rfc-editor.org/rfc/rfc2544.txt"}, 30))
 doc2 = r.get("document_id")
 check("crawl substantial article", bool(doc2), f"doc={str(doc2)[:8]} dup={r.get('duplicate')}")
 deadline = time.time() + 120
@@ -183,11 +183,11 @@ check("qdrant points upserted", pts.isdigit() and int(pts) >= 1, f"points={pts}"
 tok = sql("SELECT count(*) FROM cost_records WHERE kind='embedding_tokens'")
 check("embedding tokens metered (§59)", tok.isdigit() and int(tok) >= 1, f"records={tok}")
 time.sleep(2)
-r = tool_json(tool(sid, "semantic_search", {"query": "collecting intelligence from public sources", "limit": 5}, 31))
+r = tool_json(tool(sid, "semantic_search", {"query": "measuring network device throughput and latency benchmarking methodology", "limit": 5}, 31))
 check("semantic_search mode=vector", r.get("mode") == "vector", f"mode={r.get('mode')} count={r.get('count')}")
 check("semantic result matches topic", any(doc2 in str(it.get("document_id")) for it in r.get("items", [])),
       f"top doc match")
-r = tool_json(tool(sid, "hybrid_search", {"query": "open source intelligence", "limit": 5}, 32))
+r = tool_json(tool(sid, "hybrid_search", {"query": "benchmarking network performance", "limit": 5}, 32))
 check("hybrid_search RRF fusion", "hybrid" in str(r.get("mode", "")), f"mode={r.get('mode')}")
 # §42 cache proof: re-enqueue the same document → all chunks reused, zero new tokens
 tok_before = sql("SELECT COALESCE(SUM(amount),0) FROM cost_records WHERE kind='embedding_tokens'")
@@ -204,7 +204,7 @@ deadline = time.time() + 90
 alert_id = ""
 while time.time() < deadline:
     time.sleep(8)
-    alert_id = sql("SELECT alert_id FROM alerts WHERE source='sensor' AND title LIKE '%searxng%DOWN%' ORDER BY created_at DESC LIMIT 1")
+    alert_id = sql("SELECT alert_id FROM alerts WHERE source='sensor' AND title LIKE '%searxng%DOWN%' AND created_at > now() - interval '5 minutes' ORDER BY created_at DESC LIMIT 1")
     if alert_id: break
 check("sensor stop → critical alert raised", bool(alert_id), f"alert={alert_id[:8] if alert_id else 'none'}")
 deadline = time.time() + 60

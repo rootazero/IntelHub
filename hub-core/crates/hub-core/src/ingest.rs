@@ -191,35 +191,56 @@ pub async fn ingest_content(
 }
 
 /// Queued-path worker: consumes EvidenceEvents from `hub.ingest`
-/// (XREAD BLOCK, last-id persisted in redis so restarts resume cleanly;
-/// replay-safe because ingest is idempotent).
+/// (XREAD BLOCK on a DEDICATED connection — Redis is FIFO per connection, so
+/// a blocking command on the shared multiplexed connection head-of-line-blocks
+/// every other command (caused false supervisor reconnect churn). Reconnects
+/// itself on error; replay-safe because ingest is idempotent).
 pub async fn run_worker(state: AppState, ct: tokio_util::sync::CancellationToken) {
     const LAST_ID_KEY: &str = "hub:ingest:lastid";
-    let mut last_id: String = {
-        let mut conn = state.redis.clone();
-        redis::cmd("GET")
-            .arg(LAST_ID_KEY)
-            .query_async(&mut conn)
-            .await
-            .unwrap_or_else(|_| "0".to_string())
+    let mut last_id: String = state
+        .redis_timed::<Option<String>>(redis::cmd("GET").arg(LAST_ID_KEY).clone(), 2000)
+        .await
+        .flatten()
+        .unwrap_or_else(|| "0".to_string());
+    tracing::info!(last_id = %last_id, "ingest worker started (dedicated blocking connection)");
+
+    // Dedicated connection for the blocking XREAD (never shares the slot).
+    let mut conn = match state.redis_client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "ingest worker: initial redis connection failed");
+            return;
+        }
     };
-    tracing::info!(last_id = %last_id, "ingest worker started");
 
     loop {
         if ct.is_cancelled() {
             tracing::info!("ingest worker shutting down");
             return;
         }
-        let mut conn = state.redis.clone();
-        let res: redis::RedisResult<redis::Value> = redis::cmd("XREAD")
-            .arg("BLOCK").arg(5000)
-            .arg("COUNT").arg(10)
-            .arg("STREAMS").arg(INGEST_STREAM).arg(&last_id)
-            .query_async(&mut conn)
-            .await;
+        let res: redis::RedisResult<redis::Value> = tokio::time::timeout(
+            // BLOCK 5s + margin — a wedged connection must not hang the worker.
+            std::time::Duration::from_secs(10),
+            redis::cmd("XREAD")
+                .arg("BLOCK").arg(5000)
+                .arg("COUNT").arg(10)
+                .arg("STREAMS").arg(INGEST_STREAM).arg(&last_id)
+                .query_async(&mut conn),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err(redis::RedisError::from((redis::ErrorKind::IoError, "xread timeout")))
+        });
 
         let Ok(redis::Value::Array(streams)) = res else {
-            continue; // timeout or transient error
+            // Error or timeout: if the error is real (not a block timeout),
+            // reconnect the dedicated connection before retrying.
+            if res.is_err() {
+                if let Ok(c) = state.redis_client.get_multiplexed_async_connection().await {
+                    conn = c;
+                }
+            }
+            continue;
         };
         for stream in streams {
             let redis::Value::Array(kv) = stream else { continue };
@@ -253,10 +274,8 @@ pub async fn run_worker(state: AppState, ct: tokio_util::sync::CancellationToken
                     }
                 }
                 last_id = id.clone();
-                let mut c = state.redis.clone();
-                let _: redis::RedisResult<()> = redis::cmd("SET")
-                    .arg(LAST_ID_KEY).arg(&id)
-                    .query_async(&mut c)
+                let _: Option<()> = state
+                    .redis_timed(redis::cmd("SET").arg(LAST_ID_KEY).arg(&id).clone(), 2000)
                     .await;
             }
         }

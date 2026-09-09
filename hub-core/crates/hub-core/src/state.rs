@@ -1,21 +1,65 @@
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 
 use crate::types::BusEvent;
 use crate::{Config, Result};
 
 /// Shared application state: connection pools + config + event broadcast.
+///
+/// Redis goes through a supervised slot: a silently-dead (half-open) TCP
+/// connection to the bridge IP must never wedge request paths (observed in
+/// SP3 acceptance: stale MultiplexedConnection never errored, every command
+/// hung forever). `redis()` hands out the current live connection; the
+/// supervisor (server.rs) PINGs with a hard timeout and replaces the slot on
+/// failure.
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
     pub pg: sqlx::PgPool,
-    pub redis: redis::aio::MultiplexedConnection,
+    pub redis_client: redis::Client,
+    redis_slot: Arc<RwLock<redis::aio::MultiplexedConnection>>,
     pub neo4j: Arc<neo4rs::Graph>,
     pub http: reqwest::Client,
     pub event_tx: broadcast::Sender<BusEvent>,
 }
 
 impl AppState {
+    /// Current live redis connection (cheap clone of the multiplexed handle).
+    pub async fn redis(&self) -> redis::aio::MultiplexedConnection {
+        self.redis_slot.read().await.clone()
+    }
+
+    /// Timed redis command — degrades to None instead of hanging while the
+    /// connection is mid-failure (the supervisor restores it within seconds).
+    pub async fn redis_timed<T>(&self, cmd: redis::Cmd, ms: u64) -> Option<T>
+    where
+        T: redis::FromRedisValue + Send,
+    {
+        let mut conn = self.redis().await;
+        tokio::time::timeout(std::time::Duration::from_millis(ms), cmd.query_async::<T>(&mut conn))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+    }
+
+    /// Replace the connection with a fresh one (called by the supervisor when
+    /// the current one fails a timed PING).
+    pub async fn redis_reconnect(&self) -> bool {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            self.redis_client.get_multiplexed_async_connection(),
+        )
+        .await
+        {
+            Ok(Ok(conn)) => {
+                *self.redis_slot.write().await = conn;
+                tracing::warn!("redis connection replaced after failure");
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub async fn new(config: Config) -> Result<Self> {
         let config = Arc::new(config);
 
@@ -40,7 +84,7 @@ impl AppState {
 
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
-            .user_agent("intelhub-core/0.1 (SP2A)")
+            .user_agent("intelhub-core/0.1 (SP3)")
             .build()?;
 
         let (event_tx, _) = broadcast::channel(1024);
@@ -48,7 +92,8 @@ impl AppState {
         Ok(Self {
             config,
             pg,
-            redis,
+            redis_client,
+            redis_slot: Arc::new(RwLock::new(redis)),
             neo4j: Arc::new(neo4j),
             http,
             event_tx,

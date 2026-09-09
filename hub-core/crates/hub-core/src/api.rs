@@ -82,7 +82,11 @@ where
     Fut: std::future::Future<Output = bool>,
 {
     let t = Instant::now();
-    let ok = f().await;
+    // Hard 3s cap per probe: a hung dependency (e.g. half-open bolt connection
+    // after a restart) must degrade to "down", never hang the endpoint (§68).
+    let ok = tokio::time::timeout(std::time::Duration::from_secs(3), f())
+        .await
+        .unwrap_or(false);
     json!({ "status": if ok { "up" } else { "down" }, "latency_ms": t.elapsed().as_millis() as i64 })
 }
 
@@ -92,7 +96,7 @@ pub async fn system_health(state: &AppState) -> Value {
     })
     .await;
 
-    let mut conn = state.redis.clone();
+    let mut conn = state.redis().await;
     let redis = probe(|| async {
         redis::cmd("PING")
             .query_async::<String>(&mut conn)
@@ -144,12 +148,17 @@ pub async fn system_health(state: &AppState) -> Value {
 
 /// Best-effort docker container states (native hub runs as zou ∈ docker group).
 async fn docker_containers() -> Value {
-    let out = tokio::process::Command::new("docker")
-        .args(["ps", "-a", "--format", "{{json .}}"])
-        .output()
-        .await;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::process::Command::new("docker")
+            .args(["ps", "-a", "--format", "{{json .}}"])
+            .output(),
+    )
+    .await
+    .ok()
+    .and_then(|r| r.ok());
     match out {
-        Ok(o) if o.status.success() => {
+        Some(o) if o.status.success() => {
             let text = String::from_utf8_lossy(&o.stdout);
             let items: Vec<Value> = text
                 .lines()

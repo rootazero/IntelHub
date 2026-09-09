@@ -28,11 +28,10 @@ const ACTIONS: &[&str] = &["upgrade", "rollback", "backup"];
 /// Docker Hub v2 tags API → latest tag matching (prefix, suffix, numeric-only).
 async fn latest_tag(state: &AppState, repo: &str, prefix: &str, suffix: &str) -> Option<String> {
     let cache = format!("hub:component_latest:{repo}");
-    let mut conn = state.redis.clone();
-    if let Ok(Some(c)) = redis::cmd("GET")
-        .arg(&cache)
-        .query_async::<Option<String>>(&mut conn)
+    if let Some(c) = state
+        .redis_timed::<Option<String>>(redis::cmd("GET").arg(&cache).clone(), 2000)
         .await
+        .flatten()
     {
         return if c.is_empty() { None } else { Some(c) };
     }
@@ -69,12 +68,8 @@ async fn latest_tag(state: &AppState, repo: &str, prefix: &str, suffix: &str) ->
         }
     }
     let found = best.map(|(_, n)| n).unwrap_or_default();
-    let _: redis::RedisResult<()> = redis::cmd("SET")
-        .arg(&cache)
-        .arg(&found)
-        .arg("EX")
-        .arg(21600) // 6h
-        .query_async(&mut conn)
+    let _: Option<()> = state
+        .redis_timed(redis::cmd("SET").arg(&cache).arg(&found).arg("EX").arg(21600).clone(), 2000)
         .await;
     if found.is_empty() { None } else { Some(found) }
 }

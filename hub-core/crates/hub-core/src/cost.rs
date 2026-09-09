@@ -99,11 +99,10 @@ pub async fn record_cost(
 /// Today's usage (UTC) for one agent + global ceilings. Cached 30s in Redis.
 pub async fn usage_today(state: &AppState, agent_id: Uuid) -> Result<Usage> {
     let cache_key = format!("hub:budget_usage:{agent_id}");
-    let mut conn = state.redis.clone();
-    if let Ok(Some(cached)) = redis::cmd("GET")
-        .arg(&cache_key)
-        .query_async::<Option<String>>(&mut conn)
+    if let Some(cached) = state
+        .redis_timed::<Option<String>>(redis::cmd("GET").arg(&cache_key).clone(), 2000)
         .await
+        .flatten()
     {
         if let Ok(u) = serde_json::from_str::<Usage>(&cached) {
             return Ok(u);
@@ -142,12 +141,8 @@ pub async fn usage_today(state: &AppState, agent_id: Uuid) -> Result<Usage> {
         }
     }
     if let Ok(s) = serde_json::to_string(&u) {
-        let _: redis::RedisResult<()> = redis::cmd("SET")
-            .arg(&cache_key)
-            .arg(s)
-            .arg("EX")
-            .arg(30)
-            .query_async(&mut conn)
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("SET").arg(&cache_key).arg(s).arg("EX").arg(30).clone(), 2000)
             .await;
     }
     Ok(u)
@@ -177,19 +172,14 @@ pub async fn budget_state(state: &AppState, agent: &AgentIdentity) -> Result<Bud
 
     // Transition detection (previous state persisted in Redis).
     let prev_key = format!("hub:budget_state:{}", agent.agent_id);
-    let mut conn = state.redis.clone();
-    let prev: Option<String> = redis::cmd("GET")
-        .arg(&prev_key)
-        .query_async(&mut conn)
+    let prev: Option<String> = state
+        .redis_timed::<Option<String>>(redis::cmd("GET").arg(&prev_key).clone(), 2000)
         .await
-        .ok()
         .flatten();
     let prev_state = prev.as_deref().unwrap_or("GREEN");
     if prev_state != cur.as_str() {
-        let _: redis::RedisResult<()> = redis::cmd("SET")
-            .arg(&prev_key)
-            .arg(cur.as_str())
-            .query_async(&mut conn)
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("SET").arg(&prev_key).arg(cur.as_str()).clone(), 2000)
             .await;
         on_transition(state, agent, prev_state, cur, ratio).await;
     }
