@@ -52,7 +52,7 @@ pub struct BudgetState {
     pub limits: Limits,
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 pub struct Usage {
     pub tool_calls: f64,
     pub crawl_pages: f64,

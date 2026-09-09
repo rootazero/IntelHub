@@ -82,3 +82,29 @@ Delete/bulk-modification tools; inter-agent messaging; auto entity extraction (d
 5. Sensor failure → ALERT_RAISED event + alerts row + webhook delivery (test endpoint) + acknowledge works.
 6. `/api/v1/components` returns all components with installed/latest/update_available.
 7. SP2A regression: `scripts/accept-sp2a.py` 16/16 green.
+
+---
+
+## Amendment 2026-09-09 — Deployment Record (as-built)
+
+Deployed and acceptance-tested 2026-09-09. **SP2B acceptance 32/32 + budget drill 12/12 + SP2A regression 16/16, all green.**
+
+As-built facts:
+
+- 25 MCP tools (17 SP2A gated + 8 new), every one passing `policy::preflight` (§61 levels) + `cost::budget_state` (§60) — single enforcement point in `HubMcp::gate()`; post-flight metering in `record()` (tool_call) + crawl (crawl_page) + embed worker/query (embedding_tokens)
+- Migration 0002 applied: alerts, alert_deliveries, graph_sync_queue, relationships, claim_entities, claim_evidence, embedding_chunks; embedding_jobs gained force/attempts
+- Workers in-process: embedding, graph-sync replay (15s), alert webhook dispatcher (5s, 3 retries), sensor flap watcher (30s), component update watcher (1h)
+- HUB_ADMIN_TOKEN generated (VM core/admin-token.txt 0600); X-Admin-Token → AgentIdentity.admin flag (token never logged); L3 backup verified end-to-end (real restore point written)
+- Budget drill (budget=10): GREEN→YELLOW(0.70)→RED(0.90)→KILL(1.20) all enforced; RED denied search_web/allowed keyword_search; KILL denied writes/allowed status reads; aleph unaffected while claude-code KILL (§60 isolation); BUDGET_WARNING/EXCEEDED events + 3 budget alerts
+- Embedding: Wikipedia OSINT article → 24 chunks → DONE; semantic_search mode:"vector" with top-self hit; hybrid mode:"hybrid-rrf"; §42 cache proof: re-enqueued job → "24 reused from §42 cache, 0 tokens" (20337→20337 unchanged)
+- Alert loop: searxng stop → critical alert → webhook DELIVERED (test sink :18899) → ack; security alert on L3 denial; sensor recovery → info alert
+- /api/v1/components: 8 components with installed/latest (Docker Hub, 6h cache); update_available flags
+- Webhook sink was a test artifact (/tmp/webhook_sink.py on VM, not retained); HUB_ALERT_WEBHOOK_URL left configured — point it at a real endpoint when desired
+
+Deviations discovered during implementation:
+
+10. **systemd ProtectSystem=strict blocks L3 scripts**: backup/upgrade write to backups/ and compose/.env → added both to ReadWritePaths (config/hub-core.service).
+11. Entity name normalization is trim+whitespace-collapse (no NFC) — avoids a new dependency; documented.
+12. Neo4j relationship types cannot be Cypher parameters — interpolated ONLY after whitelist validation (REL_TYPES enum); injection-impossible by construction.
+13. accept-sp2a.py updated: tools 17→25, semantic_search mode assertion now accepts "vector" (SP2B behavior is the new correct baseline).
+14. Embedding cost attribution: via parent_task → agent when known, else global-only (agent_id NULL).

@@ -18,7 +18,9 @@ RestartSec=3
 # Hardening (directive §2: hub is the trusted boundary — lock IT down too)
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/home/zou/IntelHub/data /home/zou/IntelHub/core
+# data: evidence raw captures; core: env/keys; backups: L3 backup action;
+# compose/.env: L3 upgrade/rollback version pins (scripts edit it).
+ReadWritePaths=/home/zou/IntelHub/data /home/zou/IntelHub/core /home/zou/IntelHub/backups /home/zou/IntelHub/compose/.env
 ProtectHome=read-only
 PrivateTmp=true
 ProtectKernelTunables=true

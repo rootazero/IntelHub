@@ -51,8 +51,6 @@ impl HubError {
     pub fn policy_denied(msg: impl Into<String>) -> Self {
         HubError::PolicyDenied(msg.into())
     }
-
-impl HubError {
     pub fn internal(msg: impl Into<String>) -> Self {
         HubError::Internal(msg.into())
     }

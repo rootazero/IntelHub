@@ -275,10 +275,14 @@ pub async fn run_action(
         &format!("component_{action}"),
         Some("component"),
         Some(component),
-        Some("Level 3 lifecycle action via pinned script"),
-        Some("run_component_action"),
         if ok { "ok" } else { "error" },
-        json!({ "args": args, "exit": out.status.code(), "stderr_tail": stderr.chars().rev().take(500).collect::<String>().chars().rev().collect::<String>() }),
+        json!({
+            "why": "Level 3 lifecycle action via pinned script",
+            "source": "run_component_action",
+            "args": args,
+            "exit": out.status.code(),
+            "stderr_tail": stderr.chars().rev().take(500).collect::<String>().chars().rev().collect::<String>(),
+        }),
     )
     .await;
     let _ = crate::alerts::raise(

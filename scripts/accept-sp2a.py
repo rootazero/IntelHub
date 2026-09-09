@@ -75,7 +75,7 @@ expected = {"search_web","crawl_url","fetch_document","get_evidence","get_docume
             "hybrid_search","semantic_search","query_entity","query_relationship","find_path",
             "create_investigation","update_investigation","create_finding","list_investigations",
             "get_task_status","get_system_health"}
-check("tools/list = 17 tools", expected.issubset(set(names)), f"missing: {expected - set(names)}")
+check("tools/list = 25 tools (SP2B)", expected.issubset(set(names)) and len(names) == 25, f"missing: {expected - set(names)} count={len(names)}")
 
 # --- 4. search_web ---
 _, _, r = tool(sid, "search_web", {"query": "open source intelligence", "limit": 3}, 3)
@@ -117,7 +117,7 @@ check("keyword_search hits stored doc", k.get("count", 0) >= 1, f"count={k.get('
 # --- 8. semantic_search is labeled fallback ---
 _, _, rs = tool(sid, "semantic_search", {"query": "example", "limit": 3}, 10)
 s = tool_json(rs)
-check("semantic_search labeled keyword-fallback", s.get("mode") == "keyword-fallback", f"mode={s.get('mode')}")
+check("semantic_search labeled (vector or honest fallback)", s.get("mode") in ("vector", "keyword-fallback"), f"mode={s.get('mode')}")
 
 # --- 9. graph: seed via cypher-shell happens externally; here query + injection probe ---
 _, _, rg = tool(sid, "query_entity", {"name": "IntelHub", "limit": 5}, 11)

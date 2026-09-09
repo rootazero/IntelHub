@@ -94,10 +94,12 @@ pub async fn preflight(
             "policy_denied",
             Some("tool"),
             Some(tool),
-            Some("Level 3 action requires X-Admin-Token"),
-            Some("policy_engine"),
             "denied",
-            serde_json::json!({ "level": 3 }),
+            serde_json::json!({
+                "level": 3,
+                "why": "Level 3 action requires X-Admin-Token",
+                "source": "policy_engine",
+            }),
         )
         .await;
         let _ = crate::alerts::raise(
