@@ -12,7 +12,7 @@ use axum::{
         sse::{Event as SseEvent, KeepAlive, Sse},
         IntoResponse, Json, Response,
     },
-    routing::{get, patch, post},
+    routing::get,
     Router,
 };
 use futures::stream::Stream;

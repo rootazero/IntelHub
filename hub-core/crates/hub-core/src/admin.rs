@@ -5,7 +5,7 @@ use crate::config::Config;
 
 pub async fn create_agent_cli(cfg: &Config, name: &str, version: Option<&str>) -> anyhow::Result<()> {
     let pg = sqlx::PgPool::connect(&cfg.database_url).await?;
-    sqlx::migrate!("../../../migrations").run(&pg).await?;
+    sqlx::migrate!("../../migrations").run(&pg).await?;
     let (agent_id, key) = crate::store::create_agent(&pg, name, version).await?;
     println!("agent created");
     println!("agent_id: {agent_id}");

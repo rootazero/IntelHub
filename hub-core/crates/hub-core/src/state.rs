@@ -23,7 +23,10 @@ impl AppState {
             .max_connections(8)
             .connect(&config.database_url)
             .await?;
-        sqlx::migrate!("../../../migrations").run(&pg).await?;
+        sqlx::migrate!("../../migrations")
+            .run(&pg)
+            .await
+            .map_err(|e| crate::error::HubError::internal(format!("migration failed: {e}")))?;
 
         let redis_client = redis::Client::open(config.redis_url.clone())?;
         let redis = redis_client.get_multiplexed_async_connection().await?;
@@ -32,7 +35,8 @@ impl AppState {
             &config.neo4j_uri,
             &config.neo4j_user,
             &config.neo4j_password,
-        )?;
+        )
+        .await?;
 
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))

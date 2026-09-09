@@ -16,7 +16,7 @@ tower-http = { version = "0.6", features = ["trace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
 sqlx = { version = "0.8", default-features = false, features = [
-  "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate",
+  "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros",
 ] }
 rmcp = { version = "3.0", features = ["server", "transport-streamable-http-server"] }
 neo4rs = { version = "0.8" }

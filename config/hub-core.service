@@ -1,0 +1,31 @@
+# hub-core.service — IntelHub Hub Core (SP2A), native systemd per directive §20.
+[Unit]
+Description=IntelHub Hub Core (MCP Gateway / Evidence API / Ingest / Event Bus)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zou
+Group=zou
+WorkingDirectory=/home/zou/IntelHub/core
+EnvironmentFile=/home/zou/IntelHub/core/hub.env
+EnvironmentFile=/home/zou/IntelHub/core/secrets.env
+ExecStart=/home/zou/IntelHub/core/hub
+Restart=always
+RestartSec=3
+
+# Hardening (directive §2: hub is the trusted boundary — lock IT down too)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/zou/IntelHub/data /home/zou/IntelHub/core
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

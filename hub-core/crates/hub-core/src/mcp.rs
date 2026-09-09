@@ -70,6 +70,18 @@ fn map_err(e: crate::error::HubError) -> McpError {
     }
 }
 
+/// UUIDs cross the MCP boundary as strings; parse centrally.
+fn parse_uuid(s: &str, field: &str) -> Result<Uuid, McpError> {
+    Uuid::parse_str(s).map_err(|_| McpError::invalid_params(format!("invalid uuid in {field}"), None))
+}
+
+fn parse_uuid_opt(s: &Option<String>, field: &str) -> Result<Option<Uuid>, McpError> {
+    match s {
+        Some(v) if !v.is_empty() => Ok(Some(parse_uuid(v, field)?)),
+        _ => Ok(None),
+    }
+}
+
 // ---------- argument structs ----------
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -84,8 +96,8 @@ pub struct SearchWebArgs {
 pub struct CrawlUrlArgs {
     /// URL to crawl and ingest as evidence
     pub url: String,
-    /// Optional investigation to attach the crawl task to
-    pub investigation_id: Option<Uuid>,
+    /// Optional investigation UUID to attach the crawl task to
+    pub investigation_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -97,7 +109,7 @@ pub struct FetchDocumentArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct DocIdArgs {
     /// Document UUID
-    pub document_id: Uuid,
+    pub document_id: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -151,7 +163,7 @@ pub struct CreateInvestigationArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct UpdateInvestigationArgs {
     /// Investigation UUID
-    pub investigation_id: Uuid,
+    pub investigation_id: String,
     pub title: Option<String>,
     pub question: Option<String>,
     pub target: Option<String>,
@@ -163,7 +175,7 @@ pub struct UpdateInvestigationArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct EvidenceLink {
     /// Document UUID supporting/contradicting the finding
-    pub document_id: Uuid,
+    pub document_id: String,
     /// "supports" (default) or "contradicts"
     pub relation: Option<String>,
 }
@@ -171,7 +183,7 @@ pub struct EvidenceLink {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateFindingArgs {
     /// Investigation UUID this finding belongs to
-    pub investigation_id: Uuid,
+    pub investigation_id: String,
     /// Short finding title
     pub title: String,
     /// The claim text (agent inference — NOT verified fact, directive §29)
@@ -179,7 +191,7 @@ pub struct CreateFindingArgs {
     /// Evidence links — at least one required
     pub evidence: Vec<EvidenceLink>,
     /// Optional task UUID to attribute
-    pub task_id: Option<Uuid>,
+    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -193,7 +205,7 @@ pub struct ListInvestigationsArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct TaskIdArgs {
     /// Task UUID
-    pub task_id: Uuid,
+    pub task_id: String,
 }
 
 // ---------- tool implementations ----------
@@ -259,7 +271,8 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         let agent = agent_of(&ctx);
-        let result = self.crawl_and_ingest(&agent, &args.url, args.investigation_id).await;
+        let investigation_id = parse_uuid_opt(&args.investigation_id, "investigation_id")?;
+        let result = self.crawl_and_ingest(&agent, &args.url, investigation_id).await;
         let out = match result {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
@@ -346,7 +359,7 @@ impl HubMcp {
         .bind(&canonical)
         .fetch_optional(&self.state.pg)
         .await
-        .map_err(map_err)?;
+        .map_err(|e| map_err(e.into()))?;
         let out = if let Some(doc_id) = existing {
             let doc = crate::store::get_document(&self.state.pg, doc_id).await.map_err(map_err)?;
             ok_text(json!({ "source": "store", "document": doc }))
@@ -377,7 +390,8 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
-        let out = match self.get_evidence_inner(args.document_id).await {
+        let doc_id = parse_uuid(&args.document_id, "document_id")?;
+        let out = match self.get_evidence_inner(doc_id).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
@@ -419,7 +433,8 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
-        let out = match crate::store::get_document(&self.state.pg, args.document_id).await {
+        let doc_id = parse_uuid(&args.document_id, "document_id")?;
+        let out = match crate::store::get_document(&self.state.pg, doc_id).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
@@ -583,9 +598,10 @@ impl HubMcp {
                 return Err(McpError::invalid_params("status must be open|paused|closed", None));
             }
         }
+        let id = parse_uuid(&args.investigation_id, "investigation_id")?;
         let res = crate::store::update_investigation(
             &self.state.pg,
-            args.investigation_id,
+            id,
             args.title.as_deref(),
             args.question.as_deref(),
             args.target.as_deref(),
@@ -594,7 +610,7 @@ impl HubMcp {
         )
         .await;
         let out = match res {
-            Ok(true) => ok_text(json!({ "investigation_id": args.investigation_id, "updated": true })),
+            Ok(true) => ok_text(json!({ "investigation_id": id, "updated": true })),
             Ok(false) => Err(McpError::invalid_params("investigation not found", None)),
             Err(e) => Err(map_err(e)),
         };
@@ -610,28 +626,32 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         let agent = agent_of(&ctx);
-        let evidence: Vec<(Uuid, String)> = args
-            .evidence
-            .iter()
-            .map(|e| (e.document_id, e.relation.clone().unwrap_or_else(|| "supports".to_string())))
-            .collect();
+        let investigation_id = parse_uuid(&args.investigation_id, "investigation_id")?;
+        let task_id = parse_uuid_opt(&args.task_id, "task_id")?;
+        let mut evidence: Vec<(Uuid, String)> = Vec::with_capacity(args.evidence.len());
+        for e in &args.evidence {
+            evidence.push((
+                parse_uuid(&e.document_id, "evidence.document_id")?,
+                e.relation.clone().unwrap_or_else(|| "supports".to_string()),
+            ));
+        }
         let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
         let res = crate::store::create_finding(
             &self.state.pg,
-            args.investigation_id,
+            investigation_id,
             &args.title,
             &args.claim_text,
             &evidence,
             &format!("agent:{}", agent.name),
             agent_id,
-            args.task_id,
+            task_id,
         )
         .await;
         let out = match res {
             Ok(id) => {
                 crate::events::publish(
                     &self.state,
-                    BusEvent::new("FINDING_CREATED", &format!("agent:{}", agent.name), json!({ "finding_id": id, "title": args.title, "evidence_count": evidence.len() })).with_investigation(args.investigation_id),
+                    BusEvent::new("FINDING_CREATED", &format!("agent:{}", agent.name), json!({ "finding_id": id, "title": args.title, "evidence_count": evidence.len() })).with_investigation(investigation_id),
                 )
                 .await;
                 ok_text(json!({ "finding_id": id, "evidence_links": evidence.len() }))
@@ -665,7 +685,8 @@ impl HubMcp {
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
-        let out = match crate::store::get_task(&self.state.pg, args.task_id).await {
+        let task_id = parse_uuid(&args.task_id, "task_id")?;
+        let out = match crate::store::get_task(&self.state.pg, task_id).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
