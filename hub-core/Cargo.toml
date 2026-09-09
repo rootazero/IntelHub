@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["crates/hub", "crates/hub-core"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+
+# Exact dependency versions are pinned in Cargo.lock (committed).
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.9" }
+axum = { version = "0.8" }
+tower-http = { version = "0.6", features = ["trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1" }
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate",
+] }
+rmcp = { version = "3.0", features = ["server", "transport-streamable-http-server"] }
+neo4rs = { version = "0.8" }
+redis = { version = "0.27", features = ["tokio-comp"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+futures = "0.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
