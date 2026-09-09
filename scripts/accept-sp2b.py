@@ -199,21 +199,31 @@ check("§42 cache: re-embed reuses chunks, 0 new tokens",
       "reused" in (reason or "") and tok_before == tok_after, f"reason={reason} tokens {tok_before}→{tok_after}")
 
 # ── 5. Alert closed loop (webhook) ───────────────────────────────────
+# Dedupe semantics: an open alert with the same dedupe_key gets BUMPED (no new
+# row, no new delivery) — correct anti-spam behavior. For a deterministic test,
+# close lingering open flap alerts first so this run produces a FRESH alert +
+# delivery row; match on updated_at to also catch bumps.
+sql("UPDATE alerts SET status='ack', updated_at=now() WHERE dedupe_key LIKE 'flap:searxng%' AND status='open'")
+sh("pgrep -f webhook_sink.py >/dev/null || (nohup python3 /tmp/webhook_sink.py >/dev/null 2>&1 &)")
+cutoff = sql("SELECT now()")  # server-time cutoff: only alerts CREATED after cleanup qualify
 sh("docker stop intelhub-searxng")
 deadline = time.time() + 90
 alert_id = ""
 while time.time() < deadline:
     time.sleep(8)
-    alert_id = sql("SELECT alert_id FROM alerts WHERE source='sensor' AND title LIKE '%searxng%DOWN%' AND created_at > now() - interval '5 minutes' ORDER BY created_at DESC LIMIT 1")
+    alert_id = sql(f"SELECT alert_id FROM alerts WHERE source='sensor' AND title LIKE '%searxng%DOWN%' AND created_at > '{cutoff}' ORDER BY created_at DESC LIMIT 1")
     if alert_id: break
 check("sensor stop → critical alert raised", bool(alert_id), f"alert={alert_id[:8] if alert_id else 'none'}")
 deadline = time.time() + 60
 dstat = ""
+tstat = ""
 while time.time() < deadline:
     time.sleep(5)
-    dstat = sql(f"SELECT status FROM alert_deliveries WHERE alert_id='{alert_id}'" if alert_id else "SELECT ''")
-    if dstat == "DELIVERED": break
+    dstat = sql(f"SELECT string_agg(status, ',' ORDER BY status) FROM alert_deliveries WHERE alert_id='{alert_id}' AND endpoint != 'telegram://chat'" if alert_id else "SELECT ''")
+    tstat = sql(f"SELECT string_agg(status, ',' ORDER BY status) FROM alert_deliveries WHERE alert_id='{alert_id}' AND endpoint = 'telegram://chat'" if alert_id else "SELECT ''")
+    if dstat == "DELIVERED" and tstat == "DELIVERED": break
 check("webhook DELIVERED", dstat == "DELIVERED", f"status={dstat}")
+check("telegram DELIVERED (SP5 channel)", tstat == "DELIVERED", f"status={tstat}")
 hits = sh("grep -c searxng /tmp/webhook-hits.log 2>/dev/null || echo 0")
 check("webhook receiver got payload", hits.isdigit() and int(hits) >= 1, f"hits={hits}")
 sh("docker start intelhub-searxng")

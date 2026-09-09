@@ -45,6 +45,11 @@ pub struct Config {
     pub crucix_url: String,
     /// Prometheus base URL for §52 metrics aggregation.
     pub prometheus_url: String,
+    /// SP5: Telegram alert channel (secrets.env). None = channel disabled.
+    pub alert_telegram_bot_token: Option<String>,
+    pub alert_telegram_chat_id: Option<String>,
+    /// SP5: SpiderFoot base URL (LAN-bound sensor port).
+    pub spiderfoot_url: String,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -108,6 +113,9 @@ impl Config {
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
             crucix_url: env_or("HUB_CRUCIX_URL", "http://172.30.3.21:3117"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),
+            alert_telegram_bot_token: std::env::var("HUB_ALERT_TELEGRAM_BOT_TOKEN").ok().filter(|s| !s.is_empty()),
+            alert_telegram_chat_id: std::env::var("HUB_ALERT_TELEGRAM_CHAT_ID").ok().filter(|s| !s.is_empty()),
+            spiderfoot_url: env_or("HUB_SPIDERFOOT_URL", "http://10.10.10.41:5001"),
         }
     }
 }

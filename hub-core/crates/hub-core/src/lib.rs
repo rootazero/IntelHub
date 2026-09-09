@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod policy;
 pub mod sensors;
 pub mod server;
+pub mod spiderfoot;
 pub mod state;
 pub mod store;
 pub mod types;

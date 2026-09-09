@@ -50,6 +50,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/audit", get(console_audit))
         .route("/api/v1/tasks", get(console_tasks))
         .route("/api/v1/investigations/{id}/workspace", get(console_workspace))
+        // SP5
+        .route("/api/v1/evidence", axum::routing::post(post_evidence))
         // SP4
         .route("/api/v1/radar/events", get(console_radar_events))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
@@ -601,6 +603,60 @@ async fn console_metrics_summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
     crate::console::metrics_summary(&state).await.map(Json).map_err(hub_err)
+}
+
+// ---------- SP5: external evidence push (Huginn bridge, §50 Evidence Event) ----------
+
+#[derive(Debug, Deserialize)]
+struct EvidencePush {
+    source: String,
+    url: String,
+    title: Option<String>,
+    content: String,
+    published_at: Option<String>,
+    metadata: Option<Value>,
+    provenance: Option<Value>,
+}
+
+async fn post_evidence(
+    State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+    Json(body): Json<EvidencePush>,
+) -> Result<Json<Value>, Response> {
+    if body.content.len() > 2 * 1024 * 1024 {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "content exceeds 2MB".into()));
+    }
+    if body.source.trim().is_empty() || body.url.trim().is_empty() || body.content.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "source, url, content are required".into()));
+    }
+    if !(body.url.starts_with("http://") || body.url.starts_with("https://")) {
+        return Err(err(StatusCode::BAD_REQUEST, "url must be http(s)".into()));
+    }
+    let published_at = body
+        .published_at
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let outcome = crate::ingest::ingest_content(
+        &state,
+        &body.source,
+        &body.url,
+        body.title.as_deref(),
+        &body.content,
+        published_at,
+        body.metadata.unwrap_or_else(|| json!({})),
+        body.provenance.unwrap_or_else(|| json!({ "pushed_by": agent.name })),
+        None,
+        "auto",
+    )
+    .await
+    .map_err(hub_err)?;
+    Ok(Json(json!({
+        "document_id": outcome.document_id,
+        "content_hash": outcome.content_hash,
+        "duplicate": outcome.duplicate,
+        "near_duplicate_of": outcome.near_duplicate_of,
+    })))
 }
 
 // ---------- SP3: static console serving (public shell, SPA fallback) ----------

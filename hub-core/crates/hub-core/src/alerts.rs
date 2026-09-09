@@ -97,6 +97,21 @@ pub async fn raise(state: &AppState, a: NewAlert<'_>) -> Result<Uuid> {
             .await?;
         }
     }
+    // SP5: Telegram channel — same severity filter, endpoint scheme
+    // `telegram://chat` tells the dispatcher to use sendMessage formatting.
+    if state.config.alert_telegram_bot_token.is_some()
+        && state.config.alert_telegram_chat_id.is_some()
+        && severity_rank(a.severity) >= severity_rank(&state.config.alert_webhook_min_severity)
+    {
+        sqlx::query(
+            "INSERT INTO alert_deliveries (delivery_id, alert_id, endpoint) VALUES ($1,$2,$3)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(id)
+        .bind("telegram://chat")
+        .execute(&state.pg)
+        .await?;
+    }
     Ok(id)
 }
 
@@ -189,22 +204,30 @@ async fn dispatch_once(state: &AppState) -> Result<()> {
         .fetch_all(&state.pg)
         .await?;
     for (delivery_id, alert_id, endpoint, attempts, sev, src, title, action) in pending {
-        let payload = json!({
-            "alert_id": alert_id, "severity": sev, "source": src,
-            "title": title, "recommended_action": action,
-            "ts": chrono::Utc::now(),
-        });
-        let res = state
-            .http
-            .post(&endpoint)
-            .json(&payload)
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await;
+        let res: std::result::Result<(), String> = if endpoint == "telegram://chat" {
+            send_telegram(state, &sev, &src, &title, action.as_deref()).await
+        } else {
+            let payload = json!({
+                "alert_id": alert_id, "severity": sev, "source": src,
+                "title": title, "recommended_action": action,
+                "ts": chrono::Utc::now(),
+            });
+            match state
+                .http
+                .post(&endpoint)
+                .json(&payload)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_success() => Ok(()),
+                Ok(r) => Err(format!("HTTP {}", r.status())),
+                Err(e) => Err(e.to_string()),
+            }
+        };
         let (ok, err) = match &res {
-            Ok(r) if r.status().is_success() => (true, None),
-            Ok(r) => (false, Some(format!("HTTP {}", r.status()))),
-            Err(e) => (false, Some(e.to_string())),
+            Ok(()) => (true, None),
+            Err(e) => (false, Some(e.clone())),
         };
         if ok {
             sqlx::query(
@@ -231,6 +254,48 @@ async fn dispatch_once(state: &AppState) -> Result<()> {
         .await?;
     }
     Ok(())
+}
+
+/// SP5: Telegram delivery via Bot API sendMessage (config-driven; the
+/// endpoint cell stays `telegram://chat` so alert_deliveries audit is uniform).
+async fn send_telegram(
+    state: &AppState,
+    severity: &str,
+    source: &str,
+    title: &str,
+    action: Option<&str>,
+) -> std::result::Result<(), String> {
+    let token = state.config.alert_telegram_bot_token.clone().unwrap_or_default();
+    let chat_id = state.config.alert_telegram_chat_id.clone().unwrap_or_default();
+    let url = format!("https://api.telegram.org/bot{token}/sendMessage");
+    let text = format!(
+        "{} IntelHub Alert\nseverity: {} | source: {}\n{}\n{}{}",
+        match severity {
+            "critical" => "🔴",
+            "warning" => "🟠",
+            _ => "ℹ️",
+        },
+        severity,
+        source,
+        title,
+        action.map(|a| format!("action: {a}\n")).unwrap_or_default(),
+        "— http://10.10.10.41:8800/alerts"
+    );
+    let res = state
+        .http
+        .post(&url)
+        .json(&json!({ "chat_id": chat_id, "text": text, "disable_web_page_preview": true }))
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        Err(format!("telegram HTTP {}: {}", status, &body[..body.len().min(120)]))
+    }
 }
 
 // ---------- sensor health flap watcher (§54 sensor alerts) ----------

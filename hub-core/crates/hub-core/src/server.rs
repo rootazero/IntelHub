@@ -83,6 +83,12 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         let t = ct.child_token();
         tokio::spawn(async move { crate::crucix::run_crucix_sync(s, t).await });
     }
+    {
+        // SP5: SpiderFoot finished-scan → evidence bridge (§48).
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::spiderfoot::run_spiderfoot_sync(s, t).await });
+    }
 
     // Qdrant collection provisioning (idempotent; failure is non-fatal —
     // the embedding worker will surface outages as alerts).
