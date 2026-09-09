@@ -30,7 +30,7 @@ table inet filter {
     ct state invalid drop
     ip protocol icmp accept
     ip6 nexthdr icmpv6 accept
-    ip saddr ${LAN} tcp dport { 22, 7474, 7687, 8080, 11235, 5001, 3000 } accept
+    ip saddr ${LAN} tcp dport { 22, 7474, 7687, 8080, 8800, 11235, 5001, 3000 } accept
   }
   chain forward {
     type filter hook forward priority 0; policy accept;
@@ -39,7 +39,7 @@ table inet filter {
     # to published container ports are LAN-only. A drop here is final
     # across all forward-hook base chains; policy stays accept so Docker's
     # own ip/filter chains keep working untouched.
-    ct state new ip daddr 172.30.0.0/16 tcp dport { 7474, 7687, 8080, 11235, 5001, 3000 } ip saddr != ${LAN} counter drop
+    ct state new ip daddr 172.30.0.0/16 tcp dport { 7474, 7687, 8080, 8800, 11235, 5001, 3000 } ip saddr != ${LAN} counter drop
   }
   chain output {
     type filter hook output priority 0; policy accept;

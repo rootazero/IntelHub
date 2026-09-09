@@ -23,6 +23,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ../config/postgres/init:/docker-entrypoint-initdb.d:ro
     networks: [data-net]
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback-only: native hub-core (SP2A)
     mem_limit: 1536m
     cpus: 1.5
     healthcheck:
@@ -50,6 +52,8 @@ services:
     volumes:
       - redisdata:/data
     networks: [data-net]
+    ports:
+      - "127.0.0.1:6379:6379"   # loopback-only: native hub-core (SP2A)
     mem_limit: 384m
     cpus: 0.5
     healthcheck:
@@ -77,6 +81,7 @@ services:
     ports:
       - "${LAN_IP}:7474:7474"
       - "${LAN_IP}:7687:7687"
+      - "127.0.0.1:7687:7687"   # loopback-only: native hub-core (SP2A)
     mem_limit: 2g
     cpus: 1.5
     healthcheck:
@@ -97,6 +102,8 @@ services:
       - qdrantdata:/qdrant/storage
       - ../backups/qdrant-snapshots:/qdrant/snapshots
     networks: [data-net]
+    ports:
+      - "127.0.0.1:6333:6333"   # loopback-only: native hub-core (SP2A)
     mem_limit: 2g
     cpus: 1.5
     healthcheck:
