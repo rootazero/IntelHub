@@ -82,8 +82,10 @@ pub async fn system_health(state: &AppState) -> Value {
     .await;
 
     let neo4j = probe(|| async {
-        let mut res = state.neo4j.execute(neo4rs::query("RETURN 1")).await;
-        matches!(res.as_mut(), Ok(r) => r.next().await.ok().flatten().is_some())
+        match state.neo4j.execute(neo4rs::query("RETURN 1")).await {
+            Ok(mut rows) => rows.next().await.ok().flatten().is_some(),
+            Err(_) => false,
+        }
     })
     .await;
 

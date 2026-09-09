@@ -10,7 +10,7 @@ license = "MIT"
 # Exact dependency versions are pinned in Cargo.lock (committed).
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.9" }
+tokio-util = { version = "0.7" }
 axum = { version = "0.8" }
 tower-http = { version = "0.6", features = ["trace"] }
 serde = { version = "1", features = ["derive"] }
