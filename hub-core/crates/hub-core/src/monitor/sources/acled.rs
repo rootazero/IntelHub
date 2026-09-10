@@ -43,8 +43,8 @@ impl Source for Acled {
                 .await?;
             if resp.status().as_u16() == 403 {
                 return Err(HubError::internal(
-                    "ACLED 403 — Cloudflare egress block (error 1010 bans bot-signature clients/IPs; \
-                     check proxy routing for acleddata.com) or expired token",
+                    "ACLED 403 Access denied — account tier below Research (API access pending \
+                     ACLED Access Team approval); collector retries hourly and self-heals once approved",
                 ));
             }
             if !resp.status().is_success() {
