@@ -109,6 +109,7 @@ export const en = {
     allKinds: "all kinds",
     events: "{n} events",
     tilesOnline: "TILES: ONLINE",
+    tilesEsri: "TILES: ESRI FALLBACK",
     tilesOffline: "TILES: OFFLINE FALLBACK",
     retryOnline: "retry online",
     creating: "creating…",

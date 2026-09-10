@@ -112,6 +112,7 @@ export const zh: Dict = {
     allKinds: "全部类型",
     events: "{n} 条事件",
     tilesOnline: "瓦片: 在线",
+    tilesEsri: "瓦片: Esri 兜底",
     tilesOffline: "瓦片: 离线降级",
     retryOnline: "重试在线",
     creating: "创建中…",

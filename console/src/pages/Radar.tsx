@@ -29,7 +29,31 @@ const SEV_COLOR: Record<string, string> = {
 const KINDS = ["fire", "conflict", "flight", "radiation", "maritime", "news", "health", "economic", "other"];
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
-type TilesMode = "online" | "offline";
+type TilesMode = "carto" | "esri" | "offline";
+
+// Basemap chain: CARTO dark_all (registered free key) → Esri World Dark Gray
+// (keyless) → bundled offline GeoJSON. A burst of ≥4 tile errors (or no
+// successful tile in the first 5s) advances one tier. Note: CARTO answers a
+// missing/invalid key with HTTP 200 + watermarked tiles, which does NOT emit
+// tileerror — only genuine network/HTTP failures trigger failover.
+const PROVIDERS = {
+  carto: {
+    url: "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=cb1_34br_1_d014750721687b14b7640ec9",
+    options: {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: "abcd",
+      maxZoom: 20,
+    },
+  },
+  esri: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    options: {
+      attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, DeLorme, NAVTEQ',
+      maxZoom: 16,
+    },
+  },
+} as const;
 
 export default function Radar() {
   const { t } = useT();
@@ -40,12 +64,13 @@ export default function Radar() {
   const divRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<GeoEvent[]>([]);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
-  const [tiles, setTiles] = useState<TilesMode>("online");
+  const [tiles, setTiles] = useState<TilesMode>("carto");
   const [window_, setWindow_] = useState("24h");
   const [sev, setSev] = useState("");
   const [kind, setKind] = useState("");
   const [creating, setCreating] = useState(false);
   const failCount = useRef(0);
+  const tileProvider = useRef<"carto" | "esri">("carto");
   const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
 
   // ---- map init (once) ----
@@ -62,37 +87,46 @@ export default function Radar() {
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
-    addTileLayer(map);
+    addTileLayer(map, "carto");
 
-    // first-load timeout: if no tile succeeded in 5s, go offline
+    // first-load timeout: if tiles are erroring after 5s, advance one tier
     const t = setTimeout(() => {
-      if (failCount.current > 0 && baseRef.current) goOffline();
+      if (failCount.current > 0 && baseRef.current) failover();
     }, 5000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function addTileLayer(map: L.Map) {
-    // Basemap toggle: Esri World Dark Gray (active) vs CARTO dark_all+key.
-    // User comparing aesthetics — keep both URLs here for easy flip.
-    // Esri: keyless, {z}/{y}/{x} order, maxZoom 16.
-    // CARTO: https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=<key>, maxZoom 20.
-    const layer = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-      {
-        attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, DeLorme, NAVTEQ',
-        maxZoom: 16,
-      },
-    );
+  function addTileLayer(map: L.Map, provider: "carto" | "esri") {
+    const p = PROVIDERS[provider];
+    const layer = L.tileLayer(p.url, p.options);
     layer.on("tileerror", () => {
       failCount.current += 1;
-      if (failCount.current >= 4) goOffline();
+      if (failCount.current >= 4) failover();
     });
     layer.on("tileload", () => {
       failCount.current = 0;
     });
     baseRef.current = layer;
     layer.addTo(map);
+    tileProvider.current = provider;
+    setTiles(provider);
+  }
+
+  // advance the basemap chain: carto → esri → offline
+  function failover() {
+    const map = mapRef.current;
+    if (!map) return;
+    if (tileProvider.current === "carto") {
+      if (baseRef.current) {
+        map.removeLayer(baseRef.current);
+        baseRef.current = null;
+      }
+      failCount.current = 0;
+      addTileLayer(map, "esri");
+    } else {
+      void goOffline();
+    }
   }
 
   async function goOffline() {
@@ -122,13 +156,13 @@ export default function Radar() {
     setTiles("offline");
   }
 
+  // manual retry: back to the top of the chain (carto)
   function goOnline() {
     const map = mapRef.current;
     if (!map) return;
     if (baseRef.current) map.removeLayer(baseRef.current);
     failCount.current = 0;
-    addTileLayer(map);
-    setTiles("online");
+    addTileLayer(map, "carto");
   }
 
   // ---- data ----
@@ -226,11 +260,11 @@ export default function Radar() {
         <span className="text-dim">{t("radar.events", { n: events.length })}</span>
         <span className="ml-auto flex items-center gap-2">
           <span
-            className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === "online" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
+            className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === "carto" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
           >
-            {tiles === "online" ? t("radar.tilesOnline") : t("radar.tilesOffline")}
+            {tiles === "carto" ? t("radar.tilesOnline") : tiles === "esri" ? t("radar.tilesEsri") : t("radar.tilesOffline")}
           </span>
-          {tiles === "offline" && (
+          {tiles !== "carto" && (
             <button className="rounded border border-edge px-1.5 py-0.5 text-[10px] hover:border-accent" onClick={goOnline}>
               {t("radar.retryOnline")}
             </button>
