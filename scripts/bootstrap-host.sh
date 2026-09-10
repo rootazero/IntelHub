@@ -6,8 +6,9 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
-HUB_DIR=/home/zou/IntelHub
-LAN=10.10.10.0/24
+HUB_DIR="${INTELHUB_HOME:-/home/zou/IntelHub}"
+LAN="${INTELHUB_LAN:-10.10.10.0/24}"
+RUN_USER="${INTELHUB_USER:-$(id -un)}"
 
 echo "==> [1/8] apt upgrade + base packages"
 sudo -E apt-get update -qq
@@ -106,7 +107,7 @@ echo "==> [7/8] time synchronization"
 sudo timedatectl set-ntp true
 
 echo "==> [8/8] IntelHub directory skeleton"
-sudo -u zou mkdir -p ${HUB_DIR}/{compose,manifests,config,scripts,backups}
+sudo -u "$RUN_USER" mkdir -p ${HUB_DIR}/{compose,manifests,config,scripts,backups}
 
 echo
 echo "==> bootstrap complete"

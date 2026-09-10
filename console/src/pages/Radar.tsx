@@ -30,15 +30,18 @@ const KINDS = ["fire", "conflict", "flight", "radiation", "maritime", "news", "h
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
 type TilesMode = "carto" | "esri" | "offline";
+type TileProvider = "carto" | "esri";
 
-// Basemap chain: CARTO dark_all (registered free key) → Esri World Dark Gray
-// (keyless) → bundled offline GeoJSON. A burst of ≥4 tile errors (or no
-// successful tile in the first 5s) advances one tier. Note: CARTO answers a
-// missing/invalid key with HTTP 200 + watermarked tiles, which does NOT emit
-// tileerror — only genuine network/HTTP failures trigger failover.
+// Basemap chain. CARTO dark_all is primary ONLY when a key is baked in at
+// build time (VITE_CARTO_KEY, set by scripts/install.sh or build-console.sh);
+// without a key the chain starts at Esri (CARTO would answer 200+watermark,
+// which emits no tileerror and could never fail over). A burst of ≥4 tile
+// errors (or no successful tile in the first 5s) advances one tier; the last
+// tier is the bundled offline GeoJSON.
+const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
 const PROVIDERS = {
   carto: {
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=cb1_34br_1_d014750721687b14b7640ec9",
+    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
     options: {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
@@ -54,6 +57,8 @@ const PROVIDERS = {
     },
   },
 } as const;
+const CHAIN: TileProvider[] = CARTO_KEY ? ["carto", "esri"] : ["esri"];
+const PRIMARY = CHAIN[0];
 
 export default function Radar() {
   const { t } = useT();
@@ -64,13 +69,13 @@ export default function Radar() {
   const divRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<GeoEvent[]>([]);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
-  const [tiles, setTiles] = useState<TilesMode>("carto");
+  const [tiles, setTiles] = useState<TilesMode>(PRIMARY);
   const [window_, setWindow_] = useState("24h");
   const [sev, setSev] = useState("");
   const [kind, setKind] = useState("");
   const [creating, setCreating] = useState(false);
   const failCount = useRef(0);
-  const tileProvider = useRef<"carto" | "esri">("carto");
+  const tileProvider = useRef<TileProvider>(PRIMARY);
   const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
 
   // ---- map init (once) ----
@@ -87,7 +92,7 @@ export default function Radar() {
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
-    addTileLayer(map, "carto");
+    addTileLayer(map, PRIMARY);
 
     // first-load timeout: if tiles are erroring after 5s, advance one tier
     const t = setTimeout(() => {
@@ -97,7 +102,7 @@ export default function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function addTileLayer(map: L.Map, provider: "carto" | "esri") {
+  function addTileLayer(map: L.Map, provider: TileProvider) {
     const p = PROVIDERS[provider];
     const layer = L.tileLayer(p.url, p.options);
     layer.on("tileerror", () => {
@@ -113,17 +118,19 @@ export default function Radar() {
     setTiles(provider);
   }
 
-  // advance the basemap chain: carto → esri → offline
+  // advance the basemap chain along CHAIN; last resort is offline GeoJSON
   function failover() {
     const map = mapRef.current;
     if (!map) return;
-    if (tileProvider.current === "carto") {
+    const idx = CHAIN.indexOf(tileProvider.current);
+    const next = CHAIN[idx + 1] as TileProvider | undefined;
+    if (next) {
       if (baseRef.current) {
         map.removeLayer(baseRef.current);
         baseRef.current = null;
       }
       failCount.current = 0;
-      addTileLayer(map, "esri");
+      addTileLayer(map, next);
     } else {
       void goOffline();
     }
@@ -156,13 +163,13 @@ export default function Radar() {
     setTiles("offline");
   }
 
-  // manual retry: back to the top of the chain (carto)
+  // manual retry: back to the top of the chain
   function goOnline() {
     const map = mapRef.current;
     if (!map) return;
     if (baseRef.current) map.removeLayer(baseRef.current);
     failCount.current = 0;
-    addTileLayer(map, "carto");
+    addTileLayer(map, PRIMARY);
   }
 
   // ---- data ----
@@ -260,11 +267,11 @@ export default function Radar() {
         <span className="text-dim">{t("radar.events", { n: events.length })}</span>
         <span className="ml-auto flex items-center gap-2">
           <span
-            className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === "carto" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
+            className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === PRIMARY ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
           >
-            {tiles === "carto" ? t("radar.tilesOnline") : tiles === "esri" ? t("radar.tilesEsri") : t("radar.tilesOffline")}
+            {tiles === PRIMARY ? t("radar.tilesOnline") : tiles === "esri" ? t("radar.tilesEsri") : t("radar.tilesOffline")}
           </span>
-          {tiles !== "carto" && (
+          {tiles !== PRIMARY && (
             <button className="rounded border border-edge px-1.5 py-0.5 text-[10px] hover:border-accent" onClick={goOnline}>
               {t("radar.retryOnline")}
             </button>

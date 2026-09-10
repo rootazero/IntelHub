@@ -5,7 +5,10 @@
 set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# VITE_CARTO_KEY (optional) is baked into the bundle: set → CARTO dark_all
+# primary basemap; unset → Esri primary (see console/src/pages/Radar.tsx).
 docker run --rm \
+  -e VITE_CARTO_KEY="${VITE_CARTO_KEY:-}" \
   -v "$HUB_DIR/console:/src" \
   -v intelhub-npm-cache:/root/.npm \
   -w /src node:22-trixie \
