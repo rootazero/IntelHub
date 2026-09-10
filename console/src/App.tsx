@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
-import { I18nProvider, useT, type Lang } from "./i18n";
+import { I18nProvider, LANGS, useT } from "./i18n";
 import Overview from "./pages/Overview";
 import Radar from "./pages/Radar";
 import Investigations from "./pages/Investigations";
@@ -29,16 +29,48 @@ const NAV = [
 
 function LangSwitch() {
   const { lang, setLang } = useT();
-  const btn = (l: Lang, label: string) => (
-    <button
-      key={l}
-      onClick={() => setLang(l)}
-      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${lang === l ? "bg-accent/20 text-accent" : "text-dim hover:text-ink"}`}
-    >
-      {label}
-    </button>
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const current = LANGS.find((l) => l.code === lang) ?? LANGS[0];
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="rounded border border-edge px-1.5 py-0.5 text-[10px] font-semibold text-dim hover:border-accent hover:text-accent"
+        title="Language / 语言"
+      >
+        {current.short} ▴
+      </button>
+      {open && (
+        <div className="absolute bottom-full right-0 mb-1 min-w-24 overflow-hidden rounded border border-edge bg-panel shadow-lg">
+          {LANGS.map((l) => (
+            <button
+              key={l.code}
+              onClick={() => {
+                setLang(l.code);
+                setOpen(false);
+              }}
+              className={`block w-full px-2.5 py-1 text-left text-[11px] ${
+                l.code === lang ? "bg-accent/15 text-accent font-semibold" : "text-dim hover:bg-edge hover:text-ink"
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
-  return <div className="flex gap-0.5">{[btn("zh", "中文"), btn("en", "EN")]}</div>;
 }
 
 function KeyGate({ onDone }: { onDone: () => void }) {

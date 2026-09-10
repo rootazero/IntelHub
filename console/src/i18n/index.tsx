@@ -7,6 +7,13 @@ import { en, type Dict } from "./en";
 import { zh } from "./zh";
 
 export type Lang = "zh" | "en";
+
+/** Registered languages — add an entry here to support a new one. */
+export const LANGS: { code: Lang; label: string; short: string }[] = [
+  { code: "zh", label: "中文", short: "中" },
+  { code: "en", label: "English", short: "EN" },
+];
+
 const DICTS: Record<Lang, Dict> = { zh, en };
 const LS_KEY = "intelhub-lang";
 
