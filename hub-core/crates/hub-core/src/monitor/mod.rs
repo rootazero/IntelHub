@@ -144,6 +144,7 @@ pub fn series_registry() -> Vec<Box<dyn SeriesCollector>> {
         Box::new(sources::markets::Markets),
         Box::new(sources::finintel::FinIntel),
         Box::new(sources::gscpi::Gscpi),
+        Box::new(sources::comtrade::Comtrade),
     ]
 }
 

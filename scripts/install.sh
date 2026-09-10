@@ -203,6 +203,7 @@ ACLED_PASSWORD=
 RELIEFWEB_APPNAME=
 # SP6B finance collector keys (empty = that collector degrades by design)
 FRED_API_KEY=
+COMTRADE_API_KEY=
 FMP_API_KEY=
 FINNHUB_API_KEY=
 FINANCIALDATASETS_API_KEY=
@@ -239,6 +240,7 @@ step_keys() {
   # SP6B finance collectors (each independently optional)
   local -a fin_keys=(
     "FRED_API_KEY|FRED 宏观序列 key (fred.stlouisfed.org)|宏观时序序列缺失"
+    "COMTRADE_API_KEY|UN Comtrade 贸易序列 key (comtradedeveloper.un.org)|战略贸易流序列缺失"
     "FMP_API_KEY|FMP 报价 key (financialmodelingprep.com)|市场报价序列缺失"
     "FINNHUB_API_KEY|Finnhub key (finnhub.io)|新闻/内部人/财报日历情报缺失"
     "FINANCIALDATASETS_API_KEY|financialdatasets.ai key|financials_fetch 工具不可用"
