@@ -235,7 +235,7 @@ export const zh: Dict = {
     claimConf: "断言置信度",
     hideEvidence: "收起证据 ▲",
     viewEvidence: "查看证据（{n}）▼",
-    noLinkedEvidence: "无关联证据（已被 hub 拒绝 —— §29 要求 ≥1）",
+    noLinkedEvidence: "无关联证据记录",
     target: "目标：",
     question: "问题：",
     hypothesis: "假设：",
