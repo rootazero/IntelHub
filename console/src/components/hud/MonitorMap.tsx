@@ -39,6 +39,14 @@ const PROVIDERS = {
 const CHAIN: TileProvider[] = CARTO_KEY ? ["carto", "esri"] : ["esri"];
 const PRIMARY = CHAIN[0];
 
+// Frame↔map contract: the map always shows the INHABITED world fitted exactly
+// into the card — longitude spans the full 359° so no repeated continent
+// copies can ever render; only uninhabited polar/pacific fringes are trimmed;
+// every continent (incl. East Asia) stays whole. Fractional zoomSnap 0.25 lets
+// fitBounds fill any panel aspect precisely. Leaflet does not track container
+// resizes by itself — invalidateSize() before every refit.
+const WORLD: L.LatLngBoundsExpression = [[-58, -179], [76, 180]];
+
 export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -92,24 +100,20 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
     const map = L.map(divRef.current, {
-      center: [25, 10], zoom: 2, minZoom: 1, maxZoom: 10,
       zoomSnap: 0.25, zoomDelta: 0.25,
-      worldCopyJump: true, attributionControl: false, zoomControl: false,
+      minZoom: 1, maxZoom: 10,
+      worldCopyJump: true,
+      attributionControl: false,
+      zoomControl: false,
       maxBounds: [[-85, -180], [85, 180]],
       maxBoundsViscosity: 1.0,
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     addTileLayer(map, PRIMARY);
-    // Fit the WHOLE world into whatever aspect ratio the panel has:
-    // fitWorld picks the (fractional — zoomSnap 0.25) zoom that keeps every
-    // continent visible while filling the panel. No fixed aspect-ratio on
-    // the card (that cropped East Asia), no integer-zoom black bars.
-    // Leaflet does not track container resizes by itself — invalidateSize()
-    // first, then refit.
     const fit = () => {
       map.invalidateSize();
-      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitWorld({ animate: false });
+      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitBounds(WORLD, { animate: false });
     };
     const raf = requestAnimationFrame(fit);
     const settle = setTimeout(fit, 300);

@@ -299,6 +299,7 @@ export const zh: Dict = {
     chart: "序列",
     markets: "市场",
     indicators: "关键指标",
+    news: "新闻滚动",
     visuals: "视觉效果",
     full: "完整",
     lite: "精简",

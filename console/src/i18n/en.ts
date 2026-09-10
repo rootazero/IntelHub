@@ -297,6 +297,7 @@ export const en = {
     chart: "Series",
     markets: "Markets",
     indicators: "Key Indicators",
+    news: "News Ticker",
     visuals: "VISUALS",
     full: "FULL",
     lite: "LITE",
