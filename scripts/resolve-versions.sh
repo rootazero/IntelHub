@@ -56,10 +56,9 @@ LAN_IP="${LAN_IP:-$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i+
 [[ -z "$LAN_IP" ]] && { echo "ERROR: could not detect LAN IP; set LAN_IP=x.x.x.x" >&2; exit 1; }
 echo "    LAN_IP=$LAN_IP"
 
-# SP4 observability + crucix pins: validated versions, env-overridable.
+# SP4 observability pins: validated versions, env-overridable.
 # (Not live-resolved: cadvisor lives on gcr.io, grafana tag scheme differs —
 # deterministic pins match the directive's version-pinning requirement.)
-CRUCIX_IMAGE="crucix:sha-${INTELHUB_CRUCIX_SHA:-3db7068}"
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-v3.14.0}"
 NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION:-v1.12.1}"
 CADVISOR_VERSION="${CADVISOR_VERSION:-v0.55.1}"
@@ -92,8 +91,7 @@ SPIDERFOOT_COMMIT=${SPIDERFOOT_COMMIT}
 HUGINN_REF=@${HUGINN_DIGEST}
 HUGINN_DB_PASSWORD=$(rand)
 
-# SP4 observability stack + crucix (deterministic pins, env-overridable)
-CRUCIX_IMAGE=${CRUCIX_IMAGE}
+# SP4 observability stack (deterministic pins, env-overridable)
 PROMETHEUS_VERSION=${PROMETHEUS_VERSION}
 NODE_EXPORTER_VERSION=${NODE_EXPORTER_VERSION}
 CADVISOR_VERSION=${CADVISOR_VERSION}

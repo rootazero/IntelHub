@@ -41,8 +41,6 @@ pub struct Config {
     /// SP3: directory holding the built console SPA (index.html + assets).
     pub console_dir: String,
     // ── SP4 ────────────────────────────────────────────────────────
-    /// Crucix base URL (mgmt-net static IP).
-    pub crucix_url: String,
     /// Prometheus base URL for §52 metrics aggregation.
     pub prometheus_url: String,
     /// SP5: Telegram alert channel (secrets.env). None = channel disabled.
@@ -50,6 +48,15 @@ pub struct Config {
     pub alert_telegram_chat_id: Option<String>,
     /// SP5: SpiderFoot base URL (LAN-bound sensor port).
     pub spiderfoot_url: String,
+    // ── SP6 native monitor ─────────────────────────────────────────
+    pub monitor_enabled: bool,
+    /// "all" or a comma-separated subset of source names.
+    pub monitor_sources: Vec<String>,
+    pub monitor_geo_retention_days: u32,
+    /// Source keys (secrets.env): None = that source degrades by design.
+    pub monitor_firms_key: Option<String>,
+    pub monitor_acled_email: Option<String>,
+    pub monitor_acled_password: Option<String>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -111,11 +118,22 @@ impl Config {
             embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "300").parse().unwrap_or(300),
             embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
-            crucix_url: env_or("HUB_CRUCIX_URL", "http://172.30.3.21:3117"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),
             alert_telegram_bot_token: std::env::var("HUB_ALERT_TELEGRAM_BOT_TOKEN").ok().filter(|s| !s.is_empty()),
             alert_telegram_chat_id: std::env::var("HUB_ALERT_TELEGRAM_CHAT_ID").ok().filter(|s| !s.is_empty()),
             spiderfoot_url: env_or("HUB_SPIDERFOOT_URL", "http://10.10.10.41:5001"),
+            monitor_enabled: env_or("HUB_MONITOR_ENABLED", "true") == "true",
+            monitor_sources: env_or("HUB_MONITOR_SOURCES", "all")
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            monitor_geo_retention_days: env_or("HUB_MONITOR_GEO_RETENTION_DAYS", "30")
+                .parse()
+                .unwrap_or(30),
+            monitor_firms_key: std::env::var("FIRMS_MAP_KEY").ok().filter(|s| !s.is_empty()),
+            monitor_acled_email: std::env::var("ACLED_EMAIL").ok().filter(|s| !s.is_empty()),
+            monitor_acled_password: std::env::var("ACLED_PASSWORD").ok().filter(|s| !s.is_empty()),
         }
     }
 }

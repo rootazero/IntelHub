@@ -61,10 +61,10 @@ PSQL = 'DBURL=$(grep "^DATABASE_URL=" /home/zou/IntelHub/core/hub.env | cut -d= 
 
 print("== SP5 acceptance ==")
 
-# 1. crucix key-gated sources live (FIRMS/EIA/ACLED)
-ch = vm_json("curl -s -m 10 http://172.30.3.21:3117/api/health")
-check("crucix sourcesOk >= 27 after keys", ch.get("sourcesOk", 0) >= 27, f"ok={ch.get('sourcesOk')} failed={ch.get('sourcesFailed')}")
-fires = vm(f"""{PSQL} "SELECT count(*) FROM geo_events WHERE kind='fire'" """).splitlines()[-1]
+# 1. monitor key-gated sources live (FIRMS/ACLED keys migrated to hub secrets.env)
+firms_state = vm("docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep '^REDIS_PASSWORD=' /home/zou/IntelHub/compose/.env | cut -d= -f2) HGET hub:monitor:health firms")
+check("monitor FIRMS source ok (key migrated)", '\"state\":\"ok\"' in firms_state.replace(" ", ""), firms_state[:120])
+fires = vm(f"""{PSQL} "SELECT count(*) FROM geo_events WHERE source='monitor:firms'" """).splitlines()[-1]
 check("FIRMS fire events in geo_events", fires.isdigit() and int(fires) > 0, f"fire={fires}")
 
 # 2. spiderfoot + huginn containers healthy

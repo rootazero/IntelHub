@@ -1,4 +1,4 @@
-// Radar (§26) — global signal map fed by hub geo_events (Crucix sweeps).
+// Radar (§26) — global signal map fed by hub geo_events (native monitor sweeps).
 // Dual basemap: CARTO dark tiles by default; on tile failure burst or first
 // load timeout, falls back to the bundled offline world vector layer.
 import { useEffect, useRef, useState } from "react";
@@ -26,7 +26,7 @@ const SEV_COLOR: Record<string, string> = {
   info: "#38bdf8",
 };
 
-const KINDS = ["fire", "conflict", "flight", "radiation", "maritime", "news", "health", "economic", "other"];
+const KINDS = ["fire", "conflict", "flight", "radiation", "maritime", "news", "health", "economic", "quake", "disaster", "other"];
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
 type TilesMode = "carto" | "esri" | "offline";
@@ -195,7 +195,7 @@ export default function Radar() {
   // SSE: refetch on new sweep ingestion
   useEffect(() => {
     const stop = streamEvents((ev) => {
-      if (ev.event_type === "crucix_sweep_ingested") load();
+      if (ev.event_type === "monitor_sweep_ingested") load();
     });
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps

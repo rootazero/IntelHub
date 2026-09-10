@@ -133,10 +133,13 @@ pub async fn system_health(state: &AppState) -> Value {
     })
     .await;
 
-    // SP4 components (§68): crucix signal layer + observability stack.
-    let crucix = probe(|| async {
-        let url = format!("{}/api/health", state.config.crucix_url);
-        matches!(state.http.get(&url).send().await, Ok(r) if r.status().is_success())
+    // SP6: native monitor — healthy when ≥1 collector reports ok in Redis.
+    let monitor = probe(|| async {
+        let map: Option<std::collections::HashMap<String, String>> = state
+            .redis_timed(redis::cmd("HGETALL").arg("hub:monitor:health").clone(), 2000)
+            .await;
+        map.map(|m| m.values().any(|cell| cell.contains("\"state\":\"ok\"")))
+            .unwrap_or(false)
     })
     .await;
     let prometheus = probe(|| async {
@@ -162,7 +165,7 @@ pub async fn system_health(state: &AppState) -> Value {
             "qdrant": qdrant,
             "searxng": searxng,
             "crawl4ai": crawl4ai,
-            "crucix": crucix,
+            "monitor": monitor,
             "prometheus": prometheus,
             "grafana": grafana,
         },

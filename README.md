@@ -2,9 +2,10 @@
 
 Agent-agnostic, MCP-native, Docker-first intelligence infrastructure on a single
 host: Rust hub-core (MCP gateway / evidence store / event bus / policy & cost
-governance), containerized data + sensor plane, Crucix macro-signal layer with
-Prometheus/Grafana observability, and a built-in web console with a global
-radar map.
+governance / **native monitor signal collectors**), containerized data + sensor
+plane, Prometheus/Grafana observability, and a built-in web console with a
+global radar map. (SP6: the signal layer moved from the Crucix container into
+hub-core itself — 9 built-in collectors + static chokepoint layer.)
 
 ## One-line install (Debian/Ubuntu, e.g. a fresh Proxmox VM)
 

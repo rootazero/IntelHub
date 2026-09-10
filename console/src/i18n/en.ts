@@ -54,6 +54,8 @@ export const en = {
       news: "news",
       health: "health",
       economic: "economic",
+      quake: "earthquake",
+      disaster: "disaster",
       other: "other",
     },
     emb: { DONE: "DONE", PENDING: "PENDING", RUNNING: "RUNNING", SKIPPED: "SKIPPED", FAILED: "FAILED" },
@@ -100,11 +102,11 @@ export const en = {
     geoPerDay: "geo events / 24h",
     sourcesOk: "{ok} sources ok",
     sourcesFailed: " · {failed} failed",
-    lastSweep: "last sweep",
+
   },
   radar: {
     title: "Global Radar",
-    subtitle: "§26 · Crucix signal layer",
+    subtitle: "§26 · native monitor signal layer",
     allSeverity: "all severity",
     allKinds: "all kinds",
     events: "{n} events",

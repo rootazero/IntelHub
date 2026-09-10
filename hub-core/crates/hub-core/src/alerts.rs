@@ -34,6 +34,64 @@ fn severity_rank(s: &str) -> i32 {
     }
 }
 
+/// SP6 trio ①: semantic dedupe key — digits collapse to '#', so "12 killed in
+/// X" and "15 killed in X" hash identically and BUMP one alert instead of
+/// opening a fresh row per casualty update (ported from Crucix's semantic
+/// hash, unified into our single dedupe path — no parallel state).
+pub fn semantic_key(title: &str) -> String {
+    let mut norm = String::with_capacity(title.len());
+    for c in title.chars() {
+        if c.is_ascii_digit() {
+            if !norm.ends_with('#') {
+                norm.push('#');
+            }
+        } else {
+            norm.extend(c.to_lowercase());
+        }
+    }
+    crate::auth::hash_key(&norm)
+}
+
+/// SP6 trio ②: decay cooldown (ported from Crucix's decaying alert cadence).
+/// Re-notification for the same dedupe_key requires an increasing gap since
+/// the last successful delivery: notification #2 after 6h, #3 after 12h,
+/// #4+ after 24h. Suppression skips only the DELIVERY enqueue — the alert row
+/// is still inserted (audit + console visibility preserved).
+async fn cooldown_suppresses(state: &AppState, dedupe_key: &str) -> bool {
+    let row: std::result::Result<(i64, Option<chrono::DateTime<chrono::Utc>>), sqlx::Error> = sqlx::query_as(
+        "SELECT count(DISTINCT a.alert_id), max(d.delivered_at)
+         FROM alert_deliveries d JOIN alerts a ON a.alert_id = d.alert_id
+         WHERE a.dedupe_key = $1 AND d.status = 'DELIVERED'",
+    )
+    .bind(dedupe_key)
+    .fetch_one(&state.pg)
+    .await;
+    let Ok((prior_alerts, last_delivered)) = row else {
+        return false; // on DB error, fail open (deliver) — alerts must not be lost
+    };
+    let Some(last) = last_delivered else {
+        return false; // never delivered before
+    };
+    let gap_hours = match prior_alerts {
+        0 => return false,
+        1 => 6,
+        2 => 12,
+        _ => 24,
+    };
+    let elapsed = chrono::Utc::now() - last;
+    let suppress = elapsed < chrono::Duration::hours(gap_hours);
+    if suppress {
+        tracing::info!(
+            dedupe_key,
+            prior_alerts,
+            gap_hours,
+            elapsed_hours = elapsed.num_hours(),
+            "alert re-notification suppressed by decay cooldown"
+        );
+    }
+    suppress
+}
+
 /// Raise an alert (deduped), broadcast ALERT_RAISED, enqueue webhook delivery.
 pub async fn raise(state: &AppState, a: NewAlert<'_>) -> Result<Uuid> {
     // Dedup: same key still open and touched within the last hour → bump.
@@ -85,8 +143,15 @@ pub async fn raise(state: &AppState, a: NewAlert<'_>) -> Result<Uuid> {
     .await;
 
     // Webhook delivery (severity-filtered) — dispatcher worker picks it up.
+    // SP6: decay cooldown applies ONLY to monitor-signal alerts (dedupe keys
+    // namespaced "monitor:"); infra/sensor alerts keep their existing 1h bump
+    // semantics — a component that recovers and re-fails must re-notify.
+    let deliver = match a.dedupe_key {
+        Some(key) if key.starts_with("monitor:") => !cooldown_suppresses(state, key).await,
+        _ => true,
+    };
     if let Some(url) = &state.config.alert_webhook_url {
-        if severity_rank(a.severity) >= severity_rank(&state.config.alert_webhook_min_severity) {
+        if deliver && severity_rank(a.severity) >= severity_rank(&state.config.alert_webhook_min_severity) {
             sqlx::query(
                 "INSERT INTO alert_deliveries (delivery_id, alert_id, endpoint) VALUES ($1,$2,$3)",
             )
@@ -101,6 +166,7 @@ pub async fn raise(state: &AppState, a: NewAlert<'_>) -> Result<Uuid> {
     // `telegram://chat` tells the dispatcher to use sendMessage formatting.
     if state.config.alert_telegram_bot_token.is_some()
         && state.config.alert_telegram_chat_id.is_some()
+        && deliver
         && severity_rank(a.severity) >= severity_rank(&state.config.alert_webhook_min_severity)
     {
         sqlx::query(
@@ -229,16 +295,20 @@ async fn dispatch_once(state: &AppState) -> Result<()> {
             Ok(()) => (true, None),
             Err(e) => (false, Some(e.clone())),
         };
+        // NOTE bind order: delivery_id is $1, err is $2 in every branch —
+        // getting this backwards wedges the dispatcher for good (uuid = text).
         if ok {
             sqlx::query(
                 "UPDATE alert_deliveries SET status='DELIVERED', attempts=attempts+1, delivered_at=now()
                  WHERE delivery_id=$1",
             )
+            .bind(delivery_id)
         } else if attempts >= 2 {
             sqlx::query(
                 "UPDATE alert_deliveries SET status='FAILED', attempts=attempts+1, last_error=$2
                  WHERE delivery_id=$1",
             )
+            .bind(delivery_id)
             .bind(err)
         } else {
             // Backoff: leave PENDING; next tick retries (attempts gate the delay).
@@ -247,9 +317,9 @@ async fn dispatch_once(state: &AppState) -> Result<()> {
                  created_at = now() + make_interval(secs => power(2, attempts) * 15)
                  WHERE delivery_id=$1",
             )
+            .bind(delivery_id)
             .bind(err)
         }
-        .bind(delivery_id)
         .execute(&state.pg)
         .await?;
     }
