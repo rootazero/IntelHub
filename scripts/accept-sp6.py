@@ -83,11 +83,11 @@ check("USGS quake events flowing", n.isdigit() and int(n) > 0, f"usgs={n}")
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:firms'")
 check("FIRMS events present (key migrated)", n.isdigit() and int(n) > 0, f"firms={n}")
 
-# 6. ACLED shelved (2026-09, account below Research tier pending ACLED Access
-# Team approval): collector must be ABSENT from the health board unless
-# ACLED_ENABLED=1. Assert the shelved state explicitly.
+# 6. ACLED collector visible on the health board (user decision 2026-09: keep
+# the error displayed so the pending account tier isn't forgotten; hourly
+# retries self-heal on approval). Any state is fine — presence is the check.
 v = vm(f"{REDIS} HGET hub:monitor:health acled")
-check("ACLED shelved (no health cell while disabled)", len(v.strip()) == 0, v[:80])
+check("ACLED collector ran (health cell present)", len(v) > 0, v[:100])
 
 # 7. chokepoint static layer + retention hygiene
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:chokepoint'")
