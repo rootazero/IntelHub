@@ -1,8 +1,10 @@
-// Crucix-style live news ticker: horizontally auto-scrolling marquee of recent
-// news-kind geo events (RSS/GDELT monitor sweeps). Duplicated track for a
-// seamless loop; pauses on hover; animation removed in VISUALS LITE.
+// Crucix OSINT-stream style vertical ticker: news-kind geo events scroll
+// slowly UPWARD in a seamless loop (duplicated track, translateY -50%).
+// Speed adapts to item count (~5s per item) so users can track entries;
+// hover pauses for mouse capture; animation removed in VISUALS LITE.
 import { useEffect, useState } from "react";
 import { api } from "../../api";
+import { TimeAgo } from "../../ui";
 
 interface NewsItem {
   event_id: string;
@@ -33,14 +35,18 @@ export default function NewsTicker({ refreshKey }: { refreshKey: number }) {
     return <div className="py-2 text-[11px]" style={{ color: "var(--hud-dim)" }}>—</div>;
   }
   const track = [...items, ...items]; // duplicated for seamless wrap
+  const duration = Math.max(40, items.length * 5); // ~5s per item, floor 40s
   return (
-    <div className="hud-ticker">
-      <div className="hud-ticker-track">
+    <div className="hud-vticker">
+      <div className="hud-vticker-track" style={{ animationDuration: `${duration}s` }}>
         {track.map((n, i) => (
-          <span key={`${n.event_id}-${i}`} className="hud-ticker-item" title={n.title}>
-            <span className="hud-ticker-src">{n.source.replace("monitor:", "")}</span>
-            {n.title}
-          </span>
+          <div key={`${n.event_id}-${i}`} className="hud-vticker-item" title={n.title}>
+            <div className="flex items-center gap-1.5">
+              <span className="hud-ticker-src">{n.source.replace("monitor:", "")}</span>
+              <TimeAgo ts={n.occurred_at} />
+            </div>
+            <div className="hud-vticker-title">{n.title}</div>
+          </div>
         ))}
       </div>
     </div>

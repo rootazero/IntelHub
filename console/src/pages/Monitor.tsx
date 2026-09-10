@@ -210,7 +210,7 @@ export default function Monitor() {
 
         {/* right rail: news ticker → key indicators → delta → alerts → stream */}
         <div className="hud-col">
-          <HudPanel title={t("hud.news")} className="flex-none h-[104px]" bodyClassName="!overflow-hidden">
+          <HudPanel title={t("hud.news")} className="flex-none h-[150px]" bodyClassName="!overflow-hidden">
             <NewsTicker refreshKey={mapTick} />
           </HudPanel>
           <HudPanel title={t("hud.indicators")} className="max-h-[24%]">
