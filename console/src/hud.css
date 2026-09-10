@@ -186,7 +186,7 @@
 .hud-up { color: var(--hud-warn); }
 .hud-down { color: var(--hud-good); }
 
-.hud-map-wrap { position: relative; flex: 1; min-height: 220px; }
+.hud-map-wrap { position: relative; width: 100%; aspect-ratio: 2 / 1; }
 .hud-map-wrap .leaflet-container { background: #05080d; height: 100%; border-radius: 0 0 8px 8px; }
 
 .hud-btn {
