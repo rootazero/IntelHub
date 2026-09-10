@@ -61,6 +61,7 @@ pub struct Config {
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
+    pub bls_api_key: Option<String>,
     pub fmp_api_key: Option<String>,
     pub finnhub_api_key: Option<String>,
     pub financialdatasets_api_key: Option<String>,
@@ -145,6 +146,7 @@ impl Config {
             monitor_reliefweb_appname: std::env::var("RELIEFWEB_APPNAME").ok().filter(|s| !s.is_empty()),
             fred_api_key: std::env::var("FRED_API_KEY").ok().filter(|s| !s.is_empty()),
             comtrade_api_key: std::env::var("COMTRADE_API_KEY").ok().filter(|s| !s.is_empty()),
+            bls_api_key: std::env::var("BLS_API_KEY").ok().filter(|s| !s.is_empty()),
             fmp_api_key: std::env::var("FMP_API_KEY").ok().filter(|s| !s.is_empty()),
             finnhub_api_key: std::env::var("FINNHUB_API_KEY").ok().filter(|s| !s.is_empty()),
             financialdatasets_api_key: std::env::var("FINANCIALDATASETS_API_KEY")
