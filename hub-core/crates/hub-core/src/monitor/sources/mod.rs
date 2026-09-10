@@ -2,6 +2,7 @@
 //! and unit-testable (parsers are pure functions).
 
 pub mod acled;
+pub mod bls;
 pub mod cisakev;
 pub mod comtrade;
 pub mod eia;

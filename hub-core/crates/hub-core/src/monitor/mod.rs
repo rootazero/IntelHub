@@ -132,6 +132,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::ofac::Ofac),
         Box::new(sources::usaspending::UsaSpending),
         Box::new(sources::epa::Epa),
+        // BLS native: unreachable today (Akamai bans all our egress paths)
+        // but stays visible per user decision — self-heals when a clean
+        // residential-US path + BLS_API_KEY exist. FRED mirrors meanwhile.
+        Box::new(sources::bls::Bls),
     ]
 }
 

@@ -24,6 +24,15 @@ const SERIES: &[(&str, &str, usize)] = &[
     ("BAMLH0A0HYM2", "fred:HY_OAS_PCT", 5),
 ];
 
+/// Slow series (weekly/monthly) need the 500d lookback, not the 45d daily
+/// window — BLS-via-FRED mirrors (bls.gov Akamai-bans every datacenter
+/// exit we have, so the native API is unreachable; same data, same source).
+const SLOW_SERIES: &[(&str, &str, usize)] = &[
+    ("PAYEMS", "fred:PAYEMS_K", 3),     // nonfarm payrolls, thousands
+    ("ICSA", "fred:ICSA", 12),          // initial jobless claims, weekly
+    ("CES0500000003", "__AWHE__", 14),  // avg hourly earnings → YoY below
+];
+
 pub struct Fred;
 
 impl SeriesCollector for Fred {
@@ -65,7 +74,27 @@ impl SeriesCollector for Fred {
             if let Ok(r) = ctx.http.get(&url).send().await {
                 if r.status().is_success() {
                     let body = r.text().await.unwrap_or_default();
-                    all.extend(cpi_yoy(&body, 3));
+                    all.extend(yoy(&body, "fred:CPIAUCSL_YOY", 3));
+                }
+            }
+            // Slow BLS-mirror series (500d window): payrolls/claims as levels,
+            // hourly earnings as YoY% (same lesson as CPI — levels mislead).
+            for (fid, hub_name, keep) in SLOW_SERIES {
+                let url = format!(
+                    "https://api.stlouisfed.org/fred/series/observations?series_id={fid}\
+                     &api_key={key}&file_type=json&observation_start={cpi_start}"
+                );
+                match ctx.http.get(&url).send().await {
+                    Ok(r) if r.status().is_success() => {
+                        let body = r.text().await.unwrap_or_default();
+                        if *hub_name == "__AWHE__" {
+                            all.extend(yoy(&body, "fred:AWHE_YOY_PCT", 3));
+                        } else {
+                            all.extend(parse_observations(&body, hub_name, *keep));
+                        }
+                    }
+                    Ok(r) => tracing::warn!(series = fid, status = %r.status(), "fred http"),
+                    Err(e) => tracing::warn!(series = fid, error = %e, "fred fetch"),
                 }
             }
             let fetched = all.len();
@@ -110,7 +139,9 @@ pub fn parse_observations(body: &str, hub_series: &str, keep: usize) -> Vec<Obse
 }
 
 /// CPI index levels → YoY% (needs i-13 for each point; monthly series).
-pub fn cpi_yoy(body: &str, keep: usize) -> Vec<Observation> {
+/// Index-level monthly series → YoY% (`keep` newest points). Levels under
+/// a rate-sounding name are how dashboards lie — never store them raw.
+pub fn yoy(body: &str, hub_series: &str, keep: usize) -> Vec<Observation> {
     let raw = parse_observations(body, "tmp", usize::MAX);
     let mut pts: Vec<(DateTime<Utc>, f64)> = raw.into_iter().map(|o| (o.observed_at, o.value)).collect();
     pts.sort_by_key(|(d, _)| *d);
@@ -119,9 +150,9 @@ pub fn cpi_yoy(body: &str, keep: usize) -> Vec<Observation> {
         let (d, v) = pts[i];
         let base = pts[i - 13].1;
         if base > 0.0 {
-            let yoy = (v / base - 1.0) * 100.0;
+            let yy = (v / base - 1.0) * 100.0;
             out.push(
-                Observation::new("fred:CPIAUCSL_YOY", d, (yoy * 100.0).round() / 100.0)
+                Observation::new(hub_series, d, (yy * 100.0).round() / 100.0)
                     .payload(serde_json::json!({"index_level": v, "base_level": base})),
             );
         }

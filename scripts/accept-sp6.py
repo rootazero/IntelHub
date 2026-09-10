@@ -73,6 +73,7 @@ newA = [c for c in ["reliefweb", "who", "cisa-kev", "gscpi"] if c in cells]
 check("SP8-A collectors present (reliefweb/who/cisa-kev/gscpi)", len(newA) == 4, ",".join(newA))
 newB = [c for c in ["ofac", "usaspending", "epa-radnet"] if c in cells]
 check("SP8-B collectors present (ofac/usaspending/epa-radnet)", len(newB) == 3, ",".join(newB))
+check("BLS collector visible (degraded by design)", "bls" in cells, "")
 
 # 3. keyless collectors ok
 states = {}
