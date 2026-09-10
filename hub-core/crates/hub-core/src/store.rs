@@ -508,17 +508,43 @@ pub async fn list_findings(pg: &PgPool, investigation_id: Uuid) -> Result<Value>
     .fetch_all(pg)
     .await?;
     use sqlx::Row;
+    // The console workspace renders each finding's evidence chain inline, so
+    // the list must carry the evidence rows themselves — counts alone left
+    // every card showing "0 linked evidence" even when §29 chains existed.
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.get::<Uuid, _>(0)).collect();
+    let mut ev_map: std::collections::HashMap<Uuid, Vec<Value>> = std::collections::HashMap::new();
+    if !ids.is_empty() {
+        let ev_rows = sqlx::query(
+            "SELECT fe.finding_id, fe.document_id, fe.relation, d.title, d.url_canonical \
+             FROM finding_evidence fe JOIN documents d ON d.document_id = fe.document_id \
+             WHERE fe.finding_id = ANY($1) \
+             ORDER BY fe.relation DESC",
+        )
+        .bind(&ids)
+        .fetch_all(pg)
+        .await?;
+        for er in &ev_rows {
+            ev_map.entry(er.get::<Uuid, _>(0)).or_default().push(json!({
+                "document_id": er.get::<Uuid, _>(1),
+                "relation": er.get::<String, _>(2),
+                "title": er.get::<Option<String>, _>(3),
+                "url": er.get::<String, _>(4),
+            }));
+        }
+    }
     let items: Vec<Value> = rows
         .iter()
         .map(|r| {
+            let fid = r.get::<Uuid, _>(0);
             json!({
-                "finding_id": r.get::<Uuid, _>(0),
+                "finding_id": fid,
                 "title": r.get::<String, _>(1),
                 "claim_text": r.get::<String, _>(2),
                 "created_by": r.get::<String, _>(3),
                 "created_at": r.get::<DateTime<Utc>, _>(4),
                 "supporting_evidence": r.get::<i64, _>(5),
                 "contradicting_evidence": r.get::<i64, _>(6),
+                "evidence": ev_map.get(&fid).cloned().unwrap_or_default(),
             })
         })
         .collect();

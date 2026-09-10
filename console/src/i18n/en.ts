@@ -233,7 +233,7 @@ export const en = {
     claimConf: "claim_conf",
     hideEvidence: "hide evidence ▲",
     viewEvidence: "view evidence ({n}) ▼",
-    noLinkedEvidence: "no linked evidence (rejected by hub — §29 requires ≥1)",
+    noLinkedEvidence: "no linked evidence records",
     target: "target: ",
     question: "question: ",
     hypothesis: "hypothesis: ",

@@ -137,6 +137,10 @@ if ev_items:
         check("seeded finding with evidence chain",
               len(seeded_f) >= 1 and seeded_f[0].get("supporting_evidence", 0) >= 1,
               f"findings={len(fitems)} seeded={len(seeded_f)}")
+        check("findings list carries evidence array (workspace renders it)",
+              len(seeded_f) >= 1 and len(seeded_f[0].get("evidence", [])) >= 1
+              and seeded_f[0]["evidence"][0].get("title") is not None,
+              f"evidence={seeded_f[0].get('evidence') if seeded_f else None}")
 else:
     check("radar-convert seeds investigation", False, "no radar events to convert")
     check("seeded finding with evidence chain", False, "no radar events")
