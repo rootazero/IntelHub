@@ -55,6 +55,10 @@ pub fn policy_for(tool: &str) -> ToolPolicy {
         }
         // SP2B lifecycle (L3: default DENY, admin token required)
         "run_component_action" => (L3AdminOnly, Admin),
+        // SP6B monitor finance plane
+        "signal_query" => (L1Auto, Free),
+        "financials_fetch" => (L2Validated, Crawl), // pay-per-request upstream, 30d-cached
+        "watchlist_manage" => (L2Validated, Write),
         _ => (L1Auto, Free),
     };
     ToolPolicy { level, cost }
@@ -67,7 +71,7 @@ const RED_ALLOWED: &[&str] = &[
     "query_relationship", "find_path", "list_investigations", "create_investigation",
     "update_investigation", "create_finding", "get_task_status", "get_system_health",
     "list_alerts", "acknowledge_alert", "mute_alert", "get_budget_status",
-    "create_entity", "create_claim", "create_relationship",
+    "create_entity", "create_claim", "create_relationship", "signal_query",
 ];
 
 /// Tools still allowed in KILL (terminate task, save current results, §60).

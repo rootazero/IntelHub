@@ -199,6 +199,12 @@ HUB_ALERT_TELEGRAM_CHAT_ID=
 FIRMS_MAP_KEY=
 ACLED_EMAIL=
 ACLED_PASSWORD=
+# SP6B finance collector keys (empty = that collector degrades by design)
+FRED_API_KEY=
+FMP_API_KEY=
+FINNHUB_API_KEY=
+FINANCIALDATASETS_API_KEY=
+EIA_API_KEY=
 EOF
     chmod 600 "$HOME_DIR/core/secrets.env"
     echo "    wrote core/secrets.env (empty key slots)"
@@ -228,6 +234,22 @@ step_keys() {
       CHANGED_HUB_ENV=1
     fi
   fi
+  # SP6B finance collectors (each independently optional)
+  local -a fin_keys=(
+    "FRED_API_KEY|FRED 宏观序列 key (fred.stlouisfed.org)|宏观时序序列缺失"
+    "FMP_API_KEY|FMP 报价 key (financialmodelingprep.com)|市场报价序列缺失"
+    "FINNHUB_API_KEY|Finnhub key (finnhub.io)|新闻/内部人/财报日历情报缺失"
+    "FINANCIALDATASETS_API_KEY|financialdatasets.ai key|financials_fetch 工具不可用"
+    "EIA_API_KEY|EIA 能源 key (eia.gov)|油气现货序列缺失"
+  )
+  local entry k desc degrade
+  for entry in "${fin_keys[@]}"; do
+    k="${entry%%|*}"; local rest="${entry#*|}"; desc="${rest%%|*}"; degrade="${rest##*|}"
+    if [[ -z "$(get_env "$senv" "$k")" ]]; then
+      v=$(prompt_key "$k" "$desc" "$degrade")
+      [[ -n "$v" ]] && { upsert_env "$senv" "$k" "$v"; CHANGED_HUB_ENV=1; }
+    fi
+  done
   if [[ -z "$(get_env "$senv" HUB_ALERT_TELEGRAM_BOT_TOKEN)" ]]; then
     v=$(prompt_key "TELEGRAM_BOT_TOKEN" "Telegram 告警 bot token（找 @BotFather 创建）" "告警只在控制台可见，无推送")
     if [[ -n "$v" ]]; then

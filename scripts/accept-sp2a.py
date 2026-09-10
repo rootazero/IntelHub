@@ -75,7 +75,8 @@ expected = {"search_web","crawl_url","fetch_document","get_evidence","get_docume
             "hybrid_search","semantic_search","query_entity","query_relationship","find_path",
             "create_investigation","update_investigation","create_finding","list_investigations",
             "get_task_status","get_system_health"}
-check("tools/list = 25 tools (SP2B)", expected.issubset(set(names)) and len(names) == 25, f"missing: {expected - set(names)} count={len(names)}")
+sp6b = {"signal_query","financials_fetch","watchlist_manage"}
+check("tools/list = 28 tools (SP2B+SP6B)", expected.issubset(set(names)) and sp6b.issubset(set(names)) and len(names) == 28, f"missing: {(expected | sp6b) - set(names)} count={len(names)}")
 
 # --- 4. search_web ---
 _, _, r = tool(sid, "search_web", {"query": "open source intelligence", "limit": 3}, 3)

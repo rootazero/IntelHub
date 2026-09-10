@@ -9,9 +9,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::state::AppState;
 
-use super::{Ctx, Source};
+use super::{Ctx, SeriesCollector, Source};
 
-pub async fn run(state: AppState, sources: Vec<Box<dyn Source>>, ct: CancellationToken) {
+pub async fn run(
+    state: AppState,
+    sources: Vec<Box<dyn Source>>,
+    collectors: Vec<Box<dyn SeriesCollector>>,
+    ct: CancellationToken,
+) {
     let enabled = state.config.monitor_sources.clone();
     let run_all = enabled.iter().any(|e| e == "all");
     let ctx = match Ctx::new(state.config.clone()) {
@@ -41,7 +46,69 @@ pub async fn run(state: AppState, sources: Vec<Box<dyn Source>>, ct: Cancellatio
         tokio::spawn(async move { source_loop(s, c, src, t, stagger).await });
         started += 1;
     }
+    for (idx, col) in collectors.into_iter().enumerate() {
+        if !run_all && !enabled.iter().any(|e| e == col.name()) {
+            tracing::info!(source = col.name(), "monitor collector disabled by HUB_MONITOR_SOURCES");
+            continue;
+        }
+        let s = state.clone();
+        let t = ct.child_token();
+        let c = ctx.clone();
+        let stagger = Duration::from_secs(((idx + started) as u64 % 10) * 3);
+        tokio::spawn(async move { series_loop(s, c, col, t, stagger).await });
+        started += 1;
+    }
     tracing::info!(sources = started, "monitor scheduler started");
+}
+
+/// SP6B series/event collector loop — same supervision policy as source_loop
+/// (error isolation, exponential backoff while failing, health reporting).
+async fn series_loop(
+    state: AppState,
+    ctx: Arc<Ctx>,
+    col: Box<dyn SeriesCollector>,
+    ct: CancellationToken,
+    stagger: Duration,
+) {
+    let name = col.name();
+    tokio::select! {
+        _ = ct.cancelled() => return,
+        _ = tokio::time::sleep(stagger) => {}
+    }
+    let mut failures = 0u32;
+    loop {
+        let started = Instant::now();
+        match col.collect(&state, &ctx).await {
+            Ok((fetched, new)) => {
+                super::geo::report_health(&state, name, true, "ok", new).await;
+                if failures > 0 {
+                    tracing::info!(source = name, "monitor collector recovered");
+                }
+                failures = 0;
+                tracing::info!(
+                    source = name,
+                    fetched,
+                    new,
+                    ms = started.elapsed().as_millis() as u64,
+                    "monitor sweep"
+                );
+            }
+            Err(e) => {
+                failures += 1;
+                super::geo::report_health(&state, name, false, &e.to_string(), 0).await;
+                tracing::warn!(source = name, failures, error = %e, "monitor collect failed");
+            }
+        }
+        let wait = if failures > 0 {
+            Duration::from_secs((30u64 << failures.min(5)).min(600))
+        } else {
+            col.interval()
+        };
+        tokio::select! {
+            _ = ct.cancelled() => { tracing::info!(source = name, "monitor collector stopping"); return; }
+            _ = tokio::time::sleep(wait) => {}
+        }
+    }
 }
 
 async fn source_loop(

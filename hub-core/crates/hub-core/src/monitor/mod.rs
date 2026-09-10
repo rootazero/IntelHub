@@ -4,9 +4,11 @@
 //! Tokio task with its own cadence, timeout isolation, and backoff; signals
 //! flow Signal → geo_events (idempotent) → bus → alerts. Hub stays zero-LLM.
 
+pub mod fd;
 pub mod geo;
 pub mod limiter;
 pub mod scheduler;
+pub mod signals;
 pub mod sources;
 
 use chrono::{DateTime, Utc};
@@ -91,6 +93,19 @@ pub trait Source: Send + Sync {
     fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>>;
 }
 
+/// SP6B: non-geo collectors (time series / event intel). A collector receives
+/// the AppState (series persistence, evidence ingest, alert rules are all
+/// DB-touching) and reports (fetched, new) for health accounting.
+pub trait SeriesCollector: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn interval(&self) -> Duration;
+    fn collect<'a>(
+        &'a self,
+        state: &'a crate::state::AppState,
+        ctx: &'a Ctx,
+    ) -> BoxFuture<'a, Result<(usize, usize)>>;
+}
+
 /// Phase-A source set (spec §3). Order defines first-run stagger, not priority.
 pub fn registry() -> Vec<Box<dyn Source>> {
     vec![
@@ -106,10 +121,21 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     ]
 }
 
+/// SP6B series/event collectors (spec §3). Order defines first-run stagger.
+pub fn series_registry() -> Vec<Box<dyn SeriesCollector>> {
+    vec![
+        Box::new(sources::fred::Fred),
+        Box::new(sources::eia::Eia),
+        Box::new(sources::treasury::Treasury),
+        Box::new(sources::markets::Markets),
+        Box::new(sources::finintel::FinIntel),
+    ]
+}
+
 pub async fn run_monitor(state: crate::state::AppState, ct: CancellationToken) {
     if !state.config.monitor_enabled {
         tracing::info!("monitor disabled via HUB_MONITOR_ENABLED=false");
         return;
     }
-    scheduler::run(state, registry(), ct).await
+    scheduler::run(state, registry(), series_registry(), ct).await
 }
