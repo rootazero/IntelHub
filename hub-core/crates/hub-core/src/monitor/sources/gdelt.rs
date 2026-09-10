@@ -15,7 +15,10 @@ use crate::error::{HubError, Result};
 use super::super::{Ctx, Signal, Source};
 use super::rss::geotag;
 
-const URL: &str = "https://api.gdeltproject.org/api/v2/doc/doc?query=conflict%20OR%20military%20OR%20protest%20OR%20crisis&mode=ArtList&maxrecords=75&timespan=24h&format=json&sort=DateDesc";
+// NOTE: DOC API grammar — OR'd terms MUST be parenthesized, else it answers
+// HTTP 200 with a plain-text error ("Queries containing OR'd terms must be
+// surrounded by ()"), not JSON.
+const URL: &str = "https://api.gdeltproject.org/api/v2/doc/doc?query=%28conflict%20OR%20military%20OR%20protest%20OR%20crisis%29&mode=ArtList&maxrecords=75&timespan=24h&format=json&sort=DateDesc";
 
 pub struct Gdelt;
 
@@ -40,7 +43,13 @@ impl Source for Gdelt {
             if !resp.status().is_success() {
                 return Err(HubError::sensor(format!("GDELT HTTP {}", resp.status())));
             }
-            let j: serde_json::Value = resp.json().await?;
+            let body = resp.text().await?;
+            let j: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+                HubError::sensor(format!(
+                    "GDELT response not JSON ({e}); body[:120]: {}",
+                    &body[..body.len().min(120)]
+                ))
+            })?;
             Ok(parse_articles(&j))
         }
         .boxed()

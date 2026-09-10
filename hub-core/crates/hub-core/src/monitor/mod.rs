@@ -111,7 +111,7 @@ pub trait SeriesCollector: Send + Sync {
 
 /// Phase-A source set (spec §3). Order defines first-run stagger, not priority.
 pub fn registry() -> Vec<Box<dyn Source>> {
-    vec![
+    let mut v: Vec<Box<dyn Source>> = vec![
         Box::new(sources::usgs::Usgs),
         Box::new(sources::noaa::Noaa),
         Box::new(sources::firms::Firms),
@@ -119,9 +119,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::opensky::OpenSky),
         Box::new(sources::rss::Rss),
         Box::new(sources::radiation::Radiation),
-        Box::new(sources::acled::Acled),
         Box::new(sources::kiwisdr::KiwiSdr),
-    ]
+    ];
+    // ACLED shelved 2026-09 (user decision): account sits below the Research
+    // tier ACLED requires for API access (token issues, data GET 403
+    // "Access denied") pending Access Team approval. Code is complete and
+    // verified — re-enable with ACLED_ENABLED=1 in hub.env once approved.
+    if std::env::var("ACLED_ENABLED").ok().as_deref() == Some("1") {
+        v.push(Box::new(sources::acled::Acled));
+    }
+    v
 }
 
 /// SP6B series/event collectors (spec §3). Order defines first-run stagger.
