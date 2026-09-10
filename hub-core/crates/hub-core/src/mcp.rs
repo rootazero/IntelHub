@@ -768,7 +768,11 @@ impl HubMcp {
             return Ok(v);
         }
         let mut items = Vec::new();
-        for (doc_id, score) in hits.iter().take(limit as usize) {
+        let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (doc_id, score) in hits.iter() {
+            if items.len() >= limit as usize {
+                break;
+            }
             let row: Option<(String, Option<String>, String)> = sqlx::query_as(
                 "SELECT url_canonical, title, left(content_text, 400) FROM documents WHERE document_id = $1",
             )
@@ -776,6 +780,13 @@ impl HubMcp {
             .fetch_optional(&self.state.pg)
             .await?;
             if let Some((url, title, excerpt)) = row {
+                // Dedupe page snapshots: repeated crawls of a changing page
+                // store one document per content hash; without this a single
+                // page can occupy every result slot (hits are best-score
+                // ordered, so the first occurrence is the best match).
+                if !seen_urls.insert(url.clone()) {
+                    continue;
+                }
                 items.push(json!({
                     "document_id": doc_id, "score": score, "url": url,
                     "title": title, "excerpt": excerpt,
@@ -1296,8 +1307,21 @@ async fn signal_query_inner(
             })
         })
         .collect();
+    // Distinguish "series never observed" from "no points inside the window"
+    // — a silent empty list for a typo'd series name wastes agent turns.
+    let series_seen = if items.is_empty() {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM signal_observations WHERE series LIKE $1)",
+        )
+        .bind(&pattern)
+        .fetch_one(&state.pg)
+        .await?
+    } else {
+        true
+    };
     Ok(serde_json::json!({
         "series_pattern": pattern,
+        "series_seen": series_seen,
         "count": items.len(),
         "observations": items,
     }))
