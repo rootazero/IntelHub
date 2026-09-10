@@ -229,6 +229,7 @@ export default function Radar() {
           title: `[Radar] ${e.title}`.slice(0, 180),
           target: `${e.kind} @ ${e.lat.toFixed(2)},${e.lon.toFixed(2)}`,
           hypothesis: `Radar signal ${e.event_id} (source ${e.source}, severity ${e.severity}) requires investigation.`,
+          source_event_id: e.event_id,
         }),
       });
       window.location.href = `/investigations/${inv.investigation_id}`;

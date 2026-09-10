@@ -245,7 +245,7 @@ export const zh: Dict = {
     alerts: "告警（{n}）",
     tasks: "任务（{n}）",
     audit: "审计（{n}）",
-    noFindings: "暂无发现 —— 智能体通过 MCP create_finding 创建",
+    noFindings: "暂无发现 —— 从雷达转为调查会自动播种第一条；智能体经 MCP create_finding 继续回填",
     noDocs: "暂无文档",
     noEntities: "该调查的证据上暂未观察到实体",
     noAlerts: "无关联告警",

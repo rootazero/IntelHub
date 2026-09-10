@@ -238,6 +238,9 @@ struct CreateInvestigationBody {
     question: Option<String>,
     target: Option<String>,
     hypothesis: Option<String>,
+    /// Optional Radar geo event to seed as first evidence + system finding
+    /// (console "convert to investigation" flow).
+    source_event_id: Option<Uuid>,
 }
 
 async fn create_investigation(
@@ -259,6 +262,16 @@ async fn create_investigation(
     )
     .await
     .map_err(hub_err)?;
+    // Seed from the originating Radar event (console convert flow) so the
+    // investigation never opens empty; best-effort — a seed failure must not
+    // fail investigation creation.
+    let mut seeded = false;
+    if let Some(ev) = body.source_event_id {
+        match crate::store::seed_from_geo_event(&state.pg, id, ev).await {
+            Ok(s) => seeded = s,
+            Err(e) => tracing::warn!("radar seed failed for investigation {id}: {e}"),
+        }
+    }
     // REST and MCP must behave identically — publish the same event.
     crate::events::publish(
         &state,
@@ -270,7 +283,7 @@ async fn create_investigation(
         .with_investigation(id),
     )
     .await;
-    Ok(Json(json!({ "investigation_id": id })))
+    Ok(Json(json!({ "investigation_id": id, "seeded": seeded })))
 }
 
 async fn get_investigation(
