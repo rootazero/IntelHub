@@ -103,7 +103,12 @@ def listen():
             buf += chunk
             if b'"event_type"' in buf and b"keepalive" not in buf.split(b'"event_type"')[0][-20:]:
                 got_event.append(buf)
-                break
+                buf = b""
+                # monitor sweeps now fire bus events constantly — the FIRST
+                # frame is often a sweep event, not ours; keep listening until
+                # the manufactured TASK_CREATED arrives or the window closes
+                if b"TASK_CREATED" in got_event[-1]:
+                    break
     except Exception:
         pass
 t = threading.Thread(target=listen, daemon=True)
@@ -116,7 +121,7 @@ r.add_header("Authorization", f"Bearer {KEY}")
 r.add_header("Content-Type", "application/json")
 urllib.request.urlopen(r, timeout=30).read()
 t.join(timeout=18)
-check("SSE live event received", len(got_event) >= 1 and b"TASK_CREATED" in got_event[0], f"frames={len(got_event)}")
+check("SSE live event received", any(b"TASK_CREATED" in f for f in got_event), f"frames={len(got_event)}")
 
 # ── L3 policy via console path ───────────────────────────────────────
 data = json.dumps({"action": "backup"}).encode()
