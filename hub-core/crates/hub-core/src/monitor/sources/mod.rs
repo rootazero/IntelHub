@@ -3,6 +3,7 @@
 
 pub mod acled;
 pub mod cisakev;
+pub mod comtrade;
 pub mod eia;
 pub mod epa;
 pub mod finintel;
