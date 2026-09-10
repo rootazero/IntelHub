@@ -85,7 +85,8 @@ if inv:
 st, body, _ = get(f"/api/v1/documents/{json.loads(get('/api/v1/documents?limit=1', KEY)[1])['items'][0]['document_id']}", KEY)
 j = json.loads(body)
 check("document detail + reverse refs",
-      st == 200 and all(k in j for k in ["document", "referenced_by_findings", "referenced_by_claims"]), f"{st}")
+      st == 200 and all(k in j for k in ["document", "referenced_by_findings", "referenced_by_claims"])
+      and "content_text" in j.get("document", {}), f"{st}")
 
 # ── SSE live stream ──────────────────────────────────────────────────
 import threading, http.client

@@ -58,10 +58,10 @@ export default function DocumentDetail() {
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Panel title={t("doc.content")}>
           <div className="whitespace-pre-wrap text-xs leading-relaxed text-ink/80">
-            {showFull ? d.content_text : d.content_text.slice(0, 3000)}
-            {d.content_text.length > 3000 && (
+            {showFull ? d.content_text ?? "" : (d.content_text ?? "").slice(0, 3000)}
+            {(d.content_text ?? "").length > 3000 && (
               <button onClick={() => setShowFull(!showFull)} className="ml-2 text-accent hover:underline">
-                {showFull ? t("doc.collapse") : t("doc.showAll", { n: d.content_text.length })}
+                {showFull ? t("doc.collapse") : t("doc.showAll", { n: (d.content_text ?? "").length })}
               </button>
             )}
           </div>

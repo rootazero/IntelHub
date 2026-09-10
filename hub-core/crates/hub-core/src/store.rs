@@ -387,7 +387,11 @@ pub async fn get_document(pg: &PgPool, id: Uuid) -> Result<Value> {
         "metadata": row.get::<Value, _>(7),
         "provenance": row.get::<Value, _>(8),
         "embedding_status": row.get::<String, _>(9),
+        // dual-key: MCP agents consume "content"; the console DocumentDetail
+        // interface expects "content_text" (mismatch left the page crashing
+        // on undefined.slice since SP3)
         "content": row.get::<Option<String>, _>(10),
+        "content_text": row.get::<Option<String>, _>(10),
     }))
 }
 
