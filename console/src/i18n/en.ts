@@ -3,6 +3,7 @@
 export const en = {
   brand: { title: "IntelHub", subtitle: "Unified Console" },
   nav: {
+    monitor: "Monitor",
     overview: "Overview",
     radar: "Radar",
     signals: "Signals",
@@ -283,6 +284,30 @@ export const en = {
     thObject: "Object",
     thResult: "Result",
     noMatch: "no audit records match",
+  },
+  hud: {
+    deck: "Monitor Command Deck",
+    sources: "SOURCES",
+    sensorGrid: "Sensor Grid",
+    gauges: "Risk Gauges",
+    delta: "Sweep Delta",
+    stream: "Event Stream",
+    alerts: "Open Alerts",
+    map: "Global Activity",
+    chart: "Series",
+    markets: "Markets",
+    visuals: "VISUALS",
+    full: "FULL",
+    lite: "LITE",
+    accumulating: "accumulating baseline…",
+    noData: "no data",
+    lastSweep: "last sweep",
+    openAlerts: "OPEN",
+    dirUp: "ESCALATING",
+    dirDown: "EASING",
+    dirMixed: "MIXED",
+    dirFlat: "STEADY",
+    last: "last",
   },
 };
 

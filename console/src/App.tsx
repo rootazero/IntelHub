@@ -3,6 +3,7 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
 import { I18nProvider, LANGS, useT } from "./i18n";
 import Overview from "./pages/Overview";
+import Monitor from "./pages/Monitor";
 import Radar from "./pages/Radar";
 import Investigations from "./pages/Investigations";
 import InvestigationWorkspace from "./pages/InvestigationWorkspace";
@@ -17,7 +18,8 @@ import Audit from "./pages/Audit";
 import System from "./pages/System";
 
 const NAV = [
-  ["/", "nav.overview"],
+  ["/", "nav.monitor"],
+  ["/overview", "nav.overview"],
   ["/radar", "nav.radar"],
   ["/signals", "nav.signals"],
   ["/investigations", "nav.investigations"],
@@ -157,7 +159,8 @@ function Shell() {
       </nav>
       <main className="flex-1 overflow-y-auto">
         <Routes>
-          <Route path="/" element={<Overview />} />
+          <Route path="/" element={<Monitor />} />
+          <Route path="/overview" element={<Overview />} />
           <Route path="/radar" element={<Radar />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/investigations" element={<Investigations />} />

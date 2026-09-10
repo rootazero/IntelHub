@@ -88,21 +88,50 @@ async fn raise_for(state: &AppState, source: &str, s: &Signal) {
 }
 
 /// Per-source health cell: HSET hub:monitor:health <name> <json>. Read by the
-/// console overview (System/Overview pages) — no new API surface.
-pub async fn report_health(state: &AppState, source: &str, ok: bool, detail: &str, new: usize) {
-    let cell = json!({
+/// console overview (System/Overview pages) and the SP7 /monitor/delta
+/// endpoint. Before overwriting, the previous cell's counters are shifted into
+/// prev_* so the delta endpoint can compute per-sweep direction (single writer
+/// per source loop — no read-modify-write race).
+pub async fn report_health(
+    state: &AppState,
+    source: &str,
+    ok: bool,
+    detail: &str,
+    new: usize,
+    fetched: usize,
+) {
+    let prev: Option<serde_json::Value> = state
+        .redis_timed(
+            redis::cmd("HGET")
+                .arg("hub:monitor:health")
+                .arg(source)
+                .clone(),
+            2000,
+        )
+        .await
+        .flatten()
+        .and_then(|s: String| serde_json::from_str(&s).ok());
+    let mut cell = json!({
         "state": if ok { "ok" } else { "error" },
         "ts": chrono::Utc::now().to_rfc3339(),
         "detail": detail.chars().take(300).collect::<String>(),
         "last_new": new,
-    })
-    .to_string();
+        "last_fetched": fetched,
+    });
+    if let Some(p) = prev {
+        if let Some(v) = p.get("last_new").and_then(|v| v.as_u64()) {
+            cell["prev_new"] = json!(v);
+        }
+        if let Some(v) = p.get("last_fetched").and_then(|v| v.as_u64()) {
+            cell["prev_fetched"] = json!(v);
+        }
+    }
     let _: Option<()> = state
         .redis_timed(
             redis::cmd("HSET")
                 .arg("hub:monitor:health")
                 .arg(source)
-                .arg(cell)
+                .arg(cell.to_string())
                 .clone(),
             2000,
         )
