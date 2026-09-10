@@ -110,6 +110,37 @@ _, _, rf2 = tool(sid, "create_finding", {
     "investigation_id": inv_id, "title": "no evidence", "claim_text": "x", "evidence": []}, 8)
 check("finding w/o evidence rejected", "error" in rf2 or rf2.get("result", {}).get("isError") is True)
 
+# --- 6c. radar → investigation seed (console convert flow) ---
+def rest(method, path, key, payload=None):
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(BASE + path, data=data, method=method,
+        headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        return e.code, {}
+
+_, evs = rest("GET", "/api/v1/radar/events?limit=1", KEY)
+ev_items = evs.get("items", [])
+if ev_items:
+    ev_id = ev_items[0]["event_id"]
+    st, created = rest("POST", "/api/v1/investigations", KEY, {
+        "title": "[accept] radar seed", "source_event_id": ev_id})
+    check("radar-convert seeds investigation", st == 200 and created.get("seeded") is True,
+          f"status={st} seeded={created.get('seeded')}")
+    sinv = created.get("investigation_id")
+    if sinv:
+        _, fd = rest("GET", f"/api/v1/investigations/{sinv}/findings", KEY)
+        fitems = fd.get("items", fd if isinstance(fd, list) else [])
+        seeded_f = [x for x in fitems if x.get("created_by") == "system:radar"]
+        check("seeded finding with evidence chain",
+              len(seeded_f) >= 1 and seeded_f[0].get("supporting_evidence", 0) >= 1,
+              f"findings={len(fitems)} seeded={len(seeded_f)}")
+else:
+    check("radar-convert seeds investigation", False, "no radar events to convert")
+    check("seeded finding with evidence chain", False, "no radar events")
+
 # --- 7. keyword search finds the crawled doc ---
 _, _, rk = tool(sid, "keyword_search", {"query": "example", "limit": 5}, 9)
 k = tool_json(rk)

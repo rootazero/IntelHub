@@ -243,7 +243,7 @@ export const en = {
     alerts: "Alerts ({n})",
     tasks: "Tasks ({n})",
     audit: "Audit ({n})",
-    noFindings: "no findings yet — agents create them via MCP create_finding",
+    noFindings: "no findings yet — converting from Radar seeds the first one; agents add more via MCP create_finding",
     noDocs: "no documents",
     noEntities: "no entities observed on this investigation's evidence yet",
     noAlerts: "no alerts linked",

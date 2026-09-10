@@ -76,6 +76,73 @@ pub async fn create_investigation(
     Ok(id)
 }
 
+/// Seed an investigation created from a Radar geo event (console "convert to
+/// investigation"): capture the event as an evidence document and record a
+/// system finding bound to it (§29 evidence chain), so a converted
+/// investigation never opens empty. Best-effort — callers log and continue on
+/// failure. Returns false when the event no longer exists.
+pub async fn seed_from_geo_event(pg: &PgPool, investigation_id: Uuid, event_id: Uuid) -> Result<bool> {
+    let row = sqlx::query(
+        "SELECT source, kind, title, lat, lon, severity, occurred_at, payload \
+         FROM geo_events WHERE event_id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(pg)
+    .await?;
+    let Some(row) = row else { return Ok(false) };
+    use sqlx::Row;
+    let source: String = row.get(0);
+    let kind: String = row.get(1);
+    let title: String = row.get(2);
+    let lat: Option<f64> = row.get(3);
+    let lon: Option<f64> = row.get(4);
+    let severity: String = row.get(5);
+    let occurred: DateTime<Utc> = row.get(6);
+    let payload: Value = row.get(7);
+    let coord = match (lat, lon) {
+        (Some(a), Some(o)) => format!("{a:.4},{o:.4}"),
+        _ => "n/a".to_string(),
+    };
+    let content = format!(
+        "Radar event ({kind}) — {title}\nsource: {source}\nseverity: {severity}\noccurred_at: {}\ncoordinates: {coord}\npayload: {payload}",
+        occurred.to_rfc3339(),
+    );
+    let hash = {
+        use sha2::Digest;
+        format!("{:x}", sha2::Sha256::digest(content.as_bytes()))
+    };
+    let url = format!("radar://event/{event_id}");
+    let doc_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO documents (document_id, source_id, url_canonical, url_original, title, content_hash, retrieved_at, published_at, lang, content_text, embedding_status) \
+         VALUES ($1, NULL, $2, $2, $3, $4, now(), $5, 'und', $6, 'SKIPPED') \
+         ON CONFLICT (content_hash) DO UPDATE SET retrieved_at = EXCLUDED.retrieved_at \
+         RETURNING document_id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(&url)
+    .bind(&title)
+    .bind(&hash)
+    .bind(occurred)
+    .bind(&content)
+    .fetch_one(pg)
+    .await?;
+    create_finding(
+        pg,
+        investigation_id,
+        &format!("Radar signal: {title}"),
+        &format!(
+            "Geo event {event_id} ({kind}, severity {severity}) observed by {source} at {} ({coord}) — converted to an investigation from the Radar console.",
+            occurred.to_rfc3339(),
+        ),
+        &[(doc_id, "supports".to_string())],
+        "system:radar",
+        None,
+        None,
+    )
+    .await?;
+    Ok(true)
+}
+
 pub async fn update_investigation(
     pg: &PgPool,
     id: Uuid,
