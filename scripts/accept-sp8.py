@@ -99,6 +99,21 @@ check("delta covers all health-cell sources",
       health_sources == delta_sources and len(health_sources) >= 14,
       f"health={len(health_sources)} delta={len(delta_sources)} missing={sorted(health_sources - delta_sources)}")
 
+# 6b. sweep-history ring exists and delta trend is consistent with it
+hist_len = vm('docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2) LLEN hub:monitor:sweephist:usgs')
+check("sweep-history ring populated (restart-proof baseline)",
+      hist_len.isdigit() and int(hist_len) >= 1, f"usgs ring len={hist_len}")
+with_trend = [r for r in rows if isinstance(r.get("trend"), list) and len(r["trend"]) >= 2]
+consistent = all(
+    (r["direction"] == "up" and r["trend"][-1] > r["trend"][-2])
+    or (r["direction"] == "down" and r["trend"][-1] < r["trend"][-2])
+    or (r["direction"] == "flat" and r["trend"][-1] == r["trend"][-2])
+    or r["direction"] == "new_source"
+    for r in with_trend
+)
+check("delta trend consistent with direction (ring-based)",
+      len(with_trend) >= 2 and consistent, f"with_trend={len(with_trend)} consistent={consistent}")
+
 # 7. default route serves the SPA (Monitor deck is the shell default)
 st, html = req("/", raw=True)
 check("default route serves SPA 200",

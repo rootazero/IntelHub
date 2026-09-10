@@ -31,8 +31,8 @@ export default function SeriesChart({ series, days = 40 }: { series: string; day
   const day = (iso: string) => iso.slice(5, 10);
 
   return (
-    <div className="hud-mono">
-      <div className="mb-1 flex items-baseline justify-between text-[10px]" style={{ color: "var(--hud-dim)" }}>
+    <div className="hud-mono flex h-full min-h-0 flex-col">
+      <div className="mb-1 flex flex-none items-baseline justify-between text-[10px]" style={{ color: "var(--hud-dim)" }}>
         <span className="tracking-widest">{series}</span>
         {points.length > 0 && (
           <span>
@@ -42,19 +42,21 @@ export default function SeriesChart({ series, days = 40 }: { series: string; day
         )}
       </div>
       {points.length < 2 ? (
-        <div className="flex h-[150px] items-center justify-center text-[11px]" style={{ color: "var(--hud-dim)" }}>
+        <div className="flex flex-1 min-h-0 items-center justify-center text-[11px]" style={{ color: "var(--hud-dim)" }}>
           {error ? t("common.error") : t("hud.noData")}
         </div>
       ) : (
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-          {[0.25, 0.5, 0.75].map((f) => (
-            <line key={f} x1={PAD} x2={W - PAD} y1={H * f} y2={H * f} stroke="rgba(100,240,200,.08)" strokeWidth={1} />
-          ))}
-          <path d={d} fill="none" stroke="#44ccff" strokeWidth={1.6} strokeLinejoin="round" />
-          <circle cx={PAD + (points.length - 1) * step} cy={y(vals[vals.length - 1])} r={3} fill="#64f0c8" />
-          <text x={PAD} y={12} fontSize={9} fill="#5d7285">{fmt(max)}</text>
-          <text x={PAD} y={H - 2} fontSize={9} fill="#5d7285">{fmt(min)}</text>
-        </svg>
+        <div className="min-h-0 flex-1">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full">
+            {[0.25, 0.5, 0.75].map((f) => (
+              <line key={f} x1={PAD} x2={W - PAD} y1={H * f} y2={H * f} stroke="rgba(100,240,200,.08)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            ))}
+            <path d={d} fill="none" stroke="#44ccff" strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            <circle cx={PAD + (points.length - 1) * step} cy={y(vals[vals.length - 1])} r={3} fill="#64f0c8" />
+            <text x={PAD} y={12} fontSize={9} fill="#5d7285">{fmt(max)}</text>
+            <text x={PAD} y={H - 2} fontSize={9} fill="#5d7285">{fmt(min)}</text>
+          </svg>
+        </div>
       )}
     </div>
   );
