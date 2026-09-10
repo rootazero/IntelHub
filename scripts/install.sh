@@ -198,7 +198,7 @@ HUB_ALERT_TELEGRAM_CHAT_ID=
 # SP6 native monitor source keys (empty = that source degrades by design)
 FIRMS_MAP_KEY=
 ACLED_EMAIL=
-ACLED_PASSWORD=
+ACLED_API_KEY=
 # SP6B finance collector keys (empty = that collector degrades by design)
 FRED_API_KEY=
 FMP_API_KEY=
@@ -229,8 +229,8 @@ step_keys() {
     if [[ -n "$v" ]]; then
       upsert_env "$senv" ACLED_EMAIL "$v"
       local p
-      p=$(prompt_key "ACLED_PASSWORD" "ACLED 账号密码" "冲突图层仍缺")
-      [[ -n "$p" ]] && upsert_env "$senv" ACLED_PASSWORD "$p"
+      p=$(prompt_key "ACLED_API_KEY" "ACLED API key（acleddata.com → My Account → API，OAuth 密码流已退役）" "冲突图层仍缺")
+      [[ -n "$p" ]] && upsert_env "$senv" ACLED_API_KEY "$p"
       CHANGED_HUB_ENV=1
     fi
   fi
