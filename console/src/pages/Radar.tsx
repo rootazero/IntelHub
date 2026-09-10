@@ -73,15 +73,15 @@ export default function Radar() {
   }, []);
 
   function addTileLayer(map: L.Map) {
-    // CARTO dark basemap with registered basemaps API key (free tier,
-    // carto.com/basemaps/apikey/). Key is client-visible by design (same as
-    // all tile providers). Esri World Dark Gray remains the documented fallback.
+    // Basemap toggle: Esri World Dark Gray (active) vs CARTO dark_all+key.
+    // User comparing aesthetics — keep both URLs here for easy flip.
+    // Esri: keyless, {z}/{y}/{x} order, maxZoom 16.
+    // CARTO: https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=<key>, maxZoom 20.
     const layer = L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=cb1_34br_1_d014750721687b14b7640ec9",
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
       {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
+        attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, DeLorme, NAVTEQ',
+        maxZoom: 16,
       },
     );
     layer.on("tileerror", () => {
