@@ -520,9 +520,12 @@ pub async fn investigation_workspace(state: &AppState, id: Uuid) -> Result<Value
 
     // Documents produced by this investigation's tasks.
     let documents: Vec<Value> = sqlx::query_as::<_, (Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)>(
-        "SELECT d.document_id, d.url_canonical, d.title, d.retrieved_at FROM documents d
-         JOIN tasks t ON t.task_id = d.parent_task
-         WHERE t.investigation_id = $1 ORDER BY d.retrieved_at DESC LIMIT 100",
+        "SELECT DISTINCT d.document_id, d.url_canonical, d.title, d.retrieved_at FROM documents d
+         WHERE d.parent_task IN (SELECT task_id FROM tasks WHERE investigation_id = $1)
+            OR d.document_id IN (SELECT fe.document_id FROM finding_evidence fe
+                                  JOIN findings f ON f.finding_id = fe.finding_id
+                                  WHERE f.investigation_id = $1)
+         ORDER BY d.retrieved_at DESC LIMIT 100",
     )
     .bind(id)
     .fetch_all(&state.pg)
