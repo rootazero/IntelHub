@@ -16,5 +16,14 @@ echo
 echo "-- resources (snapshot) --"
 docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}'
 echo
+echo "-- monitor sources (hub-core built-in) --"
+REDIS_PW=$(grep '^REDIS_PASSWORD=' "$HUB_DIR/compose/.env" 2>/dev/null | cut -d= -f2)
+if [[ -n "$REDIS_PW" ]]; then
+  docker exec intelhub-redis redis-cli --no-auth-warning -a "$REDIS_PW" HGETALL hub:monitor:health 2>/dev/null \
+    | paste - - | sed -E 's/\{"state":"([a-z]+)".*/[\1]/' | sort || echo "monitor health cells unavailable"
+else
+  echo "(redis password not found)"
+fi
+echo
 echo "-- compose config check --"
 "$HUB_DIR/scripts/hub-compose.sh" config --quiet && echo "compose files: OK"

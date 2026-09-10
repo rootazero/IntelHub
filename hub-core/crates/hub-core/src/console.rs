@@ -89,28 +89,38 @@ pub async fn overview(state: &AppState) -> Result<Value> {
         }));
     }
 
-    // SP4 §26: crucix signal layer status + fresh geo event count.
+    // SP6 §26: native monitor signal layer status + fresh geo event count.
     let (geo_24h,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM geo_events WHERE ingested_at > now() - interval '24 hours'",
     )
     .fetch_one(&state.pg)
     .await?;
-    let crucix_health = tokio::time::timeout(
-        std::time::Duration::from_secs(3),
-        state.http.get(format!("{}/api/health", state.config.crucix_url)).send(),
-    )
-    .await;
-    let crucix_meta: Value = match crucix_health {
-        Ok(Ok(r)) => match r.json::<Value>().await {
-            Ok(j) => json!({
+    // Per-source health cells written by the monitor scheduler (Redis hash).
+    let health_map: Option<std::collections::HashMap<String, String>> = state
+        .redis_timed(redis::cmd("HGETALL").arg("hub:monitor:health").clone(), 2000)
+        .await;
+    let monitor_meta: Value = match health_map {
+        Some(map) if !map.is_empty() => {
+            let mut sources: Vec<Value> = Vec::new();
+            for (name, cell) in &map {
+                let c: Value = serde_json::from_str(cell).unwrap_or_else(|_| json!({}));
+                sources.push(json!({
+                    "name": name,
+                    "state": c.get("state").cloned().unwrap_or(json!("unknown")),
+                    "ts": c.get("ts").cloned().unwrap_or(Value::Null),
+                    "detail": c.get("detail").cloned().unwrap_or(Value::Null),
+                    "last_new": c.get("last_new").cloned().unwrap_or(json!(0)),
+                }));
+            }
+            sources.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+            let ok = sources.iter().filter(|s| s["state"] == "ok").count();
+            json!({
                 "up": true,
-                "sources_ok": j.get("sourcesOk").cloned().unwrap_or(Value::Null),
-                "sources_failed": j.get("sourcesFailed").cloned().unwrap_or(Value::Null),
-                "last_sweep": j.get("lastSweep").cloned().unwrap_or(Value::Null),
-                "next_sweep": j.get("nextSweep").cloned().unwrap_or(Value::Null),
-            }),
-            Err(_) => json!({ "up": false }),
-        },
+                "sources_ok": ok,
+                "sources_total": sources.len(),
+                "sources": sources,
+            })
+        }
         _ => json!({ "up": false }),
     };
 
@@ -127,7 +137,7 @@ pub async fn overview(state: &AppState) -> Result<Value> {
             "embedding_tokens_today": embed_tokens,
             "est_cost_usd": (embed_tokens * 0.02 / 1_000_000.0 * 10000.0).round() / 10000.0,
         },
-        "radar": { "geo_events_24h": geo_24h, "crucix": crucix_meta },
+        "radar": { "geo_events_24h": geo_24h, "monitor": monitor_meta },
     }))
 }
 

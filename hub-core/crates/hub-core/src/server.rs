@@ -78,10 +78,11 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tokio::spawn(async move { crate::components::run_update_watcher(s, t).await });
     }
     {
-        // SP4: Crucix macro-signal ingestion → geo_events (§26/§51).
+        // SP6: native monitor — hub-core's own signal collectors (replaces
+        // the Crucix container; spec 2026-09-10-intelhub-sp6-native-monitor).
         let s = (*state).clone();
         let t = ct.child_token();
-        tokio::spawn(async move { crate::crucix::run_crucix_sync(s, t).await });
+        tokio::spawn(async move { crate::monitor::run_monitor(s, t).await });
     }
     {
         // SP5: SpiderFoot finished-scan → evidence bridge (§48).

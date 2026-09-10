@@ -1,5 +1,6 @@
-# compose.ui.yml — SP4: Crucix signal layer + observability stack (spec SP4 §3)
-# crucix: source-built image pinned by git SHA (upstream has no release tags).
+# compose.ui.yml — SP4: observability stack (spec SP4 §3).
+# (SP6: the crucix signal layer was replaced by hub-core's built-in monitor
+# module — no container here anymore.)
 # prometheus/node-exporter/cadvisor/grafana: pinned upstream images.
 
 x-restart-policy: &restart-policy
@@ -10,36 +11,6 @@ x-security: &security
     - no-new-privileges:true
 
 services:
-  crucix:
-    image: ${CRUCIX_IMAGE}
-    container_name: intelhub-crucix
-    <<: [*restart-policy, *security]
-    env_file:
-      - .env.crucix
-    environment:
-      PORT: "3117"
-      REFRESH_INTERVAL_MINUTES: "15"
-    volumes:
-      - crucixruns:/app/runs
-    networks:
-      mgmt-net:
-        ipv4_address: 172.30.3.21
-      egress-net: {}
-    ports:
-      - "${LAN_IP}:3117:3117"
-    mem_limit: 1g
-    cpus: 1.0
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3117/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
-    logging:
-      options:
-        max-size: 5m
-        max-file: "2"
-
   prometheus:
     image: prom/prometheus:${PROMETHEUS_VERSION}
     container_name: intelhub-prometheus

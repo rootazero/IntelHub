@@ -17,7 +17,6 @@
 #   INTELHUB_TARBALL=<url>     fetch code as tarball instead of git clone
 #   INTELHUB_LAN=<cidr>        LAN CIDR for nftables (default 10.10.10.0/24)
 #   LAN_IP=<ip>                skip auto-detection
-#   INTELHUB_CRUCIX_SHA=<sha>  crucix upstream pin   (default 3db7068)
 #   INTELHUB_NONINTERACTIVE=1  skip all key prompts
 #   REDO=<step[,step]>         force re-run of named step(s)
 #   FORCE=1                    wipe state, re-run every step (secrets still
@@ -31,12 +30,10 @@ REPO_BRANCH="main"
 
 HOME_DIR="${INTELHUB_HOME:-$HOME/IntelHub}"
 STATE="$HOME_DIR/.install-state"
-CRUCIX_SHA="${INTELHUB_CRUCIX_SHA:-3db7068}"
 NONINTERACTIVE="${INTELHUB_NONINTERACTIVE:-0}"
 REDO="${REDO:-}"
 FORCE="${FORCE:-}"
 RUN_USER="$(id -un)"
-CHANGED_CRUCIX_ENV=0
 CHANGED_HUB_ENV=0
 
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
@@ -146,7 +143,7 @@ step_secrets() {
   local cenv="$HOME_DIR/compose/.env"
   [[ -f "$cenv" ]] || die "compose/.env missing — versions step must run first"
   # write-once guard: never regenerate an existing deployment's secrets
-  for f in "$HOME_DIR/core/hub.env" "$HOME_DIR/core/secrets.env" "$HOME_DIR/compose/.env.crucix"; do
+  for f in "$HOME_DIR/core/hub.env" "$HOME_DIR/core/secrets.env"; do
     if [[ -f "$f" ]]; then echo "    exists, keeping: $f"; fi
   done
 
@@ -198,58 +195,47 @@ EOF
 EMBEDDING_API_KEY=
 HUB_ALERT_TELEGRAM_BOT_TOKEN=
 HUB_ALERT_TELEGRAM_CHAT_ID=
+# SP6 native monitor source keys (empty = that source degrades by design)
+FIRMS_MAP_KEY=
+ACLED_EMAIL=
+ACLED_PASSWORD=
 EOF
     chmod 600 "$HOME_DIR/core/secrets.env"
     echo "    wrote core/secrets.env (empty key slots)"
-  fi
-
-  if [[ ! -f "$HOME_DIR/compose/.env.crucix" ]]; then
-    sed 's/__T8STAR_KEY__//' "$HOME_DIR/compose/.env.crucix.example" > "$HOME_DIR/compose/.env.crucix"
-    chmod 600 "$HOME_DIR/compose/.env.crucix"
-    echo "    wrote compose/.env.crucix from template"
   fi
 }
 
 step_keys() {
   [[ "$NONINTERACTIVE" == "1" ]] && { echo "    non-interactive: all key prompts skipped"; return 0; }
-  local senv="$HOME_DIR/core/secrets.env" cenv="$HOME_DIR/compose/.env.crucix"
+  local senv="$HOME_DIR/core/secrets.env"
   local v
 
   if [[ -z "$(get_env "$senv" EMBEDDING_API_KEY)" ]]; then
-    v=$(prompt_key "T8STAR KEY" "嵌入 + Crucix LLM 共用的 T8star relay key (sk-…)" "语义搜索降级为纯关键词；Crucix 简报功能停用")
-    if [[ -n "$v" ]]; then
-      upsert_env "$senv" EMBEDDING_API_KEY "$v"
-      upsert_env "$cenv" LLM_API_KEY "$v"
-      CHANGED_HUB_ENV=1; CHANGED_CRUCIX_ENV=1
-    fi
+    v=$(prompt_key "T8STAR KEY" "嵌入 relay key (sk-…)" "语义搜索降级为纯关键词")
+    [[ -n "$v" ]] && { upsert_env "$senv" EMBEDDING_API_KEY "$v"; CHANGED_HUB_ENV=1; }
   fi
-  if [[ -z "$(get_env "$cenv" FIRMS_MAP_KEY)" ]]; then
+  if [[ -z "$(get_env "$senv" FIRMS_MAP_KEY)" ]]; then
     v=$(prompt_key "FIRMS_MAP_KEY" "NASA FIRMS 火点图层 key" "雷达缺火点图层")
-    [[ -n "$v" ]] && { upsert_env "$cenv" FIRMS_MAP_KEY "$v"; CHANGED_CRUCIX_ENV=1; }
+    [[ -n "$v" ]] && { upsert_env "$senv" FIRMS_MAP_KEY "$v"; CHANGED_HUB_ENV=1; }
   fi
-  if [[ -z "$(get_env "$cenv" EIA_API_KEY)" ]]; then
-    v=$(prompt_key "EIA_API_KEY" "美国 EIA 能源数据 key" "雷达缺能源/经济图层")
-    [[ -n "$v" ]] && { upsert_env "$cenv" EIA_API_KEY "$v"; CHANGED_CRUCIX_ENV=1; }
-  fi
-  if [[ -z "$(get_env "$cenv" ACLED_EMAIL)" ]]; then
+  if [[ -z "$(get_env "$senv" ACLED_EMAIL)" ]]; then
     v=$(prompt_key "ACLED_EMAIL" "ACLED 账号邮箱（冲突事件图层）" "雷达缺冲突图层")
     if [[ -n "$v" ]]; then
-      upsert_env "$cenv" ACLED_EMAIL "$v"
+      upsert_env "$senv" ACLED_EMAIL "$v"
       local p
       p=$(prompt_key "ACLED_PASSWORD" "ACLED 账号密码" "冲突图层仍缺")
-      [[ -n "$p" ]] && upsert_env "$cenv" ACLED_PASSWORD "$p"
-      CHANGED_CRUCIX_ENV=1
+      [[ -n "$p" ]] && upsert_env "$senv" ACLED_PASSWORD "$p"
+      CHANGED_HUB_ENV=1
     fi
   fi
   if [[ -z "$(get_env "$senv" HUB_ALERT_TELEGRAM_BOT_TOKEN)" ]]; then
     v=$(prompt_key "TELEGRAM_BOT_TOKEN" "Telegram 告警 bot token（找 @BotFather 创建）" "告警只在控制台可见，无推送")
     if [[ -n "$v" ]]; then
       upsert_env "$senv" HUB_ALERT_TELEGRAM_BOT_TOKEN "$v"
-      upsert_env "$cenv" TELEGRAM_BOT_TOKEN "$v"
       local c
       c=$(prompt_key "TELEGRAM_CHAT_ID" "你的 Telegram chat_id（先给 bot 发条消息，再访问 api.telegram.org/bot<token>/getUpdates 查看）" "同上")
-      [[ -n "$c" ]] && { upsert_env "$senv" HUB_ALERT_TELEGRAM_CHAT_ID "$c"; upsert_env "$cenv" TELEGRAM_CHAT_ID "$c"; }
-      CHANGED_HUB_ENV=1; CHANGED_CRUCIX_ENV=1
+      [[ -n "$c" ]] && upsert_env "$senv" HUB_ALERT_TELEGRAM_CHAT_ID "$c"
+      CHANGED_HUB_ENV=1
     fi
   fi
 
@@ -284,19 +270,6 @@ step_stack_up() {
     sleep 5
   done
   die "postgres did not become healthy in 120s"
-}
-
-step_build_crucix() {
-  INTELHUB_CRUCIX_SHA="$CRUCIX_SHA" bash "$HOME_DIR/scripts/build-crucix.sh" "$CRUCIX_SHA"
-  local tag="crucix:sha-${CRUCIX_SHA:0:7}"
-  upsert_env "$HOME_DIR/compose/.env" CRUCIX_IMAGE "$tag"
-  (cd "$HOME_DIR" && bash scripts/hub-compose.sh up -d crucix)
-  local i
-  for i in $(seq 1 18); do
-    [[ "$(docker inspect -f '{{.State.Health.Status}}' intelhub-crucix 2>/dev/null)" == "healthy" ]] && { echo "    crucix healthy"; return 0; }
-    sleep 5
-  done
-  warn "crucix not healthy yet (first sweep can be slow) — continuing; verify step will re-check"
 }
 
 step_build_console() {
@@ -335,8 +308,7 @@ step_provision_agents() {
 }
 
 step_verify() {
-  # apply deferred restarts when keys were added to an already-running system
-  [[ "$CHANGED_CRUCIX_ENV" == "1" ]] && docker restart intelhub-crucix >/dev/null 2>&1 || true
+  # apply deferred hub restart when keys were added to an already-running system
   [[ "$CHANGED_HUB_ENV" == "1" ]] && sudo systemctl restart hub-core || true
   if ! bash "$HOME_DIR/scripts/health-check.sh"; then
     mark_undone verify
@@ -356,7 +328,6 @@ run_step secrets          step_secrets
 run_step keys             step_keys
 run_step build-hub        step_build_hub
 run_step stack-up         step_stack_up
-run_step build-crucix     step_build_crucix
 run_step build-console    step_build_console
 run_step start-hub        step_start_hub
 run_step provision-agents step_provision_agents
@@ -370,9 +341,8 @@ cat <<EOF
 │  IntelHub 安装完成                                            │
 ├──────────────────────────────────────────────────────────────┤
 │  控制台    http://${LANIP}:8800/                              │
-│  雷达      http://${LANIP}:8800/#/radar 内 Global Radar 页    │
+│  雷达      控制台内 Global Radar 页                           │
 │  Grafana   http://${LANIP}:3001  (admin / 见 compose/.env)   │
-│  Crucix    http://${LANIP}:3117                              │
 │  console API key: ${CONSOLE_KEY:-见 core/agent-keys.txt}
 │  admin token:     core/admin-token.txt (0600)                │
 │  密钥文件:  core/secrets.env · compose/.env* (0600, 勿外传)  │

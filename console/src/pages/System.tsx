@@ -115,7 +115,6 @@ export default function System() {
         right={
           <span className="flex gap-3 text-[10px]">
             <a href="http://10.10.10.41:3001" target="_blank" rel="noreferrer" className="text-accent">grafana →</a>
-            <a href="http://10.10.10.41:3117" target="_blank" rel="noreferrer" className="text-accent">crucix →</a>
           </span>
         }
       >

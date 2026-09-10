@@ -18,7 +18,7 @@ case "$COMPONENT" in
   qdrant)    VAR=QDRANT_VERSION;   REPO="qdrant/qdrant";       PROBE="./qdrant --version" ;;
   searxng)   VAR=SEARXNG_VERSION;  REPO="searxng/searxng";     PROBE="python3 --version" ;;
   crawl4ai)  VAR=CRAWL4AI_VERSION; REPO="unclecode/crawl4ai";  PROBE="python3 --version" ;;
-  # SP4 observability stack (crucix is source-built — use build-crucix.sh)
+  # SP4 observability stack
   prometheus)    VAR=PROMETHEUS_VERSION;    REPO="prom/prometheus";        PROBE="prometheus --version" ;;
   node-exporter) VAR=NODE_EXPORTER_VERSION; REPO="prom/node-exporter";     PROBE="node_exporter --version" ;;
   cadvisor)      VAR=CADVISOR_VERSION;      REPO="gcr.io/cadvisor/cadvisor"; PROBE="true" ;;

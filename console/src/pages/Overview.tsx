@@ -20,7 +20,7 @@ interface OverviewData {
   cloud: { embedding_tokens_today: number; est_cost_usd: number };
   radar?: {
     geo_events_24h: number;
-    crucix: { up: boolean; sources_ok?: number | null; sources_failed?: number | null; last_sweep?: string | null };
+    monitor: { up: boolean; sources_ok?: number; sources_total?: number; sources?: { name: string; state: string; last_new?: number }[] };
   };
 }
 
@@ -107,22 +107,19 @@ export default function Overview() {
               <span className="text-[10px] uppercase tracking-wider text-dim">{t("overview.geoPerDay")}</span>
             </div>
             <div className="flex items-center gap-2 text-xs">
-              <StatusDot up={data.radar?.crucix.up ?? false} />
-              <span className="text-dim">Crucix</span>
-              {data.radar?.crucix.up && (
+              <StatusDot up={data.radar?.monitor.up ?? false} />
+              <span className="text-dim">Monitor</span>
+              {data.radar?.monitor.up && (
                 <span className="mono text-[10px] text-dim">
-                  {t("overview.sourcesOk", { ok: data.radar.crucix.sources_ok ?? "?" })}
-                  {(data.radar.crucix.sources_failed ?? 0) > 0 && (
-                    <span className="text-amber-400">{t("overview.sourcesFailed", { failed: data.radar.crucix.sources_failed ?? 0 })}</span>
+                  {t("overview.sourcesOk", { ok: `${data.radar.monitor.sources_ok ?? "?"}/${data.radar.monitor.sources_total ?? "?"}` })}
+                  {(data.radar.monitor.sources ?? []).filter((s) => s.state !== "ok").length > 0 && (
+                    <span className="text-amber-400">
+                      {t("overview.sourcesFailed", { failed: (data.radar.monitor.sources ?? []).filter((s) => s.state !== "ok").length })}
+                    </span>
                   )}
                 </span>
               )}
             </div>
-            {data.radar?.crucix.last_sweep && (
-              <div className="text-[10px] text-dim">
-                {t("overview.lastSweep")} <TimeAgo ts={data.radar.crucix.last_sweep} />
-              </div>
-            )}
           </div>
         </Panel>
       </div>

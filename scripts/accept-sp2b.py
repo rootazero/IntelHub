@@ -204,7 +204,22 @@ check("§42 cache: re-embed reuses chunks, 0 new tokens",
 # close lingering open flap alerts first so this run produces a FRESH alert +
 # delivery row; match on updated_at to also catch bumps.
 sql("UPDATE alerts SET status='ack', updated_at=now() WHERE dedupe_key LIKE 'flap:searxng%' AND status='open'")
-sh("pgrep -f webhook_sink.py >/dev/null || (nohup python3 /tmp/webhook_sink.py >/dev/null 2>&1 &)")
+# Webhook sink is a /tmp dev artifact (wiped by VM reboot) — recreate if gone.
+import base64
+_SINK_SRC = '''import http.server, datetime
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(n).decode("utf-8", "replace")
+        open("/tmp/webhook-hits.log", "a").write(f"{datetime.datetime.utcnow().isoformat()} {self.path} {body}\\n")
+        self.send_response(200); self.end_headers()
+    def log_message(self, *a):
+        pass
+http.server.HTTPServer(("0.0.0.0", 18899), H).serve_forever()
+'''
+_b64 = base64.b64encode(_SINK_SRC.encode()).decode()
+sh(f"test -f /tmp/webhook_sink.py || echo {_b64} | base64 -d > /tmp/webhook_sink.py")
+sh("pgrep -f 'python3 /tmp/webhook_sink.py' >/dev/null || (setsid nohup python3 /tmp/webhook_sink.py >/dev/null 2>&1 < /dev/null &)")
 cutoff = sql("SELECT now()")  # server-time cutoff: only alerts CREATED after cleanup qualify
 sh("docker stop intelhub-searxng")
 deadline = time.time() + 90
