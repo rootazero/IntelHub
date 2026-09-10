@@ -151,7 +151,8 @@ impl Source for Rss {
     }
 }
 
-fn geotag(title: &str) -> Option<(f64, f64)> {
+/// Shared by the GDELT source (DOC API articles carry no coordinates).
+pub(crate) fn geotag(title: &str) -> Option<(f64, f64)> {
     GEO_KEYWORDS
         .iter()
         .find(|(kw, _, _)| title.contains(kw))

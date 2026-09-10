@@ -82,25 +82,14 @@ fn extract_receivers(html: &str) -> Result<Vec<serde_json::Value>> {
         .find('[')
         .map(|i| start + i)
         .ok_or_else(|| HubError::internal("receiverbook page changed: no array start"))?;
-    // find the matching closing bracket (JSON, so bracket counting works)
-    let mut depth = 0i32;
-    let mut end = None;
-    for (i, c) in html[arr_start..].char_indices() {
-        match c {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = Some(arr_start + i + 1);
-                    break;
-                }
-            }
-            _ => {}
-        }
-    }
-    let end = end.ok_or_else(|| HubError::internal("receiverbook page: unbalanced array"))?;
-    let arr: Vec<serde_json::Value> = serde_json::from_str(&html[arr_start..end])
-        .map_err(|e| HubError::internal(format!("receiverbook array not JSON: {e}")))?;
+    // Parse the array directly with serde's deserializer: naive bracket
+    // counting breaks on '[' / ']' inside string values (real page data has
+    // them — e.g. receiver notes), which stranded the source behind a bogus
+    // "unbalanced array" error while the data itself parsed fine.
+    let mut de = serde_json::Deserializer::from_str(&html[arr_start..]);
+    let arr: Vec<serde_json::Value> =
+        <Vec<serde_json::Value> as serde::Deserialize>::deserialize(&mut de)
+            .map_err(|e| HubError::internal(format!("receiverbook array not JSON: {e}")))?;
     if arr.is_empty() {
         return Err(HubError::internal("receiverbook array empty — page structure changed?"));
     }
