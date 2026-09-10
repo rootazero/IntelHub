@@ -6,3 +6,5 @@ hub-core/target/
 console/node_modules/
 console/dist/
 .env.crucix
+__pycache__/
+*.pyc
