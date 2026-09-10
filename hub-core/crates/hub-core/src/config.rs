@@ -57,6 +57,12 @@ pub struct Config {
     pub monitor_firms_key: Option<String>,
     pub monitor_acled_email: Option<String>,
     pub monitor_acled_password: Option<String>,
+    // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
+    pub fred_api_key: Option<String>,
+    pub fmp_api_key: Option<String>,
+    pub finnhub_api_key: Option<String>,
+    pub financialdatasets_api_key: Option<String>,
+    pub eia_api_key: Option<String>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -134,6 +140,13 @@ impl Config {
             monitor_firms_key: std::env::var("FIRMS_MAP_KEY").ok().filter(|s| !s.is_empty()),
             monitor_acled_email: std::env::var("ACLED_EMAIL").ok().filter(|s| !s.is_empty()),
             monitor_acled_password: std::env::var("ACLED_PASSWORD").ok().filter(|s| !s.is_empty()),
+            fred_api_key: std::env::var("FRED_API_KEY").ok().filter(|s| !s.is_empty()),
+            fmp_api_key: std::env::var("FMP_API_KEY").ok().filter(|s| !s.is_empty()),
+            finnhub_api_key: std::env::var("FINNHUB_API_KEY").ok().filter(|s| !s.is_empty()),
+            financialdatasets_api_key: std::env::var("FINANCIALDATASETS_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
+            eia_api_key: std::env::var("EIA_API_KEY").ok().filter(|s| !s.is_empty()),
         }
     }
 }

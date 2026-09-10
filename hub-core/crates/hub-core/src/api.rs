@@ -55,6 +55,11 @@ pub fn router() -> Router<Arc<AppState>> {
         // SP4
         .route("/api/v1/radar/events", get(console_radar_events))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
+        // SP6B finance signals
+        .route("/api/v1/signals/latest", get(console_signals_latest))
+        .route("/api/v1/signals/watchlist", get(console_watchlist_list))
+        .route("/api/v1/signals/watchlist", axum::routing::post(console_watchlist_upsert))
+        .route("/api/v1/signals/watchlist/{symbol}", axum::routing::delete(console_watchlist_remove))
         // SP3 static console (public shell; every data call still needs a key)
         .fallback(serve_static)
 }
@@ -725,4 +730,103 @@ async fn serve_static(
         bytes,
     )
         .into_response()
+}
+
+// ---------- SP6B: finance signals (console) ----------
+
+#[derive(Debug, Deserialize)]
+struct SignalsParams {
+    pattern: Option<String>,
+}
+
+async fn console_signals_latest(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<SignalsParams>,
+) -> Result<Json<Value>, Response> {
+    let rows = crate::monitor::signals::latest_observations(&state, p.pattern.as_deref())
+        .await
+        .map_err(hub_err)?;
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|(series, ts, value, payload)| {
+            json!({"series": series, "observed_at": ts, "value": value, "payload": payload})
+        })
+        .collect();
+    Ok(Json(json!({"count": items.len(), "series": items})))
+}
+
+#[derive(Debug, Deserialize)]
+struct WatchlistBody {
+    symbol: String,
+    asset_class: Option<String>,
+    label: Option<String>,
+    enabled: Option<bool>,
+}
+
+async fn console_watchlist_list(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, Response> {
+    crate::mcp::watchlist_inner(
+        &state,
+        &crate::mcp::WatchlistManageArgs {
+            action: "list".into(),
+            symbol: None,
+            asset_class: None,
+            label: None,
+        },
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
+}
+
+async fn console_watchlist_upsert(
+    State(state): State<Arc<AppState>>,
+    Json(b): Json<WatchlistBody>,
+) -> Result<Json<Value>, Response> {
+    if let Some(enabled) = b.enabled {
+        // explicit enable/disable: direct update (toggle would be racy for UI state)
+        let sym = b.symbol.trim().to_uppercase();
+        let r = sqlx::query("UPDATE monitor_watchlist SET enabled = $2 WHERE symbol = $1")
+            .bind(&sym)
+            .bind(enabled)
+            .execute(&state.pg)
+            .await
+            .map_err(crate::error::HubError::from)
+            .map_err(hub_err)?;
+        if r.rows_affected() == 0 {
+            return Err(err(StatusCode::NOT_FOUND, format!("watchlist symbol {sym}")));
+        }
+        return Ok(Json(json!({"ok": true, "symbol": sym, "enabled": enabled})));
+    }
+    crate::mcp::watchlist_inner(
+        &state,
+        &crate::mcp::WatchlistManageArgs {
+            action: "add".into(),
+            symbol: Some(b.symbol),
+            asset_class: b.asset_class,
+            label: b.label,
+        },
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
+}
+
+async fn console_watchlist_remove(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(symbol): axum::extract::Path<String>,
+) -> Result<Json<Value>, Response> {
+    crate::mcp::watchlist_inner(
+        &state,
+        &crate::mcp::WatchlistManageArgs {
+            action: "remove".into(),
+            symbol: Some(symbol),
+            asset_class: None,
+            label: None,
+        },
+    )
+    .await
+    .map(Json)
+    .map_err(hub_err)
 }

@@ -284,6 +284,36 @@ pub struct ComponentActionArgs {
     pub action: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SignalQueryArgs {
+    /// Series name or LIKE pattern, e.g. "fred:%", "quote:AAPL", "sentiment:%"
+    pub series: String,
+    /// ISO8601 lower bound (optional, default: no bound)
+    pub from: Option<String>,
+    /// ISO8601 upper bound (optional)
+    pub to: Option<String>,
+    /// Max points (default 100, max 1000), newest first
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FinancialsFetchArgs {
+    /// US ticker, e.g. AAPL (financialdatasets.ai coverage: US equities)
+    pub ticker: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WatchlistManageArgs {
+    /// add|remove|toggle|list
+    pub action: String,
+    /// Symbol (required for add/remove/toggle), e.g. AAPL, BTCUSD
+    pub symbol: Option<String>,
+    /// us_stock|etf|index|crypto (add only, default us_stock)
+    pub asset_class: Option<String>,
+    /// Human label (add only)
+    pub label: Option<String>,
+}
+
 // ---------- tool implementations ----------
 
 #[tool_router]
@@ -1157,6 +1187,58 @@ impl HubMcp {
         self.record(&ctx, "run_component_action", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
     }
+
+    #[tool(description = "Query monitor time-series observations (macro FRED/EIA/Treasury, market quotes, sentiment). Series are self-describing with units, e.g. fred:VIXCLS, fred:CPIAUCSL_YOY, quote:AAPL, sentiment:AAPL, eia:WTI_SPOT_USD_BBL.")]
+    async fn signal_query(
+        &self,
+        Parameters(args): Parameters<SignalQueryArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "signal_query").await?;
+        let out = match signal_query_inner(&self.state, &args).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "signal_query", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Fetch deep fundamentals for a US ticker via financialdatasets.ai (8 endpoints: profile/statements/segments/13F holders/insider KPI/guidance). Level 2 governed; responses are cached 30 days in Postgres (pay-per-request provider — a cache hit costs nothing).")]
+    async fn financials_fetch(
+        &self,
+        Parameters(args): Parameters<FinancialsFetchArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "financials_fetch").await?;
+        let out = match crate::monitor::fd::fetch_with_cache(&self.state, &args.ticker).await {
+            Ok(o) => ok_text(serde_json::json!({
+                "cached": o.cached,
+                "fetched_at": o.fetched_at,
+                "brief": o.brief,
+            })),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "financials_fetch", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Manage the monitor market watchlist (add/remove/toggle/list). The markets collector quotes enabled symbols every 6h; finintel tracks their news/insiders/sentiment hourly. Level 2 governed.")]
+    async fn watchlist_manage(
+        &self,
+        Parameters(args): Parameters<WatchlistManageArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "watchlist_manage").await?;
+        let out = match watchlist_inner(&self.state, &args).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "watchlist_manage", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
 }
 
 #[tool_handler]
@@ -1174,7 +1256,118 @@ impl ServerHandler for HubMcp {
                  create_relationship (typed intents → PG canonical + Neo4j), \
                  list_alerts, acknowledge_alert, mute_alert, get_budget_status (self-throttle), \
                  run_component_action (LEVEL 3: needs X-Admin-Token). \
+                 Monitor finance plane: signal_query (macro/quote/sentiment series), \
+                 financials_fetch (deep fundamentals, 30d-cached), watchlist_manage. \
                  Every call is policy-gated (§61) and budget-metered (§58–60).".to_string(),
             )
+    }
+}
+
+// ---------- SP6B finance tool helpers ----------
+
+async fn signal_query_inner(
+    state: &AppState,
+    args: &SignalQueryArgs,
+) -> crate::error::Result<serde_json::Value> {
+    let limit = args.limit.unwrap_or(100).clamp(1, 1000);
+    let pattern = if args.series.contains('%') || args.series.contains('*') {
+        args.series.replace('*', "%")
+    } else {
+        args.series.clone()
+    };
+    let rows: Vec<(String, chrono::DateTime<chrono::Utc>, f64, serde_json::Value)> = sqlx::query_as(
+        "SELECT series, observed_at, value, payload FROM signal_observations
+         WHERE series LIKE $1
+           AND ($2::text IS NULL OR observed_at >= $2::timestamptz)
+           AND ($3::text IS NULL OR observed_at <= $3::timestamptz)
+         ORDER BY observed_at DESC LIMIT $4",
+    )
+    .bind(&pattern)
+    .bind(&args.from)
+    .bind(&args.to)
+    .bind(limit)
+    .fetch_all(&state.pg)
+    .await?;
+    let items: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|(series, ts, value, payload)| {
+            serde_json::json!({
+                "series": series, "observed_at": ts, "value": value, "payload": payload,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "series_pattern": pattern,
+        "count": items.len(),
+        "observations": items,
+    }))
+}
+
+pub(crate) async fn watchlist_inner(
+    state: &AppState,
+    args: &WatchlistManageArgs,
+) -> crate::error::Result<serde_json::Value> {
+    match args.action.as_str() {
+        "list" => {
+            let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
+                "SELECT symbol, asset_class, label, enabled FROM monitor_watchlist ORDER BY symbol",
+            )
+            .fetch_all(&state.pg)
+            .await?;
+            let items: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|(s, c, l, e)| serde_json::json!({"symbol": s, "asset_class": c, "label": l, "enabled": e}))
+                .collect();
+            Ok(serde_json::json!({"count": items.len(), "watchlist": items}))
+        }
+        "add" => {
+            let sym = args.symbol.as_deref().unwrap_or("").trim().to_uppercase();
+            if sym.is_empty() || sym.len() > 12 || !sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '^') {
+                return Err(crate::error::HubError::BadRequest("invalid symbol".into()));
+            }
+            let class = args.asset_class.as_deref().unwrap_or("us_stock");
+            if !["us_stock", "etf", "index", "crypto"].contains(&class) {
+                return Err(crate::error::HubError::BadRequest(
+                    "asset_class must be us_stock|etf|index|crypto".into(),
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO monitor_watchlist (symbol, asset_class, label) VALUES ($1,$2,$3)
+                 ON CONFLICT (symbol) DO UPDATE SET asset_class=$2, label=$3, enabled=true",
+            )
+            .bind(&sym)
+            .bind(class)
+            .bind(args.label.as_deref().unwrap_or(""))
+            .execute(&state.pg)
+            .await?;
+            Ok(serde_json::json!({"ok": true, "action": "add", "symbol": sym}))
+        }
+        "remove" => {
+            let sym = args.symbol.as_deref().unwrap_or("").trim().to_uppercase();
+            let r = sqlx::query("DELETE FROM monitor_watchlist WHERE symbol = $1")
+                .bind(&sym)
+                .execute(&state.pg)
+                .await?;
+            Ok(serde_json::json!({"ok": r.rows_affected() > 0, "action": "remove", "symbol": sym}))
+        }
+        "toggle" => {
+            let sym = args.symbol.as_deref().unwrap_or("").trim().to_uppercase();
+            let r = sqlx::query(
+                "UPDATE monitor_watchlist SET enabled = NOT enabled WHERE symbol = $1 RETURNING enabled",
+            )
+            .bind(&sym)
+            .fetch_optional(&state.pg)
+            .await?;
+            match r {
+                Some(row) => {
+                    let enabled: bool = sqlx::Row::get(&row, "enabled");
+                    Ok(serde_json::json!({"ok": true, "action": "toggle", "symbol": sym, "enabled": enabled}))
+                }
+                None => Err(crate::error::HubError::NotFound(format!("watchlist symbol {sym}"))),
+            }
+        }
+        other => Err(crate::error::HubError::BadRequest(format!(
+            "unknown action {other} — use add|remove|toggle|list"
+        ))),
     }
 }
