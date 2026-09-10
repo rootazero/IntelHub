@@ -14,6 +14,7 @@ import SeriesChart from "../components/hud/SeriesChart";
 import DeltaPanel, { type DeltaRow } from "../components/hud/DeltaPanel";
 import EventStream from "../components/hud/EventStream";
 import MonitorMap from "../components/hud/MonitorMap";
+import NewsTicker from "../components/hud/NewsTicker";
 
 interface LatestRow {
   series: string;
@@ -176,64 +177,65 @@ export default function Monitor() {
           </HudPanel>
         </div>
 
-        {/* center: hero map + bottom card strip (Crucix layout) */}
+        {/* center: hero map → series strip → markets strip */}
         <div className="hud-col">
           <HudPanel title={t("hud.map")} className="flex-1" bodyClassName="!p-0 flex flex-col">
             <MonitorMap refreshKey={mapTick} />
           </HudPanel>
-          <div className="hud-strip">
-            <HudPanel title={`${t("hud.chart")} · ${series}`} bodyClassName="!overflow-hidden flex flex-col">
-              <SeriesChart series={series} days={40} />
-            </HudPanel>
-            <HudPanel title={t("hud.indicators")} bodyClassName="!overflow-y-auto">
-              <div className="hud-mono">
-                {Object.values(latest)
-                  .filter((r) => !r.series.startsWith("quote:") && !GAUGES.some((g) => g.series === r.series))
-                  .sort((a, b) => a.series.localeCompare(b.series))
-                  .slice(0, 8)
-                  .map((r) => (
-                    <div key={r.series} className="flex items-baseline justify-between gap-2 py-[3px] text-[11px]">
-                      <span className="truncate text-[10px]" style={{ color: "var(--hud-dim)" }}>{r.series}</span>
-                      <span style={{ color: "var(--hud-ink)" }}>
-                        {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
+          <HudPanel title={`${t("hud.chart")} · ${series}`} className="flex-none h-[168px]" bodyClassName="!overflow-hidden flex flex-col">
+            <SeriesChart series={series} days={40} />
+          </HudPanel>
+          <HudPanel title={t("hud.markets")} className="flex-none h-[112px]" bodyClassName="!overflow-x-auto !overflow-y-hidden">
+            <div className="flex gap-2">
+              {quotes.map((q) => {
+                const cp = changePct(q);
+                return (
+                  <div key={q.series} className="hud-market-card">
+                    <div className="text-[9px] uppercase tracking-wider" style={{ color: "var(--hud-dim)" }}>
+                      {q.series.replace("quote:", "")}
                     </div>
-                  ))}
-                {Object.keys(latest).length === 0 && (
-                  <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>
-                )}
-              </div>
-            </HudPanel>
-            <HudPanel title={t("hud.markets")} bodyClassName="!overflow-x-auto !overflow-y-hidden">
-              <div className="flex gap-2">
-                {quotes.map((q) => {
-                  const cp = changePct(q);
-                  return (
-                    <div key={q.series} className="hud-market-card">
-                      <div className="text-[9px] uppercase tracking-wider" style={{ color: "var(--hud-dim)" }}>
-                        {q.series.replace("quote:", "")}
+                    <div className="hud-mono text-[14px]">{q.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                    {cp !== null && (
+                      <div className={`hud-mono text-[10px] ${cp >= 0 ? "hud-down" : "hud-up"}`}>
+                        {cp >= 0 ? "+" : ""}{cp.toFixed(2)}%
                       </div>
-                      <div className="hud-mono text-[14px]">{q.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                      {cp !== null && (
-                        <div className={`hud-mono text-[10px] ${cp >= 0 ? "hud-down" : "hud-up"}`}>
-                          {cp >= 0 ? "+" : ""}{cp.toFixed(2)}%
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {quotes.length === 0 && <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>}
-              </div>
-            </HudPanel>
-          </div>
+                    )}
+                  </div>
+                );
+              })}
+              {quotes.length === 0 && <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>}
+            </div>
+          </HudPanel>
         </div>
 
-        {/* right rail */}
+        {/* right rail: news ticker → key indicators → delta → alerts → stream */}
         <div className="hud-col">
-          <HudPanel title={t("hud.delta")} className="max-h-[34%]">
+          <HudPanel title={t("hud.news")} className="flex-none h-[104px]" bodyClassName="!overflow-hidden">
+            <NewsTicker refreshKey={mapTick} />
+          </HudPanel>
+          <HudPanel title={t("hud.indicators")} className="max-h-[24%]">
+            <div className="hud-mono">
+              {Object.values(latest)
+                .filter((r) => !r.series.startsWith("quote:") && !GAUGES.some((g) => g.series === r.series))
+                .sort((a, b) => a.series.localeCompare(b.series))
+                .slice(0, 8)
+                .map((r) => (
+                  <div key={r.series} className="flex items-baseline justify-between gap-2 py-[3px] text-[11px]">
+                    <span className="truncate text-[10px]" style={{ color: "var(--hud-dim)" }}>{r.series}</span>
+                    <span style={{ color: "var(--hud-ink)" }}>
+                      {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ))}
+              {Object.keys(latest).length === 0 && (
+                <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>
+              )}
+            </div>
+          </HudPanel>
+          <HudPanel title={t("hud.delta")} className="max-h-[24%]">
             <DeltaPanel rows={delta} />
           </HudPanel>
-          <HudPanel title={t("hud.alerts")} ok={alerts.length === 0} className="max-h-[30%]">
+          <HudPanel title={t("hud.alerts")} ok={alerts.length === 0} className="max-h-[20%]">
             {alerts.map((a) => (
               <div key={a.alert_id} className="hud-stream-card alert">
                 <div className="hud-mono text-[9px] uppercase" style={{ color: "var(--hud-dim)" }}>{a.severity}</div>

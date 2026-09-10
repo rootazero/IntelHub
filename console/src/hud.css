@@ -189,9 +189,20 @@
 .hud-map-wrap { position: relative; width: 100%; flex: 1; min-height: 0; }
 .hud-map-wrap .leaflet-container { background: #05080d; height: 100%; border-radius: 0 0 8px 8px; }
 
-/* bottom card strip under the hero map (Crucix-style) */
-.hud-strip { display: grid; grid-template-columns: 5fr 3fr 4fr; gap: 8px; height: 190px; flex: none; }
-@media (max-width: 1400px) { .hud-strip { grid-template-columns: 1fr 1fr; height: auto; min-height: 170px; } }
+/* news ticker (Crucix marquee): duplicated track, seamless loop, pause on hover */
+.hud-ticker { overflow: hidden; height: 100%; display: flex; align-items: center; }
+.hud-ticker-track {
+  display: flex; gap: 18px; width: max-content; white-space: nowrap;
+  animation: hud-marquee 60s linear infinite;
+}
+.hud-ticker:hover .hud-ticker-track { animation-play-state: paused; }
+.hud-ticker-item { font-size: 11px; color: var(--hud-ink); display: inline-flex; gap: 6px; align-items: baseline; }
+.hud-ticker-src {
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px; text-transform: uppercase;
+  color: var(--hud-accent2); border: 1px solid rgba(68,204,255,.3); border-radius: 3px; padding: 0 4px;
+}
+@keyframes hud-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.hud-lite .hud-ticker-track { animation: none; }
 
 .hud-btn {
   padding: 2px 8px;
