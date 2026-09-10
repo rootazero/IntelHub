@@ -3,6 +3,7 @@
 // AGENT CLAIM / HYPOTHESIS / ALERT / SYSTEM STATE must be visually distinct.
 
 import type { ReactNode } from "react";
+import { useEnum, useT } from "./i18n";
 
 export function Panel(props: { title: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -34,9 +35,10 @@ const SEV_TONE: Record<string, string> = {
   info: "text-accent border-accent/40",
 };
 export function SeverityBadge({ severity }: { severity: string }) {
+  const en = useEnum();
   return (
     <span className={`inline-block rounded border px-1.5 py-0 text-[10px] font-semibold uppercase ${SEV_TONE[severity] ?? "text-dim border-edge"}`}>
-      {severity}
+      {en("severity", severity)}
     </span>
   );
 }
@@ -48,9 +50,10 @@ const BUDGET_TONE: Record<string, string> = {
   KILL: "text-crit border-crit",
 };
 export function BudgetBadge({ state }: { state: string }) {
+  const en = useEnum();
   return (
     <span className={`inline-block rounded border px-1.5 py-0 text-[10px] font-bold mono ${BUDGET_TONE[state] ?? "text-dim border-edge"}`}>
-      {state}
+      {en("budget", state)}
     </span>
   );
 }
@@ -65,9 +68,10 @@ const EPI_TONE: Record<string, string> = {
   "SYSTEM STATE": "text-dim border-edge",
 };
 export function EpistemicBadge({ kind }: { kind: keyof typeof EPI_TONE | string }) {
+  const en = useEnum();
   return (
     <span className={`inline-block rounded border px-1.5 py-0 text-[10px] font-bold tracking-wide ${EPI_TONE[kind] ?? "text-dim border-edge"}`}>
-      {kind}
+      {en("epistemic", kind)}
     </span>
   );
 }
@@ -89,7 +93,8 @@ export function TimeAgo({ ts }: { ts: string }) {
 }
 
 export function Loading() {
-  return <div className="p-4 text-dim mono text-xs">loading…</div>;
+  const { t } = useT();
+  return <div className="p-4 text-dim mono text-xs">{t("common.loading")}</div>;
 }
 
 export function ErrorBox({ error }: { error: unknown }) {

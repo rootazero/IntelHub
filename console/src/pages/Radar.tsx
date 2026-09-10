@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
+import { useEnum, useT } from "../i18n";
 
 interface GeoEvent {
   event_id: string;
@@ -31,6 +32,8 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
 type TilesMode = "online" | "offline";
 
 export default function Radar() {
+  const { t } = useT();
+  const en = useEnum();
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const baseRef = useRef<L.Layer | null>(null);
@@ -168,7 +171,7 @@ export default function Radar() {
         fillOpacity: 0.55,
       });
       m.on("click", () => setSelected(e));
-      m.bindTooltip(`${e.kind} · ${e.title}`, { direction: "top" });
+      m.bindTooltip(`${en("kind", e.kind)} · ${e.title}`, { direction: "top" });
       m.addTo(lg);
     }
   }, [events]);
@@ -198,35 +201,35 @@ export default function Radar() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-panel px-3 py-2 text-xs">
-        <span className="font-semibold">Global Radar</span>
-        <span className="text-dim">§26 · Crucix signal layer</span>
+        <span className="font-semibold">{t("radar.title")}</span>
+        <span className="text-dim">{t("radar.subtitle")}</span>
         <select className="rounded border border-edge bg-base px-1.5 py-0.5" value={window_} onChange={(e) => setWindow_(e.target.value)}>
           {Object.keys(WINDOWS).map((w) => (
             <option key={w}>{w}</option>
           ))}
         </select>
         <select className="rounded border border-edge bg-base px-1.5 py-0.5" value={sev} onChange={(e) => setSev(e.target.value)}>
-          <option value="">all severity</option>
+          <option value="">{t("radar.allSeverity")}</option>
           {["flash", "priority", "routine", "info"].map((s) => (
-            <option key={s}>{s}</option>
+            <option key={s} value={s}>{en("severity", s)}</option>
           ))}
         </select>
         <select className="rounded border border-edge bg-base px-1.5 py-0.5" value={kind} onChange={(e) => setKind(e.target.value)}>
-          <option value="">all kinds</option>
+          <option value="">{t("radar.allKinds")}</option>
           {KINDS.map((k) => (
-            <option key={k}>{k}</option>
+            <option key={k} value={k}>{en("kind", k)}</option>
           ))}
         </select>
-        <span className="text-dim">{events.length} events</span>
+        <span className="text-dim">{t("radar.events", { n: events.length })}</span>
         <span className="ml-auto flex items-center gap-2">
           <span
             className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === "online" ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
           >
-            TILES: {tiles === "online" ? "ONLINE" : "OFFLINE FALLBACK"}
+            {tiles === "online" ? t("radar.tilesOnline") : t("radar.tilesOffline")}
           </span>
           {tiles === "offline" && (
             <button className="rounded border border-edge px-1.5 py-0.5 text-[10px] hover:border-accent" onClick={goOnline}>
-              retry online
+              {t("radar.retryOnline")}
             </button>
           )}
         </span>
@@ -237,7 +240,7 @@ export default function Radar() {
           <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel p-3 text-xs">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-semibold" style={{ color: SEV_COLOR[selected.severity] ?? SEV_COLOR.info }}>
-                {selected.severity.toUpperCase()} · {selected.kind}
+                {en("severity", selected.severity).toUpperCase()} · {en("kind", selected.kind)}
               </span>
               <button className="text-dim hover:text-ink" onClick={() => setSelected(null)}>✕</button>
             </div>
@@ -255,7 +258,7 @@ export default function Radar() {
               onClick={() => toInvestigation(selected)}
               className="w-full rounded bg-accent/20 px-2 py-1.5 font-semibold text-accent hover:bg-accent/30 disabled:opacity-40"
             >
-              {creating ? "creating…" : "转为调查"}
+              {creating ? t("radar.creating") : t("radar.toInvestigation")}
             </button>
           </aside>
         )}
@@ -263,7 +266,7 @@ export default function Radar() {
       <div className="flex gap-3 border-t border-edge bg-panel px-3 py-1 text-[10px] text-dim">
         {Object.entries(counts).map(([k, n]) => (
           <span key={k}>
-            {k} <span className="text-ink">{n}</span>
+            {en("kind", k)} <span className="text-ink">{n}</span>
           </span>
         ))}
       </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useT } from "../i18n";
 import { Empty, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface AuditRow {
@@ -15,6 +16,7 @@ interface AuditRow {
 }
 
 export default function Audit() {
+  const { t } = useT();
   const [items, setItems] = useState<AuditRow[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,25 +41,25 @@ export default function Audit() {
   return (
     <div className="p-4">
       <Panel
-        title="Audit Center"
+        title={t("audit.title")}
         right={
           <div className="flex gap-1.5 text-[11px]">
-            <input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="actor (e.g. agent:codex)"
+            <input value={actor} onChange={(e) => setActor(e.target.value)} placeholder={t("audit.actorPh")}
               className="w-44 rounded border border-edge bg-base px-1.5 py-0.5 mono" />
-            <input value={action} onChange={(e) => setAction(e.target.value)} placeholder="action"
+            <input value={action} onChange={(e) => setAction(e.target.value)} placeholder={t("audit.actionPh")}
               className="w-32 rounded border border-edge bg-base px-1.5 py-0.5 mono" />
             <select value={result} onChange={(e) => setResult(e.target.value)} className="rounded border border-edge bg-base px-1.5 py-0.5">
-              <option value="">any result</option><option value="ok">ok</option><option value="error">error</option><option value="denied">denied</option>
+              <option value="">{t("audit.anyResult")}</option><option value="ok">ok</option><option value="error">error</option><option value="denied">denied</option>
             </select>
           </div>
         }
       >
         {error && <ErrorBox error={error} />}
-        {loading ? <Loading /> : items.length === 0 ? <Empty label="no audit records match" /> : (
+        {loading ? <Loading /> : items.length === 0 ? <Empty label={t("audit.noMatch")} /> : (
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[10px] uppercase text-dim">
-              <th className="pb-1">When</th><th className="pb-1">Who</th><th className="pb-1">Action</th>
-              <th className="pb-1">Object</th><th className="pb-1">Result</th>
+              <th className="pb-1">{t("audit.thWhen")}</th><th className="pb-1">{t("audit.thWho")}</th><th className="pb-1">{t("audit.thAction")}</th>
+              <th className="pb-1">{t("audit.thObject")}</th><th className="pb-1">{t("audit.thResult")}</th>
             </tr></thead>
             <tbody>
               {items.map((a) => (

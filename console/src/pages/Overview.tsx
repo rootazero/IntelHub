@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, streamEvents, type BusEventPayload } from "../api";
+import { useT } from "../i18n";
 import { BudgetBadge, Empty, ErrorBox, Panel, SeverityBadge, Stat, StatusDot, TimeAgo } from "../ui";
 
 interface OverviewData {
@@ -24,6 +25,7 @@ interface OverviewData {
 }
 
 export default function Overview() {
+  const { t } = useT();
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [events, setEvents] = useState<BusEventPayload[]>([]);
@@ -49,7 +51,7 @@ export default function Overview() {
   }, []);
 
   if (error) return <div className="p-4"><ErrorBox error={error} /></div>;
-  if (!data) return <div className="p-4 text-dim mono text-xs">loading…</div>;
+  if (!data) return <div className="p-4 text-dim mono text-xs">{t("common.loading")}</div>;
 
   const comps = Object.entries(data.health.components);
   const upCount = comps.filter(([, c]) => c.status === "up").length;
@@ -57,18 +59,18 @@ export default function Overview() {
   return (
     <div className="p-4 space-y-3">
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        <Stat label="Components up" value={`${upCount}/${comps.length}`} tone={upCount === comps.length ? "ok" : "crit"} />
-        <Stat label="Active investigations" value={data.investigations.active} tone={data.investigations.active > 0 ? "ok" : "dim"} />
-        <Stat label="Open alerts" value={data.alerts.open} tone={data.alerts.open > 0 ? "warn" : "ok"} />
-        <Stat label="Evidence today" value={data.evidence.docs_today} />
-        <Stat label="Evidence total" value={data.evidence.docs_total} />
-        <Stat label="Graph changes today" value={data.graph.changes_today} />
-        <Stat label="Embedded docs" value={data.memory.embedded_docs} />
-        <Stat label="Cloud cost today" value={`$${data.cloud.est_cost_usd}`} tone={data.cloud.est_cost_usd > 1 ? "warn" : "dim"} />
+        <Stat label={t("overview.componentsUp")} value={`${upCount}/${comps.length}`} tone={upCount === comps.length ? "ok" : "crit"} />
+        <Stat label={t("overview.activeInv")} value={data.investigations.active} tone={data.investigations.active > 0 ? "ok" : "dim"} />
+        <Stat label={t("overview.openAlerts")} value={data.alerts.open} tone={data.alerts.open > 0 ? "warn" : "ok"} />
+        <Stat label={t("overview.evidenceToday")} value={data.evidence.docs_today} />
+        <Stat label={t("overview.evidenceTotal")} value={data.evidence.docs_total} />
+        <Stat label={t("overview.graphChanges")} value={data.graph.changes_today} />
+        <Stat label={t("overview.embeddedDocs")} value={data.memory.embedded_docs} />
+        <Stat label={t("overview.cloudCost")} value={`$${data.cloud.est_cost_usd}`} tone={data.cloud.est_cost_usd > 1 ? "warn" : "dim"} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Panel title="System Health" right={<Link to="/system" className="text-[10px] text-accent">details →</Link>}>
+        <Panel title={t("overview.systemHealth")} right={<Link to="/system" className="text-[10px] text-accent">{t("overview.details")}</Link>}>
           <div className="grid grid-cols-2 gap-1.5">
             {comps.map(([name, c]) => (
               <div key={name} className="flex items-center justify-between rounded border border-edge px-2 py-1">
@@ -79,11 +81,11 @@ export default function Overview() {
           </div>
         </Panel>
 
-        <Panel title="Agents" right={<Link to="/agents" className="text-[10px] text-accent">activity →</Link>}>
-          {data.agents.length === 0 ? <Empty label="no agents" /> : (
+        <Panel title={t("overview.agents")} right={<Link to="/agents" className="text-[10px] text-accent">{t("overview.activity")}</Link>}>
+          {data.agents.length === 0 ? <Empty label={t("overview.noAgents")} /> : (
             <table className="w-full text-xs">
               <thead><tr className="text-left text-[10px] uppercase text-dim">
-                <th className="pb-1">Agent</th><th className="pb-1 text-right">Calls today</th><th className="pb-1 text-right">Budget</th>
+                <th className="pb-1">{t("overview.thAgent")}</th><th className="pb-1 text-right">{t("overview.thCallsToday")}</th><th className="pb-1 text-right">{t("overview.thBudget")}</th>
               </tr></thead>
               <tbody>
                 {data.agents.map((a) => (
@@ -98,27 +100,27 @@ export default function Overview() {
           )}
         </Panel>
 
-        <Panel title="Global Intelligence Radar" className="min-h-32" right={<Link to="/radar" className="text-[10px] text-accent">map →</Link>}>
+        <Panel title={t("overview.radarTitle")} className="min-h-32" right={<Link to="/radar" className="text-[10px] text-accent">{t("overview.map")}</Link>}>
           <div className="flex h-full flex-col justify-center gap-2">
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold mono">{data.radar?.geo_events_24h ?? 0}</span>
-              <span className="text-[10px] uppercase tracking-wider text-dim">geo events / 24h</span>
+              <span className="text-[10px] uppercase tracking-wider text-dim">{t("overview.geoPerDay")}</span>
             </div>
             <div className="flex items-center gap-2 text-xs">
               <StatusDot up={data.radar?.crucix.up ?? false} />
               <span className="text-dim">Crucix</span>
               {data.radar?.crucix.up && (
                 <span className="mono text-[10px] text-dim">
-                  {data.radar.crucix.sources_ok ?? "?"} sources ok
+                  {t("overview.sourcesOk", { ok: data.radar.crucix.sources_ok ?? "?" })}
                   {(data.radar.crucix.sources_failed ?? 0) > 0 && (
-                    <span className="text-amber-400"> · {data.radar.crucix.sources_failed} failed</span>
+                    <span className="text-amber-400">{t("overview.sourcesFailed", { failed: data.radar.crucix.sources_failed ?? 0 })}</span>
                   )}
                 </span>
               )}
             </div>
             {data.radar?.crucix.last_sweep && (
               <div className="text-[10px] text-dim">
-                last sweep <TimeAgo ts={data.radar.crucix.last_sweep} />
+                {t("overview.lastSweep")} <TimeAgo ts={data.radar.crucix.last_sweep} />
               </div>
             )}
           </div>
@@ -126,8 +128,8 @@ export default function Overview() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
-        <Panel title="Recent Alerts" right={<Link to="/alerts" className="text-[10px] text-accent">center →</Link>}>
-          {(data.alerts.recent.items ?? []).length === 0 ? <Empty label="no open alerts" /> : (
+        <Panel title={t("overview.recentAlerts")} right={<Link to="/alerts" className="text-[10px] text-accent">{t("overview.center")}</Link>}>
+          {(data.alerts.recent.items ?? []).length === 0 ? <Empty label={t("overview.noOpenAlerts")} /> : (
             <ul className="space-y-1">
               {(data.alerts.recent.items ?? []).map((a) => (
                 <li key={a.alert_id} className="flex items-center gap-2 text-xs">
@@ -140,8 +142,8 @@ export default function Overview() {
           )}
         </Panel>
 
-        <Panel title="Active Investigations" right={<Link to="/investigations" className="text-[10px] text-accent">all →</Link>}>
-          {(data.investigations.items.items ?? []).length === 0 ? <Empty label="no open investigations" /> : (
+        <Panel title={t("overview.activeInvPanel")} right={<Link to="/investigations" className="text-[10px] text-accent">{t("overview.allLink")}</Link>}>
+          {(data.investigations.items.items ?? []).length === 0 ? <Empty label={t("overview.noOpenInv")} /> : (
             <ul className="space-y-1">
               {(data.investigations.items.items ?? []).map((i) => (
                 <li key={i.investigation_id} className="text-xs">
@@ -153,10 +155,10 @@ export default function Overview() {
         </Panel>
 
         <Panel
-          title="Live Event Stream"
+          title={t("overview.liveEvents")}
           right={<span className="flex items-center gap-1.5 text-[10px] text-dim"><StatusDot up={streamOk} />SSE</span>}
         >
-          {events.length === 0 ? <Empty label="waiting for events…" /> : (
+          {events.length === 0 ? <Empty label={t("overview.waitingEvents")} /> : (
             <ul className="max-h-64 space-y-1 overflow-y-auto mono text-[11px]">
               {events.map((e) => (
                 <li key={e.event_id} className="flex gap-2">

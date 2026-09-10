@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
+import { useT } from "../i18n";
 import { BudgetBadge, Empty, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface AgentActivity {
@@ -36,6 +37,7 @@ function BudgetBar({ label, used, limit }: { label: string; used: number; limit:
 }
 
 export default function Agents() {
+  const { t } = useT();
   const [agents, setAgents] = useState<AgentActivity[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,17 +59,17 @@ export default function Agents() {
 
   return (
     <div className="grid grid-cols-1 gap-3 p-4 xl:grid-cols-2">
-      {agents.length === 0 && <Empty label="no agents provisioned (hub create-agent)" />}
+      {agents.length === 0 && <Empty label={t("agents.none")} />}
       {agents.map((a) => (
         <Panel
           key={a.name}
           title={<span className="flex items-center gap-2"><span className="mono text-xs">{a.name}</span><BudgetBadge state={a.budget.state} /></span>}
-          right={<span className="text-[10px] text-dim">{a.calls_today} calls today · {a.findings_total} findings total</span>}
+          right={<span className="text-[10px] text-dim">{t("agents.summary", { calls: a.calls_today, findings: a.findings_total })}</span>}
         >
           <div className="mb-3 space-y-1.5">
-            <BudgetBar label="tool calls" used={a.budget.usage.tool_calls} limit={a.budget.limits.tool_calls} />
-            <BudgetBar label="crawl pages" used={a.budget.usage.crawl_pages} limit={a.budget.limits.crawl_pages} />
-            <BudgetBar label="embedding tokens" used={a.budget.usage.embed_tokens} limit={a.budget.limits.embed_tokens} />
+            <BudgetBar label={t("agents.toolCalls")} used={a.budget.usage.tool_calls} limit={a.budget.limits.tool_calls} />
+            <BudgetBar label={t("agents.crawlPages")} used={a.budget.usage.crawl_pages} limit={a.budget.limits.crawl_pages} />
+            <BudgetBar label={t("agents.embedTokens")} used={a.budget.usage.embed_tokens} limit={a.budget.limits.embed_tokens} />
           </div>
           {a.costs_today.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-2 text-[10px] text-dim">
@@ -76,8 +78,8 @@ export default function Agents() {
               ))}
             </div>
           )}
-          <div className="text-[10px] uppercase tracking-wider text-dim">Recent activity</div>
-          {a.recent_calls.length === 0 ? <Empty label="no calls yet" /> : (
+          <div className="text-[10px] uppercase tracking-wider text-dim">{t("agents.recentActivity")}</div>
+          {a.recent_calls.length === 0 ? <Empty label={t("agents.noCalls")} /> : (
             <table className="mt-1 w-full text-[11px]">
               <tbody>
                 {a.recent_calls.map((c, i) => (

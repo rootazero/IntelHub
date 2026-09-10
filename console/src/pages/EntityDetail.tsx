@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { useT } from "../i18n";
 import { Empty, EpistemicBadge, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface Entity {
@@ -18,6 +19,7 @@ interface Entity {
 }
 
 export default function EntityDetail() {
+  const { t } = useT();
   const { id } = useParams();
   const [entity, setEntity] = useState<Entity | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -40,10 +42,10 @@ export default function EntityDetail() {
           <h1 className="text-sm font-bold">{entity.name}</h1>
         </div>
         <div className="mt-1 text-[11px] text-dim">
-          created by <span className="mono">{entity.created_by}</span> · <TimeAgo ts={entity.created_at} />
+          {t("entity.createdBy")} <span className="mono">{entity.created_by}</span> · <TimeAgo ts={entity.created_at} />
         </div>
         {entity.aliases.length > 0 && (
-          <div className="mt-1 text-[11px]"><span className="text-dim">aliases: </span>{entity.aliases.join(", ")}</div>
+          <div className="mt-1 text-[11px]"><span className="text-dim">{t("entity.aliases")}</span>{entity.aliases.join(", ")}</div>
         )}
         {Object.keys(entity.attributes).length > 0 && (
           <pre className="mt-2 overflow-x-auto rounded border border-edge bg-base p-2 mono text-[10px] text-dim">
@@ -53,8 +55,8 @@ export default function EntityDetail() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Panel title={`Relationships (${entity.relationships.length})`}>
-          {entity.relationships.length === 0 ? <Empty label="no relationships" /> : (
+        <Panel title={t("entity.relationships", { n: entity.relationships.length })}>
+          {entity.relationships.length === 0 ? <Empty label={t("entity.noRel")} /> : (
             <ul className="space-y-1 mono text-[11px]">
               {entity.relationships.map((r, i) => (
                 <li key={i}>{r.from} <span className="text-accent">—{r.rel_type}→</span> {r.to}</li>
@@ -63,8 +65,8 @@ export default function EntityDetail() {
           )}
         </Panel>
 
-        <Panel title={`Claims (${entity.claims.length})`}>
-          {entity.claims.length === 0 ? <Empty label="no claims about this entity" /> : (
+        <Panel title={t("entity.claims", { n: entity.claims.length })}>
+          {entity.claims.length === 0 ? <Empty label={t("entity.noClaims")} /> : (
             <ul className="space-y-1.5 text-xs">
               {entity.claims.map((c) => (
                 <li key={c.claim_id} className="flex items-start gap-2">

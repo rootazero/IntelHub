@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, EpistemicBadge, ErrorBox, Loading, Panel, SeverityBadge, TimeAgo } from "../ui";
 
 interface Finding {
@@ -33,6 +34,8 @@ interface Workspace {
 }
 
 function FindingCard({ f }: { f: Finding }) {
+  const { t } = useT();
+  const en = useEnum();
   const [open, setOpen] = useState(false);
   const evidence = f.evidence ?? [];
   const supporting = evidence.filter((e) => e.relation === "supports").length;
@@ -53,12 +56,12 @@ function FindingCard({ f }: { f: Finding }) {
         </div>
       </div>
       <div className="mt-1.5 flex items-center gap-3 text-[10px] text-dim">
-        <span>supporting <b className="text-ok">{supporting}</b></span>
-        <span>contradicting <b className="text-crit">{contradicting}</b></span>
-        {f.source_confidence != null && <span>source_conf {f.source_confidence}</span>}
-        {f.claim_confidence != null && <span>claim_conf {f.claim_confidence}</span>}
+        <span>{t("workspace.supporting")} <b className="text-ok">{supporting}</b></span>
+        <span>{t("workspace.contradicting")} <b className="text-crit">{contradicting}</b></span>
+        {f.source_confidence != null && <span>{t("workspace.sourceConf")} {f.source_confidence}</span>}
+        {f.claim_confidence != null && <span>{t("workspace.claimConf")} {f.claim_confidence}</span>}
         <button onClick={() => setOpen(!open)} className="ml-auto text-accent hover:underline">
-          {open ? "hide evidence ▲" : `view evidence (${evidence.length}) ▼`}
+          {open ? t("workspace.hideEvidence") : t("workspace.viewEvidence", { n: evidence.length })}
         </button>
       </div>
       {open && (
@@ -66,13 +69,13 @@ function FindingCard({ f }: { f: Finding }) {
           {evidence.map((e) => (
             <li key={e.document_id + e.relation} className="flex items-center gap-2 text-[11px]">
               <EpistemicBadge kind="FACT" />
-              <span className={`mono ${e.relation === "contradicts" ? "text-crit" : "text-ok"}`}>{e.relation}</span>
+              <span className={`mono ${e.relation === "contradicts" ? "text-crit" : "text-ok"}`}>{en("rel", e.relation)}</span>
               <Link className="truncate text-accent hover:underline" to={`/evidence/${e.document_id}`}>
                 {e.title ?? e.url ?? e.document_id}
               </Link>
             </li>
           ))}
-          {evidence.length === 0 && <li className="text-[11px] text-dim">no linked evidence (rejected by hub — §29 requires ≥1)</li>}
+          {evidence.length === 0 && <li className="text-[11px] text-dim">{t("workspace.noLinkedEvidence")}</li>}
         </ul>
       )}
     </div>
@@ -80,6 +83,7 @@ function FindingCard({ f }: { f: Finding }) {
 }
 
 export default function InvestigationWorkspace() {
+  const { t } = useT();
   const { id } = useParams();
   const [ws, setWs] = useState<Workspace | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -104,22 +108,22 @@ export default function InvestigationWorkspace() {
           <span className={`mono text-[10px] ${inv.status === "open" ? "text-ok" : "text-dim"}`}>{inv.status}</span>
         </div>
         <div className="mt-1 grid grid-cols-1 gap-1 text-xs md:grid-cols-3">
-          <div><span className="text-dim">target: </span><span className="mono">{inv.target ?? "—"}</span></div>
-          <div className="md:col-span-2"><span className="text-dim">question: </span>{inv.question ?? "—"}</div>
+          <div><span className="text-dim">{t("workspace.target")}</span><span className="mono">{inv.target ?? "—"}</span></div>
+          <div className="md:col-span-2"><span className="text-dim">{t("workspace.question")}</span>{inv.question ?? "—"}</div>
         </div>
-        {inv.hypothesis && <p className="mt-1 text-xs text-purple-300/90">hypothesis: {inv.hypothesis}</p>}
+        {inv.hypothesis && <p className="mt-1 text-xs text-purple-300/90">{t("workspace.hypothesis")}{inv.hypothesis}</p>}
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Panel title={`Agent Findings (${findings.length})`}>
-          {findings.length === 0 ? <Empty label="no findings yet — agents create them via MCP create_finding" /> : (
+        <Panel title={t("workspace.findings", { n: findings.length })}>
+          {findings.length === 0 ? <Empty label={t("workspace.noFindings")} /> : (
             <div className="space-y-2">{findings.map((f) => <FindingCard key={f.finding_id} f={f} />)}</div>
           )}
         </Panel>
 
         <div className="space-y-3">
-          <Panel title={`Evidence Documents (${ws.documents.length})`}>
-            {ws.documents.length === 0 ? <Empty label="no documents" /> : (
+          <Panel title={t("workspace.documents", { n: ws.documents.length })}>
+            {ws.documents.length === 0 ? <Empty label={t("workspace.noDocs")} /> : (
               <ul className="max-h-64 space-y-1 overflow-y-auto text-xs">
                 {ws.documents.map((d) => (
                   <li key={d.document_id} className="flex items-center gap-2">
@@ -134,8 +138,8 @@ export default function InvestigationWorkspace() {
             )}
           </Panel>
 
-          <Panel title={`Entities (${ws.entities.length})`}>
-            {ws.entities.length === 0 ? <Empty label="no entities observed on this investigation's evidence yet" /> : (
+          <Panel title={t("workspace.entities", { n: ws.entities.length })}>
+            {ws.entities.length === 0 ? <Empty label={t("workspace.noEntities")} /> : (
               <div className="flex flex-wrap gap-1.5">
                 {ws.entities.map((e) => (
                   <Link key={e.entity_id} to={`/entities/${e.entity_id}`}
@@ -147,8 +151,8 @@ export default function InvestigationWorkspace() {
             )}
           </Panel>
 
-          <Panel title={`Alerts (${ws.alerts.length})`}>
-            {ws.alerts.length === 0 ? <Empty label="no alerts linked" /> : (
+          <Panel title={t("workspace.alerts", { n: ws.alerts.length })}>
+            {ws.alerts.length === 0 ? <Empty label={t("workspace.noAlerts")} /> : (
               <ul className="space-y-1 text-xs">
                 {ws.alerts.map((a) => (
                   <li key={a.alert_id} className="flex items-center gap-2">
@@ -164,8 +168,8 @@ export default function InvestigationWorkspace() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Panel title={`Tasks (${ws.tasks.length})`}>
-          {ws.tasks.length === 0 ? <Empty label="no tasks" /> : (
+        <Panel title={t("workspace.tasks", { n: ws.tasks.length })}>
+          {ws.tasks.length === 0 ? <Empty label={t("workspace.noTasks")} /> : (
             <table className="w-full text-xs">
               <tbody>
                 {ws.tasks.map((t) => (
@@ -181,8 +185,8 @@ export default function InvestigationWorkspace() {
           )}
         </Panel>
 
-        <Panel title={`Audit (${ws.audit.length})`}>
-          {ws.audit.length === 0 ? <Empty label="no audit records for this investigation" /> : (
+        <Panel title={t("workspace.audit", { n: ws.audit.length })}>
+          {ws.audit.length === 0 ? <Empty label={t("workspace.noAudit")} /> : (
             <ul className="space-y-0.5 mono text-[11px]">
               {ws.audit.map((a, i) => (
                 <li key={i} className="flex gap-2">

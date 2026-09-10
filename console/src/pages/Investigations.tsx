@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface Investigation {
@@ -16,6 +17,8 @@ interface Investigation {
 }
 
 export default function Investigations() {
+  const { t } = useT();
+  const en = useEnum();
   const [items, setItems] = useState<Investigation[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,34 +53,34 @@ export default function Investigations() {
 
   return (
     <div className="space-y-3 p-4">
-      <Panel title="New Investigation">
+      <Panel title={t("inv.newTitle")}>
         <div className="flex flex-wrap gap-1.5 text-xs">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="title (required)"
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("inv.titlePh")}
             className="min-w-64 flex-1 rounded border border-edge bg-base px-2 py-1" />
-          <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="target (person/org/domain/…)"
+          <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder={t("inv.targetPh")}
             className="w-56 rounded border border-edge bg-base px-2 py-1" />
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="question"
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t("inv.questionPh")}
             className="w-64 rounded border border-edge bg-base px-2 py-1" />
           <button onClick={create} className="rounded bg-accent/20 px-3 py-1 font-semibold text-accent hover:bg-accent/30">
-            Create
+            {t("inv.create")}
           </button>
         </div>
       </Panel>
 
       <Panel
-        title="Investigations"
+        title={t("inv.title")}
         right={
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded border border-edge bg-base px-1.5 py-0.5 text-[11px]">
-            <option value="">all</option><option value="open">open</option><option value="paused">paused</option><option value="closed">closed</option>
+            <option value="">{t("common.all")}</option><option value="open">{en("invStatus", "open")}</option><option value="paused">{en("invStatus", "paused")}</option><option value="closed">{en("invStatus", "closed")}</option>
           </select>
         }
       >
         {error && <ErrorBox error={error} />}
-        {loading ? <Loading /> : items.length === 0 ? <Empty label="no investigations" /> : (
+        {loading ? <Loading /> : items.length === 0 ? <Empty label={t("inv.none")} /> : (
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[10px] uppercase text-dim">
-              <th className="pb-1">Title</th><th className="pb-1">Target</th><th className="pb-1">Status</th>
-              <th className="pb-1">Created by</th><th className="pb-1">Age</th>
+              <th className="pb-1">{t("inv.thTitle")}</th><th className="pb-1">{t("inv.thTarget")}</th><th className="pb-1">{t("inv.thStatus")}</th>
+              <th className="pb-1">{t("inv.thCreatedBy")}</th><th className="pb-1">{t("common.age")}</th>
             </tr></thead>
             <tbody>
               {items.map((i) => (
@@ -87,7 +90,7 @@ export default function Investigations() {
                   </td>
                   <td className="py-1.5 pr-2 mono text-dim">{i.target ?? "—"}</td>
                   <td className="py-1.5 pr-2">
-                    <span className={`mono ${i.status === "open" ? "text-ok" : "text-dim"}`}>{i.status}</span>
+                    <span className={`mono ${i.status === "open" ? "text-ok" : "text-dim"}`}>{en("invStatus", i.status)}</span>
                   </td>
                   <td className="py-1.5 pr-2 mono">{i.created_by}</td>
                   <td className="py-1.5"><TimeAgo ts={i.created_at} /></td>

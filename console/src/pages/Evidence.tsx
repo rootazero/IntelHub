@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface Doc {
@@ -23,6 +24,8 @@ const EMB_TONE: Record<string, string> = {
 };
 
 export default function Evidence() {
+  const { t } = useT();
+  const en = useEnum();
   const [items, setItems] = useState<Doc[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<Error | null>(null);
@@ -46,25 +49,25 @@ export default function Evidence() {
   return (
     <div className="p-4">
       <Panel
-        title={`Evidence Store (${total} documents)`}
+        title={t("evidence.title", { total })}
         right={
           <div className="flex gap-1.5 text-[11px]">
-            <input value={q} onChange={(e) => { setOffset(0); setQ(e.target.value); }} placeholder="filter url/title"
+            <input value={q} onChange={(e) => { setOffset(0); setQ(e.target.value); }} placeholder={t("evidence.filterPh")}
               className="w-48 rounded border border-edge bg-base px-1.5 py-0.5" />
             <select value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value); }}
               className="rounded border border-edge bg-base px-1.5 py-0.5">
-              <option value="">any embedding</option>
-              {["DONE", "PENDING", "SKIPPED", "FAILED"].map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="">{t("evidence.anyEmbedding")}</option>
+              {["DONE", "PENDING", "SKIPPED", "FAILED"].map((s) => <option key={s} value={s}>{en("emb", s)}</option>)}
             </select>
           </div>
         }
       >
         {error && <ErrorBox error={error} />}
-        {loading ? <Loading /> : items.length === 0 ? <Empty label="no documents" /> : (
+        {loading ? <Loading /> : items.length === 0 ? <Empty label={t("evidence.noDocs")} /> : (
           <>
             <table className="w-full text-xs">
               <thead><tr className="text-left text-[10px] uppercase text-dim">
-                <th className="pb-1">Document</th><th className="pb-1">Hash</th><th className="pb-1">Embedding</th><th className="pb-1">Retrieved</th>
+                <th className="pb-1">{t("evidence.thDocument")}</th><th className="pb-1">{t("evidence.thHash")}</th><th className="pb-1">{t("evidence.thEmbedding")}</th><th className="pb-1">{t("evidence.thRetrieved")}</th>
               </tr></thead>
               <tbody>
                 {items.map((d) => (
@@ -73,7 +76,7 @@ export default function Evidence() {
                       <Link className="text-accent hover:underline" to={`/evidence/${d.document_id}`}>{d.title ?? d.url}</Link>
                     </td>
                     <td className="py-1 pr-2 mono text-[10px] text-dim">{d.content_hash}</td>
-                    <td className={`py-1 pr-2 mono text-[10px] ${EMB_TONE[d.embedding_status] ?? "text-dim"}`}>{d.embedding_status}</td>
+                    <td className={`py-1 pr-2 mono text-[10px] ${EMB_TONE[d.embedding_status] ?? "text-dim"}`}>{en("emb", d.embedding_status)}</td>
                     <td className="py-1"><TimeAgo ts={d.retrieved_at} /></td>
                   </tr>
                 ))}
@@ -81,9 +84,9 @@ export default function Evidence() {
             </table>
             <div className="mt-2 flex gap-2 text-[11px]">
               <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}
-                className="rounded border border-edge px-2 py-0.5 disabled:opacity-30">← prev</button>
+                className="rounded border border-edge px-2 py-0.5 disabled:opacity-30">{t("common.prev")}</button>
               <button disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}
-                className="rounded border border-edge px-2 py-0.5 disabled:opacity-30">next →</button>
+                className="rounded border border-edge px-2 py-0.5 disabled:opacity-30">{t("common.next")}</button>
               <span className="ml-auto text-dim">{offset + 1}–{Math.min(offset + limit, total)} / {total}</span>
             </div>
           </>

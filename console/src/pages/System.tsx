@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, ErrorBox, Loading, Panel, StatusDot } from "../ui";
 
 interface Health {
@@ -51,6 +52,8 @@ function MetricStat({ label, value, warn }: { label: string; value: string; warn
 }
 
 export default function System() {
+  const { t } = useT();
+  const en = useEnum();
   const [health, setHealth] = useState<Health | null>(null);
   const [components, setComponents] = useState<Component[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -69,9 +72,9 @@ export default function System() {
   }, [load]);
 
   const runAction = async (component: string, action: string) => {
-    const token = window.prompt(`Level 3 action — enter admin token to ${action} ${component}:`);
+    const token = window.prompt(t("system.l3prompt", { action, component }));
     if (!token) return;
-    setActionLog(`running ${action} on ${component}…`);
+    setActionLog(t("system.running", { action, component }));
     try {
       const key = localStorage.getItem("intelhub.console.key") ?? "";
       const resp = await fetch(`/api/v1/components/${component}/actions`, {
@@ -81,7 +84,7 @@ export default function System() {
       });
       const body = await resp.json();
       if (!resp.ok) throw new ApiError(resp.status, body.error ?? "failed");
-      setActionLog(`✓ ${action} ${component} ok`);
+      setActionLog(t("system.ok", { action, component }));
       load();
     } catch (e) {
       setActionLog(`✗ ${e instanceof Error ? e.message : String(e)}`);
@@ -92,7 +95,7 @@ export default function System() {
     <div className="space-y-3 p-4">
       {error && <ErrorBox error={error} />}
 
-      <Panel title={`Health Center — hub-core v${health?.version ?? "…"}`}>
+      <Panel title={t("system.healthCenter", { version: health?.version ?? "…" })}>
         {!health ? <Loading /> : (
           <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3 xl:grid-cols-6">
             {Object.entries(health.components).map(([name, c]) => (
@@ -100,7 +103,7 @@ export default function System() {
                 <div className="flex items-center gap-1.5 text-xs font-semibold">
                   <StatusDot up={c.status === "up"} />{name}
                 </div>
-                <div className="mt-0.5 mono text-[10px] text-dim">{c.status} · {c.latency_ms}ms</div>
+                <div className="mt-0.5 mono text-[10px] text-dim">{en("health", c.status)} · {c.latency_ms}ms</div>
               </div>
             ))}
           </div>
@@ -108,7 +111,7 @@ export default function System() {
       </Panel>
 
       <Panel
-        title="Telemetry (§52 — via Prometheus)"
+        title={t("system.telemetry")}
         right={
           <span className="flex gap-3 text-[10px]">
             <a href="http://10.10.10.41:3001" target="_blank" rel="noreferrer" className="text-accent">grafana →</a>
@@ -117,27 +120,27 @@ export default function System() {
         }
       >
         {!metrics || metrics.telemetry !== "ok" ? (
-          <div className="text-xs text-dim">telemetry unavailable (prometheus down?)</div>
+          <div className="text-xs text-dim">{t("system.telemetryDown")}</div>
         ) : (
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <MetricStat label="CPU" value={`${metrics.host?.cpu_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.cpu_pct ?? 0) > 85} />
             <MetricStat label="RAM" value={`${metrics.host?.ram_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.ram_pct ?? 0) > 85} />
-            <MetricStat label="Disk /" value={`${metrics.host?.disk_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.disk_pct ?? 0) > 85} />
-            <MetricStat label="Net RX" value={fmtBps(metrics.host?.net_rx_bps)} />
-            <MetricStat label="Net TX" value={fmtBps(metrics.host?.net_tx_bps)} />
+            <MetricStat label={t("system.disk")} value={`${metrics.host?.disk_pct?.toFixed(1) ?? "—"}%`} warn={(metrics.host?.disk_pct ?? 0) > 85} />
+            <MetricStat label={t("system.netRx")} value={fmtBps(metrics.host?.net_rx_bps)} />
+            <MetricStat label={t("system.netTx")} value={fmtBps(metrics.host?.net_tx_bps)} />
           </div>
         )}
       </Panel>
 
       <Panel
-        title="Component Manager"
-        right={<span className="text-[10px] text-dim">L3 actions prompt for admin token · default DENY (§61)</span>}
+        title={t("system.compManager")}
+        right={<span className="text-[10px] text-dim">{t("system.l3note")}</span>}
       >
-        {components.length === 0 ? <Empty label="no component data" /> : (
+        {components.length === 0 ? <Empty label={t("system.noCompData")} /> : (
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[10px] uppercase text-dim">
-              <th className="pb-1">Component</th><th className="pb-1">State</th><th className="pb-1">Installed</th>
-              <th className="pb-1">Latest known</th><th className="pb-1">Update</th><th className="pb-1 text-right">Actions</th>
+              <th className="pb-1">{t("system.thComponent")}</th><th className="pb-1">{t("system.thState")}</th><th className="pb-1">{t("system.thInstalled")}</th>
+              <th className="pb-1">{t("system.thLatest")}</th><th className="pb-1">{t("system.thUpdate")}</th><th className="pb-1 text-right">{t("common.actions")}</th>
             </tr></thead>
             <tbody>
               {components.map((c) => (
@@ -153,8 +156,8 @@ export default function System() {
                   <td className="py-1.5 mono">{c.latest_known_version ?? "—"}</td>
                   <td className="py-1.5">
                     {c.update_available
-                      ? <span className="rounded border border-warn/40 px-1.5 py-0 text-[10px] font-bold text-warn">UPDATE</span>
-                      : <span className="text-[10px] text-dim">current</span>}
+                      ? <span className="rounded border border-warn/40 px-1.5 py-0 text-[10px] font-bold text-warn">{t("system.updateAvailable")}</span>
+                      : <span className="text-[10px] text-dim">{t("system.current")}</span>}
                   </td>
                   <td className="py-1.5 text-right whitespace-nowrap">
                     {["backup", "upgrade", "rollback"].map((a) => (
@@ -163,7 +166,7 @@ export default function System() {
                         onClick={() => runAction(c.name, a)}
                         className="ml-1 rounded border border-edge px-1.5 py-0.5 text-[10px] text-dim hover:border-accent hover:text-accent"
                       >
-                        {a}
+                        {t(`system.${a}`)}
                       </button>
                     ))}
                   </td>
@@ -175,7 +178,7 @@ export default function System() {
         {actionLog && <div className="mt-2 rounded border border-edge bg-base p-2 mono text-[11px] text-dim">{actionLog}</div>}
       </Panel>
 
-      <Panel title="Containers (docker ps)">
+      <Panel title={t("system.containers")}>
         {!health ? <Loading /> : Array.isArray(health.containers) ? (
           <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
             {health.containers.map((c) => (
@@ -185,7 +188,7 @@ export default function System() {
               </div>
             ))}
           </div>
-        ) : <Empty label="docker telemetry unavailable" />}
+        ) : <Empty label={t("system.dockerDown")} />}
       </Panel>
     </div>
   );

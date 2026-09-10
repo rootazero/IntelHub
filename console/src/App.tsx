@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
+import { I18nProvider, useT, type Lang } from "./i18n";
 import Overview from "./pages/Overview";
 import Radar from "./pages/Radar";
 import Investigations from "./pages/Investigations";
@@ -15,19 +16,34 @@ import Audit from "./pages/Audit";
 import System from "./pages/System";
 
 const NAV = [
-  ["/", "Overview"],
-  ["/radar", "Radar"],
-  ["/investigations", "Investigations"],
-  ["/search", "Search"],
-  ["/evidence", "Evidence"],
-  ["/alerts", "Alerts"],
-  ["/agents", "Agents"],
-  ["/audit", "Audit"],
-  ["/system", "System"],
+  ["/", "nav.overview"],
+  ["/radar", "nav.radar"],
+  ["/investigations", "nav.investigations"],
+  ["/search", "nav.search"],
+  ["/evidence", "nav.evidence"],
+  ["/alerts", "nav.alerts"],
+  ["/agents", "nav.agents"],
+  ["/audit", "nav.audit"],
+  ["/system", "nav.system"],
 ] as const;
+
+function LangSwitch() {
+  const { lang, setLang } = useT();
+  const btn = (l: Lang, label: string) => (
+    <button
+      key={l}
+      onClick={() => setLang(l)}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${lang === l ? "bg-accent/20 text-accent" : "text-dim hover:text-ink"}`}
+    >
+      {label}
+    </button>
+  );
+  return <div className="flex gap-0.5">{[btn("zh", "中文"), btn("en", "EN")]}</div>;
+}
 
 function KeyGate({ onDone }: { onDone: () => void }) {
   const [value, setValue] = useState("");
+  const { t } = useT();
   return (
     <div className="flex h-full items-center justify-center">
       <form
@@ -40,10 +56,9 @@ function KeyGate({ onDone }: { onDone: () => void }) {
           }
         }}
       >
-        <h1 className="mb-1 text-sm font-semibold">IntelHub Console</h1>
+        <h1 className="mb-1 text-sm font-semibold">{t("brand.title")} Console</h1>
         <p className="mb-4 text-xs text-dim">
-          Paste the console API key (agent identity <span className="mono">console</span>). Stored only in this
-          browser's localStorage.
+          {t("gate.intro_pre")} <span className="mono">console</span>{t("gate.intro_post")}
         </p>
         <input
           autoFocus
@@ -54,7 +69,7 @@ function KeyGate({ onDone }: { onDone: () => void }) {
           onChange={(e) => setValue(e.target.value)}
         />
         <button className="w-full rounded bg-accent/20 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/30">
-          Connect
+          {t("gate.connect")}
         </button>
       </form>
     </div>
@@ -62,7 +77,16 @@ function KeyGate({ onDone }: { onDone: () => void }) {
 }
 
 export default function App() {
+  return (
+    <I18nProvider>
+      <Shell />
+    </I18nProvider>
+  );
+}
+
+function Shell() {
   const [authed, setAuthed] = useState(!!getKey());
+  const { t } = useT();
   useEffect(() => {
     const on401 = () => setAuthed(false);
     window.addEventListener("intelhub:unauthorized", on401);
@@ -75,8 +99,8 @@ export default function App() {
     <div className="flex h-full">
       <nav className="flex w-44 shrink-0 flex-col border-r border-edge bg-panel">
         <div className="border-b border-edge px-3 py-3">
-          <div className="text-sm font-bold tracking-wide">IntelHub</div>
-          <div className="text-[10px] uppercase tracking-widest text-dim">Unified Console</div>
+          <div className="text-sm font-bold tracking-wide">{t("brand.title")}</div>
+          <div className="text-[10px] uppercase tracking-widest text-dim">{t("brand.subtitle")}</div>
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           {NAV.map(([to, label]) => (
@@ -88,12 +112,13 @@ export default function App() {
                 `block px-3 py-1.5 text-xs ${isActive ? "bg-accent/10 text-accent border-r-2 border-accent" : "text-dim hover:text-ink"}`
               }
             >
-              {label}
+              {t(label)}
             </NavLink>
           ))}
         </div>
-        <div className="border-t border-edge px-3 py-2 text-[10px] text-dim mono">
-          hub 10.10.10.41:8800
+        <div className="flex items-center justify-between border-t border-edge px-3 py-2 text-[10px] text-dim mono">
+          <span>hub 10.10.10.41:8800</span>
+          <LangSwitch />
         </div>
       </nav>
       <main className="flex-1 overflow-y-auto">

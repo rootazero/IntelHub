@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, EpistemicBadge, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface Detail {
@@ -19,6 +20,8 @@ interface Detail {
 }
 
 export default function DocumentDetail() {
+  const { t } = useT();
+  const en = useEnum();
   const { id } = useParams();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -45,33 +48,33 @@ export default function DocumentDetail() {
           <a className="text-accent hover:underline" href={d.url} target="_blank" rel="noreferrer">{d.url}</a>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-1 text-[11px] md:grid-cols-4">
-          <div><span className="text-dim">retrieved: </span><TimeAgo ts={d.retrieved_at} /></div>
-          <div><span className="text-dim">published: </span>{d.published_at ? <TimeAgo ts={d.published_at} /> : "—"}</div>
-          <div><span className="text-dim">hash: </span><span className="mono">{d.content_hash.slice(0, 16)}…</span></div>
-          <div><span className="text-dim">embedding: </span><span className="mono">{d.embedding_status}</span></div>
+          <div><span className="text-dim">{t("doc.retrieved")}</span><TimeAgo ts={d.retrieved_at} /></div>
+          <div><span className="text-dim">{t("doc.published")}</span>{d.published_at ? <TimeAgo ts={d.published_at} /> : "—"}</div>
+          <div><span className="text-dim">{t("doc.hash")}</span><span className="mono">{d.content_hash.slice(0, 16)}…</span></div>
+          <div><span className="text-dim">{t("doc.embedding")}</span><span className="mono">{en("emb", d.embedding_status)}</span></div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Panel title="Content">
+        <Panel title={t("doc.content")}>
           <div className="whitespace-pre-wrap text-xs leading-relaxed text-ink/80">
             {showFull ? d.content_text : d.content_text.slice(0, 3000)}
             {d.content_text.length > 3000 && (
               <button onClick={() => setShowFull(!showFull)} className="ml-2 text-accent hover:underline">
-                {showFull ? "collapse ▲" : `show all (${d.content_text.length} chars) ▼`}
+                {showFull ? t("doc.collapse") : t("doc.showAll", { n: d.content_text.length })}
               </button>
             )}
           </div>
         </Panel>
 
         <div className="space-y-3">
-          <Panel title={`Referenced by Findings (${detail.referenced_by_findings.length})`}>
-            {detail.referenced_by_findings.length === 0 ? <Empty label="no findings cite this evidence" /> : (
+          <Panel title={t("doc.refFindings", { n: detail.referenced_by_findings.length })}>
+            {detail.referenced_by_findings.length === 0 ? <Empty label={t("doc.noFindings")} /> : (
               <ul className="space-y-1 text-xs">
                 {detail.referenced_by_findings.map((f) => (
                   <li key={f.finding_id} className="flex items-center gap-2">
                     <EpistemicBadge kind="AGENT CLAIM" />
-                    <span className={f.relation === "contradicts" ? "text-crit" : "text-ok"}>{f.relation}</span>
+                    <span className={f.relation === "contradicts" ? "text-crit" : "text-ok"}>{en("rel", f.relation)}</span>
                     <Link className="truncate text-accent hover:underline" to={`/investigations/${f.investigation_id}`}>{f.title}</Link>
                     <span className="mono text-[10px] text-dim">{f.created_by}</span>
                   </li>
@@ -80,8 +83,8 @@ export default function DocumentDetail() {
             )}
           </Panel>
 
-          <Panel title={`Referenced by Claims (${detail.referenced_by_claims.length})`}>
-            {detail.referenced_by_claims.length === 0 ? <Empty label="no claims cite this evidence" /> : (
+          <Panel title={t("doc.refClaims", { n: detail.referenced_by_claims.length })}>
+            {detail.referenced_by_claims.length === 0 ? <Empty label={t("doc.noClaims")} /> : (
               <ul className="space-y-1 text-xs">
                 {detail.referenced_by_claims.map((c) => (
                   <li key={c.claim_id} className="flex items-start gap-2">
@@ -94,8 +97,8 @@ export default function DocumentDetail() {
             )}
           </Panel>
 
-          <Panel title={`Observed Entities (${detail.observed_entities.length})`}>
-            {detail.observed_entities.length === 0 ? <Empty label="no entities observed on this document" /> : (
+          <Panel title={t("doc.obsEntities", { n: detail.observed_entities.length })}>
+            {detail.observed_entities.length === 0 ? <Empty label={t("doc.noEntities")} /> : (
               <div className="flex flex-wrap gap-1.5">
                 {detail.observed_entities.map((e) => (
                   <Link key={e.entity_id} to={`/entities/${e.entity_id}`}

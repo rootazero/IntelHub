@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { useT } from "../i18n";
 import { Empty, ErrorBox, Panel } from "../ui";
 
 interface UnifiedResult {
@@ -18,6 +19,7 @@ interface UnifiedResult {
 }
 
 export default function SearchPage() {
+  const { t } = useT();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get("q") ?? "");
   const [result, setResult] = useState<UnifiedResult | null>(null);
@@ -54,19 +56,19 @@ export default function SearchPage() {
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="entity, domain, topic, phrase… (keyword + graph + semantic + hybrid — one entry, §67)"
+          placeholder={t("search.placeholder")}
           className="flex-1 rounded border border-edge bg-panel px-3 py-2 text-sm outline-none focus:border-accent"
         />
         <button className="rounded bg-accent/20 px-4 py-2 text-sm font-semibold text-accent hover:bg-accent/30">
-          {busy ? "…" : "Search"}
+          {busy ? "…" : t("search.button")}
         </button>
       </form>
 
       {error && <ErrorBox error={error} />}
       {result && (
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          <Panel title={`Entities (${result.entities.length})`}>
-            {result.entities.length === 0 ? <Empty label="no entity matches" /> : (
+          <Panel title={t("search.entities", { n: result.entities.length })}>
+            {result.entities.length === 0 ? <Empty label={t("search.noEntity")} /> : (
               <div className="flex flex-wrap gap-1.5">
                 {result.entities.map((e) => (
                   <Link key={e.entity_id} to={`/entities/${e.entity_id}`}
@@ -78,8 +80,8 @@ export default function SearchPage() {
             )}
           </Panel>
 
-          <Panel title={`Relationships (${result.relationships.length})`}>
-            {result.relationships.length === 0 ? <Empty label="no relationship matches" /> : (
+          <Panel title={t("search.relationships", { n: result.relationships.length })}>
+            {result.relationships.length === 0 ? <Empty label={t("search.noRel")} /> : (
               <ul className="space-y-0.5 mono text-[11px]">
                 {result.relationships.map((r, i) => (
                   <li key={i}>{r.from} <span className="text-accent">—{r.rel_type}→</span> {r.to}</li>
@@ -88,8 +90,8 @@ export default function SearchPage() {
             )}
           </Panel>
 
-          <Panel title={`Documents — keyword (${result.documents.items?.length ?? 0})`}>
-            {(result.documents.items ?? []).length === 0 ? <Empty label="no keyword matches" /> : (
+          <Panel title={t("search.docsKeyword", { n: result.documents.items?.length ?? 0 })}>
+            {(result.documents.items ?? []).length === 0 ? <Empty label={t("search.noKeyword")} /> : (
               <ul className="space-y-1 text-xs">
                 {(result.documents.items ?? []).map((d) => (
                   <li key={d.document_id}>
@@ -100,8 +102,8 @@ export default function SearchPage() {
             )}
           </Panel>
 
-          <Panel title={`Similar Documents — semantic (${result.similar_documents.length})`}>
-            {result.similar_documents.length === 0 ? <Empty label="no semantic matches (embeddings may be pending)" /> : (
+          <Panel title={t("search.docsSemantic", { n: result.similar_documents.length })}>
+            {result.similar_documents.length === 0 ? <Empty label={t("search.noSemantic")} /> : (
               <ul className="space-y-1 text-xs">
                 {result.similar_documents.map((d) => (
                   <li key={d.document_id} className="flex items-center gap-2">
@@ -113,8 +115,8 @@ export default function SearchPage() {
             )}
           </Panel>
 
-          <Panel title={`Agent Findings (${result.findings.length})`}>
-            {result.findings.length === 0 ? <Empty label="no finding matches" /> : (
+          <Panel title={t("search.findings", { n: result.findings.length })}>
+            {result.findings.length === 0 ? <Empty label={t("search.noFinding")} /> : (
               <ul className="space-y-1.5 text-xs">
                 {result.findings.map((f) => (
                   <li key={f.finding_id}>
@@ -126,7 +128,7 @@ export default function SearchPage() {
             )}
           </Panel>
 
-          <Panel title={`Investigations (${result.investigations.length}) · Alerts (${result.alerts.length})`}>
+          <Panel title={t("search.invAlerts", { n: result.investigations.length, m: result.alerts.length })}>
             <ul className="space-y-1 text-xs">
               {result.investigations.map((i) => (
                 <li key={i.investigation_id}>
@@ -137,7 +139,7 @@ export default function SearchPage() {
               {result.alerts.map((a) => (
                 <li key={a.alert_id} className="text-dim">[{a.severity}] {a.title}</li>
               ))}
-              {result.investigations.length === 0 && result.alerts.length === 0 && <Empty label="no matches" />}
+              {result.investigations.length === 0 && result.alerts.length === 0 && <Empty label={t("search.noMatch")} />}
             </ul>
           </Panel>
         </div>

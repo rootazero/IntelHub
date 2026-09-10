@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { useEnum, useT } from "../i18n";
 import { Empty, ErrorBox, Loading, Panel, SeverityBadge, TimeAgo } from "../ui";
 
 interface Alert {
@@ -19,6 +20,8 @@ interface Alert {
 }
 
 export default function Alerts() {
+  const { t } = useT();
+  const en = useEnum();
   const [items, setItems] = useState<Alert[]>([]);
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,35 +56,35 @@ export default function Alerts() {
   return (
     <div className="p-4">
       <Panel
-        title="Alert Center"
+        title={t("alerts.title")}
         right={
           <div className="flex gap-1.5 text-[11px]">
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded border border-edge bg-base px-1.5 py-0.5">
-              <option value="open">open</option><option value="ack">ack</option><option value="muted">muted</option><option value="">all</option>
+              <option value="open">{en("alertStatus", "open")}</option><option value="ack">{en("alertStatus", "ack")}</option><option value="muted">{en("alertStatus", "muted")}</option><option value="">{t("common.all")}</option>
             </select>
             <select value={source} onChange={(e) => setSource(e.target.value)} className="rounded border border-edge bg-base px-1.5 py-0.5">
-              <option value="">any source</option>
-              {["osint", "agent", "sensor", "infra", "budget", "security"].map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="">{t("alerts.anySource")}</option>
+              {["osint", "agent", "sensor", "infra", "budget", "security"].map((s) => <option key={s} value={s}>{en("alertSource", s)}</option>)}
             </select>
             <select value={severity} onChange={(e) => setSeverity(e.target.value)} className="rounded border border-edge bg-base px-1.5 py-0.5">
-              <option value="">any severity</option>
-              {["critical", "warning", "info"].map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="">{t("alerts.anySeverity")}</option>
+              {["critical", "warning", "info"].map((s) => <option key={s} value={s}>{en("severity", s)}</option>)}
             </select>
           </div>
         }
       >
         {error && <ErrorBox error={error} />}
-        {loading ? <Loading /> : items.length === 0 ? <Empty label="no alerts match" /> : (
+        {loading ? <Loading /> : items.length === 0 ? <Empty label={t("alerts.noMatch")} /> : (
           <table className="w-full text-xs">
             <thead><tr className="text-left text-[10px] uppercase text-dim">
-              <th className="pb-1">Severity</th><th className="pb-1">Source</th><th className="pb-1">Alert</th>
-              <th className="pb-1">Occ.</th><th className="pb-1">Age</th><th className="pb-1 text-right">Actions</th>
+              <th className="pb-1">{t("alerts.thSeverity")}</th><th className="pb-1">{t("alerts.thSource")}</th><th className="pb-1">{t("alerts.thAlert")}</th>
+              <th className="pb-1">{t("alerts.thOcc")}</th><th className="pb-1">{t("common.age")}</th><th className="pb-1 text-right">{t("common.actions")}</th>
             </tr></thead>
             <tbody>
               {items.map((a) => (
                 <tr key={a.alert_id} className="border-t border-edge/50 align-top">
                   <td className="py-1.5 pr-2"><SeverityBadge severity={a.severity} /></td>
-                  <td className="py-1.5 pr-2 mono text-dim">{a.source}</td>
+                  <td className="py-1.5 pr-2 mono text-dim">{en("alertSource", a.source)}</td>
                   <td className="py-1.5 pr-2">
                     <div>{a.title}</div>
                     {a.recommended_action && <div className="mt-0.5 text-[10px] text-dim">→ {a.recommended_action}</div>}
@@ -91,15 +94,15 @@ export default function Alerts() {
                   <td className="py-1.5 text-right whitespace-nowrap">
                     {a.status === "open" && (
                       <>
-                        <button onClick={() => act(a.alert_id, "ack")} className="mr-1 rounded border border-edge px-1.5 py-0.5 text-[10px] text-ok hover:bg-ok/10">ack</button>
-                        <button onClick={() => act(a.alert_id, "mute")} className="mr-1 rounded border border-edge px-1.5 py-0.5 text-[10px] text-dim hover:bg-edge">mute</button>
+                        <button onClick={() => act(a.alert_id, "ack")} className="mr-1 rounded border border-edge px-1.5 py-0.5 text-[10px] text-ok hover:bg-ok/10">{t("alerts.ack")}</button>
+                        <button onClick={() => act(a.alert_id, "mute")} className="mr-1 rounded border border-edge px-1.5 py-0.5 text-[10px] text-dim hover:bg-edge">{t("alerts.mute")}</button>
                       </>
                     )}
                     <button
-                      onClick={() => nav(`/investigations?prefill=${encodeURIComponent(`Investigate: ${a.title}`)}`)}
+                      onClick={() => nav(`/investigations?prefill=${encodeURIComponent(`${t("alerts.prefillPrefix")}${a.title}`)}`)}
                       className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/10"
                     >
-                      investigate
+                      {t("alerts.investigate")}
                     </button>
                   </td>
                 </tr>
