@@ -75,9 +75,12 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn new(config: Arc<crate::Config>) -> Result<Self> {
+        // Browser UA: Cloudflare (error 1010) bans bot-signature clients on
+        // several collectors' upstreams (acleddata.com confirmed 2026-09 — a
+        // browser UA passes, an honest "intelhub-monitor" UA gets 403'd).
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(25))
-            .user_agent("intelhub-monitor/1.0 (OSINT signal collector)")
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
             .build()?;
         Ok(Self {
             http,

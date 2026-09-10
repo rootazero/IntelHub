@@ -1,10 +1,10 @@
-//! ACLED conflict events (7-day window, global). Ported from Crucix
-//! `sources/acled.mjs` including its hard-won lesson: HTTP 200 with body
-//! status != 200 is still an error (double-check).
-//! Auth: API-key + email (ACLED_API_KEY in secrets.env). The legacy OAuth
-//! password grant was retired by ACLED; note Cloudflare error 1010 bans
-//! some datacenter/proxy egress IPs outright — that is a network block,
-//! not a credential problem.
+//! ACLED conflict events (7-day window, global). Auth = OAuth password
+//! grant (the official current scheme per acleddata.com/api-documentation —
+//! token 24h, cached process-wide). Hard-won lessons:
+//!   1. HTTP 200 with body status != 200 is still an error (double-check).
+//!   2. Cloudflare error 1010 bans bot-signature clients — the shared
+//!      monitor client carries a browser UA; a 403 here means network-level
+//!      blocking, NOT bad credentials.
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -14,7 +14,9 @@ use crate::error::{HubError, Result};
 
 use super::super::{Ctx, Signal, Source};
 
-const API_URL: &str = "https://api.acleddata.com/acled/read";
+const TOKEN_URL: &str = "https://acleddata.com/oauth/token";
+const API_URL: &str = "https://acleddata.com/api/acled/read";
+const TOKEN_TTL_S: u64 = 23 * 3600;
 
 pub struct Acled;
 
@@ -27,27 +29,22 @@ impl Source for Acled {
     }
     fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>> {
         async move {
-            let key = ctx.config.monitor_acled_key.clone().unwrap_or_default();
-            let email = ctx.config.monitor_acled_email.clone().unwrap_or_default();
-            if key.is_empty() || email.is_empty() {
-                return Err(HubError::internal(
-                    "ACLED_API_KEY/ACLED_EMAIL not configured (secrets.env) — get an API key at \
-                     acleddata.com (log in → My Account → API key); the legacy OAuth password \
-                     grant was retired upstream",
-                ));
-            }
+            let token = acled_token(ctx).await?;
             let end = chrono::Utc::now().format("%Y-%m-%d");
             let start = (chrono::Utc::now() - chrono::Duration::days(7)).format("%Y-%m-%d");
             let url = format!(
-                "{API_URL}?key={key}&email={}&_format=json&limit=2000&event_date={start}|{end}&event_date_where=BETWEEN",
-                email.replace('@', "%40"),
+                "{API_URL}?_format=json&limit=2000&event_date={start}|{end}&event_date_where=BETWEEN"
             );
-            let resp = ctx.http.get(&url).send().await?;
+            let resp = ctx
+                .http
+                .get(&url)
+                .bearer_auth(&token)
+                .send()
+                .await?;
             if resp.status().as_u16() == 403 {
                 return Err(HubError::internal(
-                    "ACLED 403 — invalid/expired API key, unaccepted ToS, or a Cloudflare egress \
-                     ban (error code 1010 hits some datacenter/proxy exits — that one is a \
-                     network block, not a credential problem)",
+                    "ACLED 403 — Cloudflare egress block (error 1010 bans bot-signature clients/IPs; \
+                     check proxy routing for acleddata.com) or expired token",
                 ));
             }
             if !resp.status().is_success() {
@@ -121,6 +118,57 @@ fn check_body(j: &serde_json::Value) -> Result<()> {
     }
     Err(HubError::internal(format!("ACLED body-status {status}: {msg}")))
 }
+/// OAuth password grant (official scheme): token valid 24h, cached
+/// process-wide for 23h. `scope=authenticated` is REQUIRED (undocumented in
+/// older integrations — its absence contributes to 403s).
+async fn acled_token(ctx: &Ctx) -> Result<String> {
+    static CACHE: tokio::sync::OnceCell<tokio::sync::Mutex<Option<(String, std::time::Instant)>>> =
+        tokio::sync::OnceCell::const_new();
+    let cell = CACHE.get_or_init(|| async { tokio::sync::Mutex::new(None) }).await;
+    {
+        let guard = cell.lock().await;
+        if let Some((tok, at)) = guard.as_ref() {
+            if at.elapsed() < Duration::from_secs(TOKEN_TTL_S) {
+                return Ok(tok.clone());
+            }
+        }
+    }
+    let email = ctx.config.monitor_acled_email.clone().unwrap_or_default();
+    let password = ctx.config.monitor_acled_password.clone().unwrap_or_default();
+    if email.is_empty() || password.is_empty() {
+        return Err(HubError::internal(
+            "ACLED_EMAIL/ACLED_PASSWORD not configured (secrets.env) — source degraded by design",
+        ));
+    }
+    let resp = ctx
+        .http
+        .post(TOKEN_URL)
+        .form(&[
+            ("username", email.as_str()),
+            ("password", password.as_str()),
+            ("grant_type", "password"),
+            ("client_id", "acled"),
+            ("scope", "authenticated"),
+        ])
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(HubError::internal(format!(
+            "ACLED oauth HTTP {} (Cloudflare 1010 = egress/UA block, not credentials)",
+            resp.status()
+        )));
+    }
+    let j: serde_json::Value = resp.json().await?;
+    check_body(&j)?;
+    let token = j
+        .get("access_token")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| HubError::internal("ACLED oauth: no access_token in response"))?
+        .to_string();
+    *cell.lock().await = Some((token.clone(), std::time::Instant::now()));
+    Ok(token)
+}
+
 fn s(v: &serde_json::Value, keys: &[&str]) -> String {
     for k in keys {
         if let Some(x) = v.get(k).and_then(|x| x.as_str()) {
