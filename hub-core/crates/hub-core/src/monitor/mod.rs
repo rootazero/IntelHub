@@ -124,6 +124,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // retries mean the source SELF-HEALS the day the Access Team approves.
         Box::new(sources::acled::Acled),
         Box::new(sources::kiwisdr::KiwiSdr),
+        // SP8 batch-A expansion (Crucix parity): humanitarian + health + cyber.
+        Box::new(sources::reliefweb::ReliefWeb),
+        Box::new(sources::who::Who),
+        Box::new(sources::cisakev::CisaKev),
     ]
 }
 
@@ -135,6 +139,7 @@ pub fn series_registry() -> Vec<Box<dyn SeriesCollector>> {
         Box::new(sources::treasury::Treasury),
         Box::new(sources::markets::Markets),
         Box::new(sources::finintel::FinIntel),
+        Box::new(sources::gscpi::Gscpi),
     ]
 }
 

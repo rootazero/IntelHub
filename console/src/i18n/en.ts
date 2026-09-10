@@ -58,6 +58,7 @@ export const en = {
       economic: "economic",
       quake: "earthquake",
       disaster: "disaster",
+      cyber: "cyber",
       other: "other",
     },
     emb: { DONE: "DONE", PENDING: "PENDING", RUNNING: "RUNNING", SKIPPED: "SKIPPED", FAILED: "FAILED" },
