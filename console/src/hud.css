@@ -186,8 +186,12 @@
 .hud-up { color: var(--hud-warn); }
 .hud-down { color: var(--hud-good); }
 
-.hud-map-wrap { position: relative; width: 100%; aspect-ratio: 2 / 1; }
+.hud-map-wrap { position: relative; width: 100%; flex: 1; min-height: 0; }
 .hud-map-wrap .leaflet-container { background: #05080d; height: 100%; border-radius: 0 0 8px 8px; }
+
+/* bottom card strip under the hero map (Crucix-style) */
+.hud-strip { display: grid; grid-template-columns: 5fr 3fr 4fr; gap: 8px; height: 190px; flex: none; }
+@media (max-width: 1400px) { .hud-strip { grid-template-columns: 1fr 1fr; height: auto; min-height: 170px; } }
 
 .hud-btn {
   padding: 2px 8px;

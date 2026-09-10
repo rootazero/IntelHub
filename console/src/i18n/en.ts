@@ -296,6 +296,7 @@ export const en = {
     map: "Global Activity",
     chart: "Series",
     markets: "Markets",
+    indicators: "Key Indicators",
     visuals: "VISUALS",
     full: "FULL",
     lite: "LITE",

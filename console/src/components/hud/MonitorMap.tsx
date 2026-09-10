@@ -92,7 +92,8 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
     const map = L.map(divRef.current, {
-      center: [25, 10], zoom: 2, minZoom: 2, maxZoom: 10,
+      center: [25, 10], zoom: 2, minZoom: 1, maxZoom: 10,
+      zoomSnap: 0.25, zoomDelta: 0.25,
       worldCopyJump: true, attributionControl: false, zoomControl: false,
       maxBounds: [[-85, -180], [85, 180]],
       maxBoundsViscosity: 1.0,
@@ -100,24 +101,19 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     addTileLayer(map, PRIMARY);
-    // Aspect-ratio fit: at zoom z the world is 256·2^z px wide — keep minZoom
-    // at the smallest z whose world width covers the container, so the map
-    // always fills the panel horizontally (no black side bars). Leaflet does
-    // NOT track container resizes by itself: without invalidateSize() the
-    // canvas keeps the init-time width and the right side shows bare
-    // background once the flex layout settles wider.
-    const fitZoom = () => {
+    // Fit the WHOLE world into whatever aspect ratio the panel has:
+    // fitWorld picks the (fractional — zoomSnap 0.25) zoom that keeps every
+    // continent visible while filling the panel. No fixed aspect-ratio on
+    // the card (that cropped East Asia), no integer-zoom black bars.
+    // Leaflet does not track container resizes by itself — invalidateSize()
+    // first, then refit.
+    const fit = () => {
       map.invalidateSize();
-      const w = divRef.current?.clientWidth ?? 0;
-      if (w <= 0) return;
-      const z = Math.min(4, Math.max(2, Math.ceil(Math.log2(w / 256))));
-      map.setMinZoom(z);
-      if (map.getZoom() < z) map.setZoom(z);
+      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitWorld({ animate: false });
     };
-    // init-time: layout may not have settled yet — refit on the next frames
-    const raf = requestAnimationFrame(fitZoom);
-    const settle = setTimeout(fitZoom, 300);
-    const ro = new ResizeObserver(fitZoom);
+    const raf = requestAnimationFrame(fit);
+    const settle = setTimeout(fit, 300);
+    const ro = new ResizeObserver(fit);
     ro.observe(divRef.current);
     const tm = setTimeout(() => { if (failCount.current > 0 && baseRef.current) failover(); }, 5000);
     return () => { clearTimeout(tm); clearTimeout(settle); cancelAnimationFrame(raf); ro.disconnect(); };
