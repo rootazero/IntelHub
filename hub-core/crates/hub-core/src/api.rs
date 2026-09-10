@@ -777,23 +777,54 @@ async fn console_monitor_delta(
     let mut rows: Vec<Value> = Vec::new();
     for (source, raw) in cells.unwrap_or_default() {
         let Ok(cell) = serde_json::from_str::<Value>(&raw) else { continue };
+        // Primary baseline: the sweep-history ring (successful sweeps only —
+        // immune to restart loss and error-sweep pollution). Fallback: the
+        // cell's prev_* fields (first deploys before the ring fills).
+        let hist: Option<Vec<String>> = state
+            .redis_timed(
+                redis::cmd("LRANGE")
+                    .arg(format!("hub:monitor:sweephist:{source}"))
+                    .arg(0)
+                    .arg(9)
+                    .clone(),
+                2000,
+            )
+            .await;
+        let entries: Vec<Value> = hist
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|s| serde_json::from_str::<Value>(s).ok())
+            .collect();
         let new = cell.get("last_new").and_then(|v| v.as_i64()).unwrap_or(0);
         let fetched = cell.get("last_fetched").and_then(|v| v.as_i64()).unwrap_or(0);
-        let prev_new = cell.get("prev_new").and_then(|v| v.as_i64());
+        let prev_new = entries
+            .get(1)
+            .and_then(|e| e.get("new").and_then(|v| v.as_i64()))
+            .or_else(|| cell.get("prev_new").and_then(|v| v.as_i64()));
+        let prev_fetched = entries
+            .get(1)
+            .and_then(|e| e.get("fetched").and_then(|v| v.as_i64()))
+            .or_else(|| cell.get("prev_fetched").and_then(|v| v.as_i64()));
         let direction = match prev_new {
             None => "new_source",
             Some(p) if new > p => "up",
             Some(p) if new < p => "down",
             Some(_) => "flat",
         };
+        let trend: Vec<i64> = entries
+            .iter()
+            .rev()
+            .filter_map(|e| e.get("new").and_then(|v| v.as_i64()))
+            .collect();
         rows.push(json!({
             "source": source,
             "state": cell.get("state").cloned().unwrap_or(json!("unknown")),
             "new": new,
             "fetched": fetched,
             "prev_new": prev_new,
-            "prev_fetched": cell.get("prev_fetched").cloned().unwrap_or(Value::Null),
+            "prev_fetched": prev_fetched,
             "direction": direction,
+            "trend": trend,
             "ts": cell.get("ts").cloned().unwrap_or(Value::Null),
         }));
     }

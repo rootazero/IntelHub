@@ -118,6 +118,19 @@ pub async fn report_health(
         "last_new": new,
         "last_fetched": fetched,
     });
+    if ok {
+        // Sweep history ring (SP7 polish): successful sweeps only, so a failed
+        // sweep never poisons the delta baseline, and the baseline survives
+        // hub restarts (the list lives in redis, not in process memory).
+        let entry = json!({"ts": cell["ts"].clone(), "new": new, "fetched": fetched}).to_string();
+        let key = format!("hub:monitor:sweephist:{source}");
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("LPUSH").arg(&key).arg(entry).clone(), 2000)
+            .await;
+        let _: Option<()> = state
+            .redis_timed(redis::cmd("LTRIM").arg(&key).arg(0).arg(9).clone(), 2000)
+            .await;
+    }
     if let Some(p) = prev {
         if let Some(v) = p.get("last_new").and_then(|v| v.as_u64()) {
             cell["prev_new"] = json!(v);

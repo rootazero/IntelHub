@@ -181,7 +181,7 @@ export default function Monitor() {
           <HudPanel title={t("hud.map")} className="flex-[3]" bodyClassName="!p-0 flex flex-col">
             <MonitorMap refreshKey={mapTick} />
           </HudPanel>
-          <HudPanel title={`${t("hud.chart")} · ${series}`} className="flex-[2]">
+          <HudPanel title={`${t("hud.chart")} · ${series}`} className="flex-[2]" bodyClassName="!overflow-hidden flex flex-col">
             <SeriesChart series={series} days={40} />
           </HudPanel>
           <HudPanel title={t("hud.markets")} bodyClassName="!overflow-x-auto !overflow-y-hidden">
