@@ -67,6 +67,11 @@ check("health components.monitor present", "monitor" in health.get("components",
 cells = vm(f"{REDIS} HKEYS hub:monitor:health").split()
 check("collector health cells >= 8", len(cells) >= 8, ",".join(sorted(cells)))
 
+# 2b. SP8 batch-A sources visible on the health board (any state — they just
+# started; gdelt-style upstream penalties must not fail acceptance)
+newA = [c for c in ["reliefweb", "who", "cisa-kev", "gscpi"] if c in cells]
+check("SP8-A collectors present (reliefweb/who/cisa-kev/gscpi)", len(newA) == 4, ",".join(newA))
+
 # 3. keyless collectors ok
 states = {}
 for c in cells:

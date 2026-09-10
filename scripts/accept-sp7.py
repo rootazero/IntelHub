@@ -133,6 +133,8 @@ n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE source='mo
 check("FRED series observed >= 5", n.isdigit() and int(n) >= 5, f"fred={n}")
 n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:treasury'")
 check("Treasury series observed >= 1", n.isdigit() and int(n) >= 1, f"treasury={n}")
+n = pg1("SELECT count(*) FROM signal_observations WHERE series='gscpi:index'")
+check("GSCPI series observed (SP8-A)", n.isdigit() and int(n) >= 1, f"gscpi={n}")
 n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE series LIKE 'quote:%'")
 w = pg1("SELECT count(*) FROM monitor_watchlist WHERE enabled")
 ok = n.isdigit() and w.isdigit() and int(n) >= max(1, int(int(w) * 0.8))

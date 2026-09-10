@@ -199,6 +199,8 @@ HUB_ALERT_TELEGRAM_CHAT_ID=
 FIRMS_MAP_KEY=
 ACLED_EMAIL=
 ACLED_PASSWORD=
+# SP8: ReliefWeb 需注册免费 appname（apidoc.reliefweb.int/parameters#appname）
+RELIEFWEB_APPNAME=
 # SP6B finance collector keys (empty = that collector degrades by design)
 FRED_API_KEY=
 FMP_API_KEY=

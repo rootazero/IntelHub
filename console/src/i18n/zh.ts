@@ -61,6 +61,7 @@ export const zh: Dict = {
       economic: "经济",
       quake: "地震",
       disaster: "灾害",
+      cyber: "网络",
       other: "其他",
     },
     emb: { DONE: "已完成", PENDING: "排队中", RUNNING: "进行中", SKIPPED: "已跳过", FAILED: "失败" },
