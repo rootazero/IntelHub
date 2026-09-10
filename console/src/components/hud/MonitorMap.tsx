@@ -102,19 +102,25 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
     addTileLayer(map, PRIMARY);
     // Aspect-ratio fit: at zoom z the world is 256·2^z px wide — keep minZoom
     // at the smallest z whose world width covers the container, so the map
-    // always fills the panel horizontally (no black side bars).
+    // always fills the panel horizontally (no black side bars). Leaflet does
+    // NOT track container resizes by itself: without invalidateSize() the
+    // canvas keeps the init-time width and the right side shows bare
+    // background once the flex layout settles wider.
     const fitZoom = () => {
+      map.invalidateSize();
       const w = divRef.current?.clientWidth ?? 0;
       if (w <= 0) return;
       const z = Math.min(4, Math.max(2, Math.ceil(Math.log2(w / 256))));
       map.setMinZoom(z);
       if (map.getZoom() < z) map.setZoom(z);
     };
-    fitZoom();
+    // init-time: layout may not have settled yet — refit on the next frames
+    const raf = requestAnimationFrame(fitZoom);
+    const settle = setTimeout(fitZoom, 300);
     const ro = new ResizeObserver(fitZoom);
     ro.observe(divRef.current);
     const tm = setTimeout(() => { if (failCount.current > 0 && baseRef.current) failover(); }, 5000);
-    return () => { clearTimeout(tm); ro.disconnect(); };
+    return () => { clearTimeout(tm); clearTimeout(settle); cancelAnimationFrame(raf); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
