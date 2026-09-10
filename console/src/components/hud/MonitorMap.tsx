@@ -94,12 +94,27 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
     const map = L.map(divRef.current, {
       center: [25, 10], zoom: 2, minZoom: 2, maxZoom: 10,
       worldCopyJump: true, attributionControl: false, zoomControl: false,
+      maxBounds: [[-85, -180], [85, 180]],
+      maxBoundsViscosity: 1.0,
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     addTileLayer(map, PRIMARY);
+    // Aspect-ratio fit: at zoom z the world is 256·2^z px wide — keep minZoom
+    // at the smallest z whose world width covers the container, so the map
+    // always fills the panel horizontally (no black side bars).
+    const fitZoom = () => {
+      const w = divRef.current?.clientWidth ?? 0;
+      if (w <= 0) return;
+      const z = Math.min(4, Math.max(2, Math.ceil(Math.log2(w / 256))));
+      map.setMinZoom(z);
+      if (map.getZoom() < z) map.setZoom(z);
+    };
+    fitZoom();
+    const ro = new ResizeObserver(fitZoom);
+    ro.observe(divRef.current);
     const tm = setTimeout(() => { if (failCount.current > 0 && baseRef.current) failover(); }, 5000);
-    return () => clearTimeout(tm);
+    return () => { clearTimeout(tm); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

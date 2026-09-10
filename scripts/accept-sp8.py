@@ -124,6 +124,10 @@ check("default route serves SPA 200",
 js = vm('grep -l "hud-root" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("console bundle contains hud-root (deck shipped)", bool(js), js or "not found")
 
+# 8b. CARTO key baked into the bundle (gray-Esri silent-degradation guard)
+carto = vm('grep -o "cb1_[a-z0-9_]*" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("console bundle has CARTO key (primary dark basemap)", bool(carto), carto or "MISSING — would start at Esri")
+
 # 9. MCP tool count unchanged (28)
 def mcp_initialize():
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
