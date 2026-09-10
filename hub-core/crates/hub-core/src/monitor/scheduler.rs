@@ -80,7 +80,7 @@ async fn series_loop(
         let started = Instant::now();
         match col.collect(&state, &ctx).await {
             Ok((fetched, new)) => {
-                super::geo::report_health(&state, name, true, "ok", new).await;
+                super::geo::report_health(&state, name, true, "ok", new, fetched).await;
                 if failures > 0 {
                     tracing::info!(source = name, "monitor collector recovered");
                 }
@@ -95,7 +95,7 @@ async fn series_loop(
             }
             Err(e) => {
                 failures += 1;
-                super::geo::report_health(&state, name, false, &e.to_string(), 0).await;
+                super::geo::report_health(&state, name, false, &e.to_string(), 0, 0).await;
                 tracing::warn!(source = name, failures, error = %e, "monitor collect failed");
             }
         }
@@ -131,7 +131,7 @@ async fn source_loop(
                 let fetched = signals.len();
                 match super::geo::persist_signals(&state, name, signals).await {
                     Ok(new) => {
-                        super::geo::report_health(&state, name, true, "ok", new).await;
+                        super::geo::report_health(&state, name, true, "ok", new, fetched).await;
                         if failures > 0 {
                             tracing::info!(source = name, "monitor source recovered");
                         }
@@ -146,14 +146,14 @@ async fn source_loop(
                     }
                     Err(e) => {
                         failures += 1;
-                        super::geo::report_health(&state, name, false, &e.to_string(), 0).await;
+                        super::geo::report_health(&state, name, false, &e.to_string(), 0, 0).await;
                         tracing::warn!(source = name, error = %e, "monitor persist failed");
                     }
                 }
             }
             Err(e) => {
                 failures += 1;
-                super::geo::report_health(&state, name, false, &e.to_string(), 0).await;
+                super::geo::report_health(&state, name, false, &e.to_string(), 0, 0).await;
                 tracing::warn!(source = name, failures, error = %e, "monitor fetch failed");
             }
         }

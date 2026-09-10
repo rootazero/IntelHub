@@ -68,6 +68,42 @@ pub async fn persist_observations(
 }
 
 /// Latest observation per series (console Signals page / MCP signal_query default).
+/// Series history for the SP7 command-deck charts: ascending (t, v) pairs,
+/// downsampled to at most `max_points` by even stride when the window holds
+/// more (40d of daily bars never triggers this; long windows do).
+pub async fn series_history(
+    state: &AppState,
+    series: &str,
+    days: i64,
+    max_points: usize,
+) -> Result<Vec<(DateTime<Utc>, f64)>> {
+    let rows: Vec<(DateTime<Utc>, f64)> = sqlx::query_as(
+        "SELECT observed_at, value FROM signal_observations \
+         WHERE series = $1 AND observed_at > now() - make_interval(days => $2) \
+         ORDER BY observed_at ASC",
+    )
+    .bind(series)
+    .bind(days as i32)
+    .fetch_all(&state.pg)
+    .await?;
+    if rows.len() <= max_points {
+        return Ok(rows);
+    }
+    Ok(downsample(rows, max_points))
+}
+
+/// Even-stride downsampling: keep `max_points` points spread across the whole
+/// window (always includes the first point).
+fn downsample<T: Clone>(rows: Vec<T>, max_points: usize) -> Vec<T> {
+    if rows.len() <= max_points || max_points == 0 {
+        return rows;
+    }
+    let stride = rows.len() as f64 / max_points as f64;
+    (0..max_points)
+        .map(|i| rows[(i as f64 * stride) as usize].clone())
+        .collect()
+}
+
 pub async fn latest_observations(
     state: &AppState,
     series_pattern: Option<&str>,
@@ -186,6 +222,20 @@ async fn evaluate_rules(state: &AppState, source: &str, series: &str) -> Result<
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn downsample_even_stride() {
+        let rows: Vec<i32> = (0..1000).collect();
+        let out = downsample(rows, 100);
+        assert_eq!(out.len(), 100);
+        assert_eq!(out[0], 0);
+        assert_eq!(out[50], 500);
+        // small inputs pass through untouched
+        let small: Vec<i32> = (0..10).collect();
+        assert_eq!(downsample(small, 100).len(), 10);
+    }
+
     #[test]
     fn series_names_carry_units() {
         // Design invariant (atlas F1 lesson): no bare ambiguous series names.

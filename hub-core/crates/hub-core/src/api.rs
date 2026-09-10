@@ -57,6 +57,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
+        .route("/api/v1/signals/history", get(console_signals_history))
+        .route("/api/v1/monitor/delta", get(console_monitor_delta))
         .route("/api/v1/signals/watchlist", get(console_watchlist_list))
         .route("/api/v1/signals/watchlist", axum::routing::post(console_watchlist_upsert))
         .route("/api/v1/signals/watchlist/{symbol}", axum::routing::delete(console_watchlist_remove))
@@ -737,6 +739,68 @@ async fn serve_static(
 #[derive(Debug, Deserialize)]
 struct SignalsParams {
     pattern: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct HistoryParams {
+    series: Option<String>,
+    days: Option<i64>,
+}
+
+async fn console_signals_history(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<HistoryParams>,
+) -> Result<Json<Value>, Response> {
+    let series = p
+        .series
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| hub_err(crate::error::HubError::BadRequest("series is required".into())))?;
+    let days = p.days.unwrap_or(40).clamp(1, 400);
+    let rows = crate::monitor::signals::series_history(&state, &series, days, 500)
+        .await
+        .map_err(hub_err)?;
+    let points: Vec<Value> = rows.iter().map(|(t, v)| json!({"t": t, "v": v})).collect();
+    Ok(Json(json!({"series": series, "days": days, "points": points})))
+}
+
+/// SP7 sweep delta: per-source direction computed from the prev_* counters the
+/// scheduler shifts into each health cell (monitor/geo.rs::report_health).
+async fn console_monitor_delta(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, Response> {
+    let cells: Option<std::collections::HashMap<String, String>> = state
+        .redis_timed(
+            redis::cmd("HGETALL").arg("hub:monitor:health").clone(),
+            2000,
+        )
+        .await;
+    let mut rows: Vec<Value> = Vec::new();
+    for (source, raw) in cells.unwrap_or_default() {
+        let Ok(cell) = serde_json::from_str::<Value>(&raw) else { continue };
+        let new = cell.get("last_new").and_then(|v| v.as_i64()).unwrap_or(0);
+        let fetched = cell.get("last_fetched").and_then(|v| v.as_i64()).unwrap_or(0);
+        let prev_new = cell.get("prev_new").and_then(|v| v.as_i64());
+        let direction = match prev_new {
+            None => "new_source",
+            Some(p) if new > p => "up",
+            Some(p) if new < p => "down",
+            Some(_) => "flat",
+        };
+        rows.push(json!({
+            "source": source,
+            "state": cell.get("state").cloned().unwrap_or(json!("unknown")),
+            "new": new,
+            "fetched": fetched,
+            "prev_new": prev_new,
+            "prev_fetched": cell.get("prev_fetched").cloned().unwrap_or(Value::Null),
+            "direction": direction,
+            "ts": cell.get("ts").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    rows.sort_by(|a, b| {
+        a.get("source").and_then(|v| v.as_str()).cmp(&b.get("source").and_then(|v| v.as_str()))
+    });
+    Ok(Json(json!({"count": rows.len(), "sources": rows})))
 }
 
 async fn console_signals_latest(
