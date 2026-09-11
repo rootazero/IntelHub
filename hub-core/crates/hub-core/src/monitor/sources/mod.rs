@@ -20,6 +20,7 @@ pub mod opensky;
 pub mod radiation;
 pub mod reliefweb;
 pub mod rss;
+pub(crate) mod textclass;
 pub mod treasury;
 pub mod usaspending;
 pub mod usgs;

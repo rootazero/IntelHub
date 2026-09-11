@@ -83,7 +83,7 @@ impl Source for UsaSpending {
                     .map(|d| chrono::DateTime::from_naive_utc_and_offset(d, chrono::Utc))
                     .unwrap_or_else(chrono::Utc::now);
                 out.push(
-                    Signal::new("economic", title, lat, lon, format!("usasp:{award_id}"))
+                    Signal::new("military", title, lat, lon, format!("usasp:{award_id}"))
                         .severity(severity)
                         .occurred(occurred_at)
                         .payload(serde_json::json!({

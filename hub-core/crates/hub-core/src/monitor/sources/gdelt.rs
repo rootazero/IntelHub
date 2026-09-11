@@ -76,7 +76,8 @@ fn parse_articles(j: &serde_json::Value) -> Vec<Signal> {
             let h = format!("{:x}", sha2::Sha256::digest(url.as_bytes()));
             format!("gdelt:{}", &h[..16])
         };
-        let mut sig = Signal::new("news", title, lat, lon, ext).severity("info");
+        let kind = super::textclass::classify_title(title).unwrap_or("conflict"); // query is conflict-themed
+        let mut sig = Signal::new(kind, title, lat, lon, ext).severity("info");
         if let Some(sd) = a.get("seendate").and_then(|s| s.as_str()) {
             // GDELT v2 seendate: "20260910T143000Z" (older dumps: "20260910143000")
             let ts = chrono::NaiveDateTime::parse_from_str(sd, "%Y%m%dT%H%M%SZ")
@@ -111,7 +112,7 @@ mod tests {
         ]});
         let sigs = parse_articles(&j);
         assert_eq!(sigs.len(), 1, "non-geotagged article must be skipped");
-        assert_eq!(sigs[0].kind, "news");
+        assert_eq!(sigs[0].kind, "conflict"); // "Missile strike" → classifier
         assert!((sigs[0].lat - 49.0).abs() < 0.01, "Ukraine centroid");
         assert!(sigs[0].external_id.starts_with("gdelt:"));
         assert_eq!(sigs[0].occurred_at.format("%Y-%m-%d").to_string(), "2026-09-10");

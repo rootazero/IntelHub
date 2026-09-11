@@ -6,6 +6,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
+import { KINDS, kindColor, sevRadius } from "../kindmeta";
 
 interface GeoEvent {
   event_id: string;
@@ -26,7 +27,6 @@ const SEV_COLOR: Record<string, string> = {
   info: "#38bdf8",
 };
 
-const KINDS = ["fire", "conflict", "flight", "radiation", "maritime", "news", "health", "economic", "quake", "disaster", "cyber", "sanction", "other"];
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
 type TilesMode = "carto" | "esri" | "offline";
@@ -173,12 +173,13 @@ export default function Radar() {
   }
 
   // ---- data ----
+  // Kind filtering is CLIENT-side: the bottom chips double as a live legend,
+  // so counts must be computed from the full (kind-unfiltered) event set.
   async function load() {
     const hours = WINDOWS[window_];
     const from = new Date(Date.now() - hours * 3600_000).toISOString();
     const params = new URLSearchParams({ from, limit: "1500" });
     if (sev) params.set("severity", sev);
-    if (kind) params.set("kind", kind);
     try {
       const d = await api<{ items: GeoEvent[] }>(`/api/v1/radar/events?${params}`);
       setEvents(d.items);
@@ -187,10 +188,12 @@ export default function Radar() {
     }
   }
 
+  const visible = kind ? events.filter((e) => e.kind === kind) : events;
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window_, sev, kind]);
+  }, [window_, sev]);
 
   // SSE: refetch on new sweep ingestion
   useEffect(() => {
@@ -199,26 +202,26 @@ export default function Radar() {
     });
     return stop;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [window_, sev, kind]);
+  }, [window_, sev]);
 
   // ---- markers ----
   useEffect(() => {
     const lg = layerRef.current;
     if (!lg) return;
     lg.clearLayers();
-    for (const e of events) {
+    for (const e of visible) {
       const m = L.circleMarker([e.lat, e.lon], {
-        radius: e.severity === "flash" ? 7 : e.severity === "priority" ? 6 : 4,
-        color: SEV_COLOR[e.severity] ?? SEV_COLOR.info,
-        weight: 1,
-        fillColor: SEV_COLOR[e.severity] ?? SEV_COLOR.info,
-        fillOpacity: 0.55,
+        radius: sevRadius(e.severity),
+        color: kindColor(e.kind),
+        weight: e.severity === "flash" ? 2 : 1,
+        fillColor: kindColor(e.kind),
+        fillOpacity: e.severity === "info" ? 0.35 : 0.6,
       });
       m.on("click", () => setSelected(e));
       m.bindTooltip(`${en("kind", e.kind)} · ${e.title}`, { direction: "top" });
       m.addTo(lg);
     }
-  }, [events]);
+  }, [visible]);
 
   async function toInvestigation(e: GeoEvent) {
     setCreating(true);
@@ -265,7 +268,7 @@ export default function Radar() {
             <option key={k} value={k}>{en("kind", k)}</option>
           ))}
         </select>
-        <span className="text-dim">{t("radar.events", { n: events.length })}</span>
+        <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
         <span className="ml-auto flex items-center gap-2">
           <span
             className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === PRIMARY ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
@@ -308,11 +311,20 @@ export default function Radar() {
           </aside>
         )}
       </div>
-      <div className="flex gap-3 border-t border-edge bg-panel px-3 py-1 text-[10px] text-dim">
-        {Object.entries(counts).map(([k, n]) => (
-          <span key={k}>
-            {en("kind", k)} <span className="text-ink">{n}</span>
-          </span>
+      <div className="flex flex-wrap gap-1.5 border-t border-edge bg-panel px-3 py-1.5 text-[10px]">
+        {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+          <button
+            key={k}
+            onClick={() => setKind(kind === k ? "" : k)}
+            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 transition-colors ${
+              kind === k ? "border-edge bg-white/10" : "border-transparent hover:bg-white/5"
+            }`}
+            title={kind === k ? t("radar.allKinds") : en("kind", k)}
+          >
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: kindColor(k) }} />
+            <span className={kind === k ? "text-ink" : "text-dim"}>{en("kind", k)}</span>
+            <span className="text-ink font-medium">{n}</span>
+          </button>
         ))}
       </div>
     </div>

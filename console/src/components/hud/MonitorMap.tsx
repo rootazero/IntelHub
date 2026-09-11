@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { api } from "../../api";
+import { kindColor, sevRadius } from "../../kindmeta";
 
 interface GeoEvent {
   event_id: string;
@@ -130,9 +131,11 @@ export default function MonitorMap({ refreshKey }: { refreshKey: number }) {
     lg.clearLayers();
     for (const ev of eventsRef.current) {
       const m = L.circleMarker([ev.lat, ev.lon], {
-        radius: ev.severity === "flash" ? 6 : ev.severity === "priority" ? 5 : 3.5,
-        color: SEV_COLOR[ev.severity] ?? "#38bdf8",
-        weight: 1, fillOpacity: 0.7,
+        radius: sevRadius(ev.severity) - 1,
+        color: kindColor(ev.kind),
+        weight: ev.severity === "flash" ? 2 : 1,
+        fillColor: kindColor(ev.kind),
+        fillOpacity: ev.severity === "info" ? 0.35 : 0.7,
       });
       m.on("click", () => setSelected(ev));
       m.bindTooltip(ev.title, { direction: "top", offset: [0, -4] });

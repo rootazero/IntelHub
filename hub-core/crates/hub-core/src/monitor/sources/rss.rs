@@ -14,26 +14,29 @@ use crate::error::Result;
 
 use super::super::{Ctx, Signal, Source};
 
-const FEEDS: &[(&str, &str)] = &[
-    ("http://feeds.bbci.co.uk/news/world/rss.xml", "BBC"),
-    ("https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "NYT"),
-    ("https://www.aljazeera.com/xml/rss/all.xml", "Al Jazeera"),
-    ("https://feeds.npr.org/1001/rss.xml", "NPR"),
-    ("https://feeds.bbci.co.uk/news/technology/rss.xml", "BBC Tech"),
-    ("https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "BBC Science"),
-    ("https://rss.nytimes.com/services/xml/rss/nyt/Americas.xml", "NYT Americas"),
-    ("https://rss.dw.com/rdf/rss-en-all", "DW"),
-    ("https://www.france24.com/en/rss", "France 24"),
-    ("https://www.euronews.com/rss?format=mrss", "Euronews"),
-    ("https://rss.dw.com/rdf/rss-en-africa", "DW Africa"),
-    ("https://www.rfi.fr/en/rss", "RFI"),
-    ("https://www.africanews.com/feed/rss", "Africa News"),
-    ("https://rss.nytimes.com/services/xml/rss/nyt/Africa.xml", "NYT Africa"),
-    ("https://rss.nytimes.com/services/xml/rss/nyt/AsiaPacific.xml", "NYT Asia"),
-    ("https://www.sbs.com.au/news/topic/australia/feed", "SBS Australia"),
-    ("https://indianexpress.com/section/india/feed/", "Indian Express"),
-    ("https://www.thehindu.com/news/national/feeder/default.rss", "The Hindu"),
-    ("https://en.mercopress.com/rss/latin-america", "MercoPress"),
+const FEEDS: &[(&str, &str, &str)] = &[  // (url, name, default kind)
+    ("http://feeds.bbci.co.uk/news/world/rss.xml", "BBC", "news"),
+    ("https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "NYT", "news"),
+    ("https://www.aljazeera.com/xml/rss/all.xml", "Al Jazeera", "news"),
+    ("https://feeds.npr.org/1001/rss.xml", "NPR", "news"),
+    ("https://feeds.bbci.co.uk/news/technology/rss.xml", "BBC Tech", "news"),
+    ("https://feeds.bbci.co.uk/news/science_and_environment/rss.xml", "BBC Science", "news"),
+    ("https://rss.nytimes.com/services/xml/rss/nyt/Americas.xml", "NYT Americas", "news"),
+    ("https://rss.dw.com/rdf/rss-en-all", "DW", "news"),
+    ("https://www.france24.com/en/rss", "France 24", "news"),
+    ("https://www.euronews.com/rss?format=mrss", "Euronews", "news"),
+    ("https://rss.dw.com/rdf/rss-en-africa", "DW Africa", "news"),
+    ("https://www.rfi.fr/en/rss", "RFI", "news"),
+    ("https://www.africanews.com/feed/rss", "Africa News", "news"),
+    ("https://rss.nytimes.com/services/xml/rss/nyt/Africa.xml", "NYT Africa", "news"),
+    ("https://rss.nytimes.com/services/xml/rss/nyt/AsiaPacific.xml", "NYT Asia", "news"),
+    ("https://www.sbs.com.au/news/topic/australia/feed", "SBS Australia", "news"),
+    ("https://indianexpress.com/section/india/feed/", "Indian Express", "news"),
+    ("https://www.thehindu.com/news/national/feeder/default.rss", "The Hindu", "news"),
+    ("https://en.mercopress.com/rss/latin-america", "MercoPress", "news"),
+    // Finance feeds give the `financial` kind a real geo emitter (SP8 taxonomy).
+    ("https://www.cnbc.com/id/100727362/device/rss/rss.html", "CNBC", "financial"),
+    ("https://feeds.content.dowjones.io/public/rss/mw_topstories", "MarketWatch", "financial"),
 ];
 
 /// Per-feed fallback when no keyword matches (Crucix RSS_SOURCE_FALLBACKS).
@@ -42,6 +45,8 @@ const FEED_FALLBACKS: &[(&str, f64, f64)] = &[
     ("Indian Express", 28.6139, 77.209),
     ("The Hindu", 13.0827, 80.2707),
     ("MercoPress", -34.9011, -56.1645),
+    ("CNBC", 39.8, -98.6),
+    ("MarketWatch", 39.8, -98.6),
 ];
 
 const MAX_SIGNALS: usize = 50;
@@ -103,15 +108,15 @@ impl Source for Rss {
     }
     fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>> {
         async move {
-            let results = futures::future::join_all(FEEDS.iter().map(|(url, name)| async move {
+            let results = futures::future::join_all(FEEDS.iter().map(|(url, name, defkind)| async move {
                 let body = ctx.http.get(*url).send().await?.text().await?;
-                Ok::<_, crate::error::HubError>((parse_items(&body), *name))
+                Ok::<_, crate::error::HubError>((parse_items(&body), *name, *defkind))
             }))
             .await;
             let mut seen = std::collections::HashSet::new();
             let mut out = Vec::new();
             for r in results.into_iter().flatten() {
-                let (items, feed) = r;
+                let (items, feed, defkind) = r;
                 for item in items {
                     if out.len() >= MAX_SIGNALS {
                         return Ok(out);
@@ -132,7 +137,9 @@ impl Source for Rss {
                         .unwrap_or_else(chrono::Utc::now);
                     out.push(
                         Signal::new(
-                            "news",
+                            // Keyword classification peels political/financial/conflict
+                            // out of the feed's default kind (SP8 taxonomy).
+                            super::textclass::classify_title(&item.title).unwrap_or(defkind),
                             item.title.chars().take(100).collect::<String>(),
                             lat,
                             lon,
