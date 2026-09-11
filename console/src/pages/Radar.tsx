@@ -312,6 +312,15 @@ export default function Radar() {
         )}
       </div>
       <div className="flex flex-wrap gap-1.5 border-t border-edge bg-panel px-3 py-1.5 text-[10px]">
+        <button
+          onClick={() => setKind("")}
+          className={`flex items-center gap-1 rounded border px-1.5 py-0.5 transition-colors ${
+            kind === "" ? "border-edge bg-white/10" : "border-transparent hover:bg-white/5"
+          }`}
+        >
+          <span className={kind === "" ? "text-ink" : "text-dim"}>{t("radar.allKinds")}</span>
+          <span className="text-ink font-medium">{events.length}</span>
+        </button>
         {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
           <button
             key={k}
