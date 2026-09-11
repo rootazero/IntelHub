@@ -8,6 +8,8 @@ import { BudgetBadge, Empty, ErrorBox, Loading, Panel, TimeAgo } from "../ui";
 
 interface AgentActivity {
   name: string;
+  version?: string | null;
+  last_seen_at?: string | null;
   calls_today: number;
   recent_calls: { tool: string; status: string; latency_ms: number; ts: string }[];
   costs_today: { kind: string; amount: number }[];
@@ -60,11 +62,24 @@ export default function Agents() {
   return (
     <div className="grid grid-cols-1 gap-3 p-4 xl:grid-cols-2">
       {agents.length === 0 && <Empty label={t("agents.none")} />}
-      {agents.map((a) => (
+      {agents.map((a) => {
+        const summary = t("agents.summary", { calls: a.calls_today, findings: a.findings_total });
+        return (
         <Panel
           key={a.name}
-          title={<span className="flex items-center gap-2"><span className="mono text-xs">{a.name}</span><BudgetBadge state={a.budget.state} /></span>}
-          right={<span className="text-[10px] text-dim">{t("agents.summary", { calls: a.calls_today, findings: a.findings_total })}</span>}
+          title={
+            <span className="flex items-center gap-2">
+              <span className="mono text-xs">{a.name}</span>
+              {a.version && <span className="text-[10px] text-dim mono">{a.version}</span>}
+              <BudgetBadge state={a.budget.state} />
+            </span>
+          }
+          right={
+            <span className="flex items-center gap-2 text-[10px] text-dim">
+              {a.last_seen_at && <span>{t("agents.lastSeen")} <TimeAgo ts={a.last_seen_at} /></span>}
+              <span>{summary}</span>
+            </span>
+          }
         >
           <div className="mb-3 space-y-1.5">
             <BudgetBar label={t("agents.toolCalls")} used={a.budget.usage.tool_calls} limit={a.budget.limits.tool_calls} />
@@ -94,7 +109,8 @@ export default function Agents() {
             </table>
           )}
         </Panel>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -322,7 +322,10 @@ step_provision_agents() {
   [[ -f "$kf" ]] || { touch "$kf"; chmod 600 "$kf"; }
   set -a; . "$HOME_DIR/core/hub.env"; . "$HOME_DIR/core/secrets.env"; set +a
   local name
-  for name in codex console; do
+  # One generic agent key (auth/budget axis) + the console key. Agent
+  # identity beyond that is self-declared via MCP clientInfo — no per-agent
+  # or per-provider preseeding (SP8 dual-axis model).
+  for name in agent console; do
     if grep -qE "^name:\s+${name}\$" "$kf"; then
       echo "    agent '$name' already provisioned"
       continue

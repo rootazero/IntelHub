@@ -191,6 +191,7 @@ export const en = {
     embedTokens: "embedding tokens",
     recentActivity: "Recent activity",
     noCalls: "no calls yet",
+    lastSeen: "last seen",
   },
   evidence: {
     title: "Evidence Store ({total} documents)",
@@ -280,7 +281,7 @@ export const en = {
   },
   audit: {
     title: "Audit Center",
-    actorPh: "actor (e.g. agent:codex)",
+    actorPh: "actor (e.g. agent:pi)",
     actionPh: "action",
     anyResult: "any result",
     thWhen: "When",

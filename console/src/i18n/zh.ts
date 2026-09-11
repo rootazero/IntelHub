@@ -193,6 +193,7 @@ export const zh: Dict = {
     embedTokens: "嵌入 token",
     recentActivity: "最近活动",
     noCalls: "暂无调用",
+    lastSeen: "最近连接",
   },
   evidence: {
     title: "证据库（{total} 份文档）",
@@ -282,7 +283,7 @@ export const zh: Dict = {
   },
   audit: {
     title: "审计中心",
-    actorPh: "行为者（如 agent:codex）",
+    actorPh: "行为者（如 agent:pi）",
     actionPh: "动作",
     anyResult: "全部结果",
     thWhen: "时间",
