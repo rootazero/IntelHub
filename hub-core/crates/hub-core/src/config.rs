@@ -66,6 +66,12 @@ pub struct Config {
     pub finnhub_api_key: Option<String>,
     pub financialdatasets_api_key: Option<String>,
     pub eia_api_key: Option<String>,
+    // ── SP8-C social plane (watchlists: "handle|kind,handle|kind" — env
+    //    override of the built-in defaults; kind is the pre-classifier default) ──
+    pub bsky_watch: Vec<String>,
+    pub tg_watch: Vec<String>,
+    pub x_bearer_token: Option<String>,
+    pub x_watch: Vec<String>,
 }
 
 fn env_or(key: &str, default: &str) -> String {
@@ -153,6 +159,20 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty()),
             eia_api_key: std::env::var("EIA_API_KEY").ok().filter(|s| !s.is_empty()),
+            bsky_watch: env_list("BSKY_WATCH"),
+            tg_watch: env_list("TG_WATCH"),
+            x_bearer_token: std::env::var("X_BEARER_TOKEN").ok().filter(|s| !s.is_empty()),
+            x_watch: env_list("X_WATCH"),
         }
     }
+}
+
+/// Comma-separated env list → trimmed non-empty entries (empty when unset).
+fn env_list(var: &str) -> Vec<String> {
+    std::env::var(var)
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
