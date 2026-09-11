@@ -359,12 +359,12 @@ pub async fn get_entity(state: &AppState, id: Uuid) -> Result<Value> {
 // ---------- §55 agent activity ----------
 
 pub async fn agents_activity(state: &AppState) -> Result<Value> {
-    let agents: Vec<(Uuid, String)> =
-        sqlx::query_as("SELECT agent_id, name FROM agents ORDER BY name")
+    let agents: Vec<(Uuid, String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)> =
+        sqlx::query_as("SELECT agent_id, name, version, last_seen_at FROM agents ORDER BY name")
             .fetch_all(&state.pg)
             .await?;
     let mut out = Vec::new();
-    for (agent_id, name) in agents {
+    for (agent_id, name, version, last_seen_at) in agents {
         let (calls_today,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM tool_calls
              WHERE agent_id = $1 AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')",
@@ -406,7 +406,8 @@ pub async fn agents_activity(state: &AppState) -> Result<Value> {
         };
         let bs = crate::cost::budget_state(state, &identity).await?;
         out.push(json!({
-            "name": name, "calls_today": calls_today, "recent_calls": recent,
+            "name": name, "version": version, "last_seen_at": last_seen_at,
+            "calls_today": calls_today, "recent_calls": recent,
             "costs_today": costs, "findings_total": findings_n,
             "budget": { "state": bs.state.as_str(), "ratio": bs.ratio, "usage": bs.usage, "limits": bs.limits },
         }));

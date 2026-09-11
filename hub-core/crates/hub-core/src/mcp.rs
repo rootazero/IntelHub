@@ -10,7 +10,7 @@ use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
     schemars,
-    service::RequestContext,
+    service::{NotificationContext, RequestContext},
     tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
@@ -28,9 +28,8 @@ pub struct HubMcp {
 
 // ---------- helpers ----------
 
-fn agent_of(ctx: &RequestContext<RoleServer>) -> AgentIdentity {
-    ctx.extensions
-        .get::<axum::http::request::Parts>()
+fn agent_of_ext(ext: &Extensions) -> AgentIdentity {
+    ext.get::<axum::http::request::Parts>()
         .and_then(|p| p.extensions.get::<AgentIdentity>().cloned())
         .unwrap_or_else(|| AgentIdentity {
             agent_id: Uuid::nil(),
@@ -38,6 +37,10 @@ fn agent_of(ctx: &RequestContext<RoleServer>) -> AgentIdentity {
             key_id: Uuid::nil(),
             admin: false,
         })
+}
+
+fn agent_of(ctx: &RequestContext<RoleServer>) -> AgentIdentity {
+    agent_of_ext(&ctx.extensions)
 }
 
 fn session_of(ctx: &RequestContext<RoleServer>) -> Option<String> {
@@ -1254,6 +1257,31 @@ impl HubMcp {
 
 #[tool_handler]
 impl ServerHandler for HubMcp {
+    /// Dual-axis identity (SP8): the API key is the auth/budget axis; the
+    /// clientInfo handshake is the observability axis. Absorb whatever the
+    /// client declares (name+version) onto the KEY-agent's row — zero config
+    /// per agent, no provider enumeration, call attribution never orphans
+    /// from the row that owns the budget.
+    async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
+        let agent = agent_of_ext(&context.extensions);
+        if agent.agent_id.is_nil() {
+            return;
+        }
+        let Some(info) = context.peer.peer_info() else { return };
+        let client = format!("{} {}", info.client_info.name, info.client_info.version);
+        let state = self.state.clone();
+        let aid = agent.agent_id;
+        tokio::spawn(async move {
+            let _ = sqlx::query(
+                "UPDATE agents SET version = $2, last_seen_at = now() WHERE agent_id = $1",
+            )
+            .bind(aid)
+            .bind(client)
+            .execute(&state.pg)
+            .await;
+        });
+    }
+
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("intelhub-core", env!("CARGO_PKG_VERSION")))
