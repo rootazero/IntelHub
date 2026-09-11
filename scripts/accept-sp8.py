@@ -128,6 +128,19 @@ check("console bundle contains hud-root (deck shipped)", bool(js), js or "not fo
 carto = vm('grep -o "cb1_[a-z0-9_]*" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("console bundle has CARTO key (primary dark basemap)", bool(carto), carto or "MISSING — would start at Esri")
 
+# 8c. kind taxonomy palette baked in (kind-colored dots + clickable chips)
+pal = vm('grep -c "#b388ff" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | grep -v ":0" | head -1')
+check("console bundle has kind palette (political purple)", bool(pal), pal or "MISSING")
+
+# 8d. taxonomy actually flowing: military (usaspending retag) + a classified kind.
+# Wide window: contract award dates can be months old.
+st, d8 = req("/api/v1/radar/events?kind=military&from=2026-01-01T00:00:00Z&limit=50")
+mil = len(d8.get("items", [])) if st == 200 else 0
+check("radar kind=military events exist (usaspending retag)", mil >= 1, f"count={mil}")
+st, d8b = req("/api/v1/radar/events?kind=political&limit=5")
+pol = len(d8b.get("items", [])) if st == 200 else 0
+check("radar kind=political events exist (title classifier)", pol >= 1, f"count={pol}")
+
 # 9. MCP tool count unchanged (28)
 def mcp_initialize():
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
