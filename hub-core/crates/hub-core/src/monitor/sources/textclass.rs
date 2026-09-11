@@ -22,6 +22,19 @@ const FINANCIAL: &[&str] = &[
     "wall street", "federal reserve", "central bank", "treasury",
 ];
 
+/// Config-string kind → &'static (Signal::new requires static; unknown → news).
+pub(crate) fn static_kind(k: &str) -> &'static str {
+    match k {
+        "conflict" => "conflict",
+        "political" => "political",
+        "financial" => "financial",
+        "health" => "health",
+        "military" => "military",
+        "cyber" => "cyber",
+        _ => "news",
+    }
+}
+
 /// Classify a headline. `None` = no signal → caller keeps its default kind.
 pub(crate) fn classify_title(title: &str) -> Option<&'static str> {
     let t = title.to_lowercase();

@@ -3,6 +3,7 @@
 
 pub mod acled;
 pub mod bls;
+pub mod bluesky;
 pub mod cisakev;
 pub mod comtrade;
 pub mod eia;
@@ -20,8 +21,10 @@ pub mod opensky;
 pub mod radiation;
 pub mod reliefweb;
 pub mod rss;
+pub mod telegram;
 pub(crate) mod textclass;
 pub mod treasury;
 pub mod usaspending;
 pub mod usgs;
 pub mod who;
+pub mod x;

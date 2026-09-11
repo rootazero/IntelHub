@@ -132,6 +132,12 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::ofac::Ofac),
         Box::new(sources::usaspending::UsaSpending),
         Box::new(sources::epa::Epa),
+        // SP8-C social plane: Bluesky (free official API) + Telegram public
+        // channels (t.me/s web preview) carry the load; X stays visible-
+        // degraded until X_BEARER_TOKEN exists ($200/mo Basic tier).
+        Box::new(sources::bluesky::Bluesky),
+        Box::new(sources::telegram::TelegramWatch),
+        Box::new(sources::x::XWatch),
         // BLS native: unreachable today (Akamai bans all our egress paths)
         // but stays visible per user decision — self-heals when a clean
         // residential-US path + BLS_API_KEY exist. FRED mirrors meanwhile.
