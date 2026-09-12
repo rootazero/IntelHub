@@ -4,7 +4,7 @@
 export const KINDS = [
   "conflict", "political", "military", "fire", "quake", "disaster",
   "flight", "maritime", "news", "financial", "health", "radiation",
-  "cyber", "sanction", "economic", "other",
+  "cyber", "sanction", "economic", "climate", "other",
 ];
 
 export const KIND_COLORS: Record<string, string> = {
@@ -23,6 +23,7 @@ export const KIND_COLORS: Record<string, string> = {
   cyber: "#00f5d4",
   sanction: "#ff9e00",
   economic: "#80ed99",
+  climate: "#2dd4bf",
   other: "#8a8f98",
 };
 
