@@ -114,7 +114,7 @@ export const en = {
   },
   radar: {
     title: "Global Radar",
-    subtitle: "§26 · native monitor signal layer",
+    subtitle: "Native monitor signal layer · live sweeps",
     allSeverity: "all severity",
     allKinds: "all kinds",
     events: "{n} events",
@@ -127,13 +127,13 @@ export const en = {
   },
   system: {
     healthCenter: "Health Center — hub-core v{version}",
-    telemetry: "Telemetry (§52 — via Prometheus)",
+    telemetry: "Telemetry (via Prometheus)",
     telemetryDown: "telemetry unavailable (prometheus down?)",
     disk: "Disk /",
     netRx: "Net RX",
     netTx: "Net TX",
     compManager: "Component Manager",
-    l3note: "L3 actions prompt for admin token · default DENY (§61)",
+    l3note: "L3 actions prompt for admin token · default DENY",
     thComponent: "Component",
     thState: "State",
     thInstalled: "Installed",
@@ -205,7 +205,7 @@ export const en = {
     noDocs: "no documents",
   },
   search: {
-    placeholder: "entity, domain, topic, phrase… (keyword + graph + semantic + hybrid — one entry, §67)",
+    placeholder: "entity, domain, topic, phrase… (keyword + graph + semantic + hybrid — one entry)",
     button: "Search",
     entities: "Entities ({n})",
     relationships: "Relationships ({n})",
