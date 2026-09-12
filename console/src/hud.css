@@ -196,6 +196,125 @@
 .hud-map-wrap { position: relative; width: 100%; flex: 1; min-height: 0; }
 .hud-map-wrap .leaflet-container { background: #05080d; height: 100%; border-radius: 0 0 8px 8px; }
 
+/* map status overlay (top-left): event count + tile mode + last refresh
+   pulses when new events arrive from the SSE stream */
+.hud-map-status {
+  position: absolute; top: 6px; left: 6px; z-index: 500;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  pointer-events: none;
+}
+.hud-map-status > * { pointer-events: auto; }
+.hud-map-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 4px;
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--hud-edge);
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--hud-dim);
+}
+.hud-map-pill .v { color: var(--hud-ink); font-weight: 600; }
+.hud-map-pill.online { color: var(--hud-good); border-color: rgba(74, 222, 128, 0.4); }
+.hud-map-pill.fallback { color: var(--hud-warn); border-color: rgba(255, 184, 76, 0.4); }
+.hud-map-pill.offline { color: var(--hud-bad); border-color: rgba(255, 77, 109, 0.4); }
+.hud-map-pill.bump { animation: hud-pulse 0.8s ease-out 2; }
+.hud-lite .hud-map-pill.bump { animation: none; }
+
+/* map control buttons (top-right): region jump, zoom, reset */
+.hud-map-ctrl {
+  position: absolute; top: 6px; right: 6px; z-index: 500;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.hud-map-ctrl-row { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.hud-map-ctrl-btn {
+  min-width: 26px; height: 22px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--hud-edge); border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  letter-spacing: 0.04em; color: var(--hud-dim); cursor: pointer;
+  transition: all 0.15s ease;
+}
+.hud-map-ctrl-btn:hover { color: var(--hud-accent); border-color: var(--hud-accent); }
+.hud-map-ctrl-btn.on { color: var(--hud-accent); border-color: var(--hud-accent); background: rgba(100, 240, 200, 0.08); }
+.hud-map-ctrl-btn.icon { font-size: 12px; line-height: 1; }
+
+/* layer legend (bottom-right): top kinds → color dot. Pulses when SSE
+   delivers a fresh sweep, so the user sees "the deck just refreshed". */
+.hud-map-legend {
+  position: absolute; bottom: 6px; right: 6px; z-index: 500;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 4px 6px;
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--hud-edge); border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  color: var(--hud-dim); letter-spacing: 0.04em;
+}
+.hud-map-legend-row { display: flex; align-items: center; gap: 5px; }
+.hud-map-legend-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex: none;
+  box-shadow: 0 0 4px currentColor;
+}
+
+/* source filter badge (bottom-left when active): from SensorGrid click */
+.hud-map-filter {
+  position: absolute; bottom: 6px; left: 6px; z-index: 500;
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 4px 2px 7px;
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--hud-accent2); border-radius: 4px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  letter-spacing: 0.04em; color: var(--hud-accent2);
+}
+.hud-map-filter-x {
+  width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--hud-edge); border-radius: 3px; color: var(--hud-dim); cursor: pointer;
+}
+.hud-map-filter-x:hover { color: var(--hud-bad); border-color: var(--hud-bad); }
+
+/* detail card: bigger, payload peek, "open in Radar" link */
+.hud-map-detail {
+  position: absolute; bottom: 6px; left: 6px; right: 6px; z-index: 500;
+  max-height: 70%; overflow-y: auto;
+  background: rgba(4, 8, 14, 0.92); backdrop-filter: blur(6px);
+  border: 1px solid var(--hud-edge); border-radius: 5px;
+  padding: 8px 10px; font-size: 11px;
+}
+.hud-map-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.hud-map-detail-title { font-weight: 600; line-height: 1.3; flex: 1; min-width: 0; }
+.hud-map-detail-meta {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  color: var(--hud-dim); letter-spacing: 0.04em;
+}
+.hud-map-detail-payload {
+  max-height: 80px; overflow: auto; margin: 4px 0;
+  padding: 4px 6px; border: 1px solid var(--hud-edge); border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  color: var(--hud-dim); white-space: pre-wrap; word-break: break-all;
+}
+.hud-map-detail-actions { display: flex; gap: 6px; margin-top: 6px; }
+
+/* marker pulse animation: reserved for flash severity. SVG circles can't
+   be styled via :before, so the Leaflet circleMarker just gets the class */
+.hud-marker-pulse {
+  animation: hud-marker-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hud-marker-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.hud-lite .hud-marker-pulse { animation: none; }
+
+/* dimmed markers when a source filter is active: events NOT from the active
+   source fade so the matching cluster pops */
+.hud-marker-dim { opacity: 0.18; }
+
+/* legend pulse on sweep (≤800ms) */
+.hud-legend-bump .hud-map-legend-dot { animation: hud-pulse 0.9s ease-out 2; }
+.hud-lite .hud-legend-bump .hud-map-legend-dot { animation: none; }
+
 /* news ticker (Crucix OSINT-stream): vertical upward scroll, duplicated track,
    seamless loop, pause on hover so users can catch entries with the mouse */
 .hud-ticker-src {

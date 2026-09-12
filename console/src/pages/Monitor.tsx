@@ -180,7 +180,7 @@ export default function Monitor() {
         {/* center: hero map → series strip → markets strip */}
         <div className="hud-col">
           <HudPanel title={t("hud.map")} className="flex-1" bodyClassName="!p-0 flex flex-col">
-            <MonitorMap refreshKey={mapTick} />
+            <MonitorMap refreshKey={mapTick} selectedSource={selSource} onClearSource={() => setSelSource(null)} />
           </HudPanel>
           <HudPanel title={`${t("hud.chart")} · ${series}`} className="flex-none h-[168px]" bodyClassName="!overflow-hidden flex flex-col">
             <SeriesChart series={series} days={40} />
