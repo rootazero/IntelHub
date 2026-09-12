@@ -115,7 +115,7 @@ export const zh: Dict = {
   },
   radar: {
     title: "全球雷达",
-    subtitle: "§26 · 原生 monitor 信号层",
+    subtitle: "原生监测信号层 · 实时扫描",
     allSeverity: "全部严重度",
     allKinds: "全部类型",
     events: "{n} 条事件",
@@ -128,13 +128,13 @@ export const zh: Dict = {
   },
   system: {
     healthCenter: "健康中心 — hub-core v{version}",
-    telemetry: "遥测（§52 — 经由 Prometheus）",
+    telemetry: "遥测（经由 Prometheus）",
     telemetryDown: "遥测不可用（prometheus 宕机？）",
     disk: "磁盘 /",
     netRx: "网络接收",
     netTx: "网络发送",
     compManager: "组件管理器",
-    l3note: "L3 操作需输入 admin token · 默认拒绝（§61）",
+    l3note: "L3 操作需输入 admin token · 默认拒绝",
     thComponent: "组件",
     thState: "状态",
     thInstalled: "已安装",
@@ -206,7 +206,7 @@ export const zh: Dict = {
     noDocs: "暂无文档",
   },
   search: {
-    placeholder: "实体、域名、主题、短语…（关键词 + 图谱 + 语义 + 混合 —— 统一入口，§67）",
+    placeholder: "实体、域名、主题、短语…（关键词 + 图谱 + 语义 + 混合 —— 统一入口）",
     button: "搜索",
     entities: "实体（{n}）",
     relationships: "关系（{n}）",
