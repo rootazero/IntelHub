@@ -63,6 +63,7 @@ export const en = {
       military: "military",
       political: "political",
       financial: "financial",
+      climate: "climate",
       other: "other",
     },
     emb: { DONE: "DONE", PENDING: "PENDING", RUNNING: "RUNNING", SKIPPED: "SKIPPED", FAILED: "FAILED" },

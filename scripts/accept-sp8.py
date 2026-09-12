@@ -141,6 +141,15 @@ st, d8b = req("/api/v1/radar/events?kind=political&limit=5")
 pol = len(d8b.get("items", [])) if st == 200 else 0
 check("radar kind=political events exist (title classifier)", pol >= 1, f"count={pol}")
 
+# 8e. climate plane (SP8-D): EONET climate events + indicator series
+st, d8c = req("/api/v1/radar/events?kind=climate&from=2026-01-01T00:00:00Z&limit=50")
+cli = len(d8c.get("items", [])) if st == 200 else 0
+check("radar kind=climate events exist (eonet)", cli >= 1, f"count={cli}")
+n = vm('docker exec intelhub-postgres psql -U intelhub -d intelhub -tAc "SELECT count(DISTINCT series) FROM signal_observations WHERE source=\'monitor:climate\'"')
+check("climate indicator series observed (CO2+GISTEMP)", n.strip().isdigit() and int(n.strip()) >= 2, f"climate={n.strip()}")
+pal2 = vm('grep -c "#2dd4bf" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | grep -v ":0" | head -1')
+check("console bundle has climate palette (teal)", bool(pal2), pal2 or "MISSING")
+
 # 9. MCP tool count unchanged (28)
 def mcp_initialize():
     body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",

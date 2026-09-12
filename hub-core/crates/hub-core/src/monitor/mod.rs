@@ -142,6 +142,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // but stays visible per user decision — self-heals when a clean
         // residential-US path + BLS_API_KEY exist. FRED mirrors meanwhile.
         Box::new(sources::bls::Bls),
+        // SP8-D climate plane: EONET climate-category events (drought /
+        // sea-ice / temp-extremes only — storms/fires/quakes already owned
+        // by NOAA/FIRMS/USGS; re-fetching would double-tag).
+        Box::new(sources::eonet::Eonet),
     ]
 }
 
@@ -155,6 +159,9 @@ pub fn series_registry() -> Vec<Box<dyn SeriesCollector>> {
         Box::new(sources::finintel::FinIntel),
         Box::new(sources::gscpi::Gscpi),
         Box::new(sources::comtrade::Comtrade),
+        // SP8-D climate plane: global-warming indicators (NOAA CO2 monthly
+        // mean + NASA GISTEMP anomaly). NSIDC ice cut — F5 bot-walled.
+        Box::new(sources::climateseries::ClimateSeries),
     ]
 }
 
