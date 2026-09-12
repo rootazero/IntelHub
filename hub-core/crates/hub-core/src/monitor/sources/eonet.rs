@@ -8,10 +8,17 @@
 //! no rate limit documented. Live-probed 2026-09-11: open events are
 //! currently iceberg tracks (seaLakeIce); drought/tempExtremes populate
 //! only while NASA actively tracks an episode — sparse is honest.
+//!
+//! Time semantics (fixed 2026-09-12): EONET "open" events are LONG-LIVED
+//! tracks (one iceberg dates to 2011) — treating the last position date as
+//! occurred_at made every event invisible in the radar's 24h window. These
+//! are ongoing states, so occurred_at = observation time (same semantics
+//! as opensky flight positions); the true NASA position date travels in
+//! payload.position_date, and external_id is suffixed with it so each NASA
+//! position update ingests as a NEW event (the track stays alive).
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
@@ -73,16 +80,21 @@ pub fn parse_events(j: &serde_json::Value) -> Vec<Signal> {
             .and_then(|c| c.first())
             .and_then(|c| c["id"].as_str())
             .unwrap_or("climate");
-        let mut sig = Signal::new("climate", truncate(title, 140), lat, lon, format!("eonet:{id}"))
-            .severity("routine");
-        if let Some(t) = geo["date"]
-            .as_str()
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        {
-            sig = sig.occurred(t.with_timezone(&Utc));
-        }
+        let pos_date = geo["date"].as_str().unwrap_or("unknown");
+        // occurred_at stays Utc::now() (Signal::new default): an OPEN event
+        // is a current state — we observe it now. Position date → payload,
+        // and into external_id so NASA updates ingest as fresh events.
+        let sig = Signal::new(
+            "climate",
+            truncate(title, 140),
+            lat,
+            lon,
+            format!("eonet:{id}:{pos_date}"),
+        )
+        .severity("routine");
         out.push(sig.payload(serde_json::json!({
             "category": cat,
+            "position_date": pos_date,
             "magnitude": geo["magnitudeValue"].clone(),
             "magnitude_unit": geo["magnitudeUnit"].as_str(),
             "url": e["link"].as_str(),
@@ -114,8 +126,13 @@ mod tests {
         let sigs = parse_events(&j);
         assert_eq!(sigs.len(), 1);
         assert_eq!(sigs[0].kind, "climate");
-        assert_eq!(sigs[0].external_id, "eonet:EONET_7001");
+        assert_eq!(sigs[0].external_id, "eonet:EONET_7001:2026-07-23T00:00:00Z");
         assert!((sigs[0].lat - (-63.78)).abs() < 0.01, "GeoJSON is [lon, lat]");
         assert!((sigs[0].lon - (-55.47)).abs() < 0.01);
+        assert!(
+            (chrono::Utc::now() - sigs[0].occurred_at).num_seconds() < 60,
+            "occurred = observation time, not the 2026-07 position date"
+        );
+        assert_eq!(sigs[0].payload["position_date"], "2026-07-23T00:00:00Z");
     }
 }
