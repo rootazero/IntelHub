@@ -776,8 +776,9 @@ async fn console_signals_history(
     Ok(Json(json!({"series": series, "days": days, "points": points})))
 }
 
-/// SP7 sweep delta: per-source direction computed from the prev_* counters the
-/// scheduler shifts into each health cell (monitor/geo.rs::report_health).
+/// SP7 sweep delta: per-source direction computed ring-first from the
+/// ok-sweeps-only history list (fallback: prev_* counters the scheduler
+/// shifts into each health cell — monitor/geo.rs::report_health).
 async fn console_monitor_delta(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
@@ -808,8 +809,21 @@ async fn console_monitor_delta(
             .iter()
             .filter_map(|s| serde_json::from_str::<Value>(s).ok())
             .collect();
-        let new = cell.get("last_new").and_then(|v| v.as_i64()).unwrap_or(0);
-        let fetched = cell.get("last_fetched").and_then(|v| v.as_i64()).unwrap_or(0);
+        // Ring-first baseline: the ring only records SUCCESSFUL sweeps (failed
+        // sweeps update the health cell but never LPUSH), so cell.last_new
+        // can be 0-from-an-error-sweep while ring[0] still holds the last ok
+        // sweep — mixing the two baselines made direction contradict trend
+        // (gdelt 429-recovery exposed this 2026-09-12: cell=0/ring=[23,0..]
+        // read as "flat" with an uptrend). Delta semantics = change between
+        // the last two OK sweeps; the error state is carried by `state`.
+        let new = entries
+            .first()
+            .and_then(|e| e.get("new").and_then(|v| v.as_i64()))
+            .unwrap_or_else(|| cell.get("last_new").and_then(|v| v.as_i64()).unwrap_or(0));
+        let fetched = entries
+            .first()
+            .and_then(|e| e.get("fetched").and_then(|v| v.as_i64()))
+            .unwrap_or_else(|| cell.get("last_fetched").and_then(|v| v.as_i64()).unwrap_or(0));
         let prev_new = entries
             .get(1)
             .and_then(|e| e.get("new").and_then(|v| v.as_i64()))

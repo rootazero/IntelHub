@@ -27,7 +27,7 @@ const SEV_COLOR: Record<string, string> = {
   info: "#38bdf8",
 };
 
-const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "7d": 168 };
+const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 168, "30d": 720 };
 
 type TilesMode = "carto" | "esri" | "offline";
 type TileProvider = "carto" | "esri";
