@@ -189,7 +189,7 @@ for line in text.splitlines():
             tools = [t["name"] for t in msg.get("result", {}).get("tools", [])]
         except Exception:
             pass
-check("MCP tools/list = 30 (28 + list_tools + tool_schema)", len(tools) == 30, f"count={len(tools)}")
+check("MCP tools/list = 31 (28 + list_tools + tool_schema + investigate)", len(tools) == 31, f"count={len(tools)}")
 
 print(f"\n== {passed} passed, {failed} failed ==")
 sys.exit(1 if failed else 0)
