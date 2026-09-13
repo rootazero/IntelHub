@@ -97,6 +97,11 @@ export default function MonitorMap({
   const tileProvider = useRef<TileProvider>(PRIMARY);
   const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
   const eventsRef = useRef<GeoEvent[]>([]);
+  // skip the first run: the map-init effect below already fitBounds to
+  // REGIONS[region] (initial = 'world'); calling flyToBounds again here
+  // would hit Leaflet before the init RAF has set the view → 'Set map
+  // center and zoom first' error, React unmounts the whole tree.
+  const skipFirstRegion = useRef(true);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
   const [region, setRegion] = useState<RegionKey>("world");
   const [tiles, setTiles] = useState<TilesMode>(PRIMARY);
@@ -176,6 +181,7 @@ export default function MonitorMap({
   // Smooth region transition when user clicks a region button. Re-fits the
   // current region (no flicker because we keep the layer group intact).
   useEffect(() => {
+    if (skipFirstRegion.current) { skipFirstRegion.current = false; return; }
     const map = mapRef.current;
     if (!map) return;
     map.invalidateSize();
