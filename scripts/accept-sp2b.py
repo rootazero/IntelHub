@@ -12,9 +12,13 @@ Budget drill (criterion 3) runs separately with tiny budgets (see report).
 Usage: accept-sp2b.py <agent_key> <admin_token>
 """
 import json, subprocess, sys, time, urllib.request, urllib.error
+import os
 
-HUB = "http://10.10.10.41:8800"
+HUB = os.environ.get("INTELHUB_HUB", "http://10.10.10.41:8800")
 KEY = sys.argv[1]
+# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
+# when running acceptance against the 415 test VM (default: production).
+SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
 ADMIN = sys.argv[2]
 PASS = FAIL = 0
 
@@ -93,13 +97,13 @@ def tool_error(resp):
 
 def sql(q):
     out = subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "IntelHub",
+        ["ssh", "-o", "BatchMode=yes", SSH_HOST,
          f'docker exec intelhub-postgres psql -U intelhub -tAc "{q}"'],
         capture_output=True, text=True, timeout=60)
     return out.stdout.strip()
 
 def sh(cmd):
-    out = subprocess.run(["ssh", "-o", "BatchMode=yes", "IntelHub", cmd],
+    out = subprocess.run(["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
                          capture_output=True, text=True, timeout=300)
     return out.stdout.strip()
 
