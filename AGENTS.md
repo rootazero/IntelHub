@@ -98,3 +98,7 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 - REST 鉴权：`Authorization: Bearer ihk_<hex>`（key 在 VM `core/agent-keys.txt`，按 hash 认证）
 - MCP 端点 `POST /mcp`；clientInfo 自动吸附到 key 对应 agent 行（version + last_seen_at）
 - agent 名册：pi（活跃）、codex（预留）、console
+- **MCP discoverability**（2026-09-13 教训）：MCP 客户端未必把 schemars 自动生成的参数名显眼展示，因此 create_claim 期望 `evidence_document_ids`、create_finding 期望 `claim_text`、create_relationship 期望 `rel_type` 经常踩坑。两个零开销发现工具：`intelhub_list_tools()` 返 30 个工具名 + 一行描述；`intelhub_tool_schema(name)` 返任意工具的完整 JSON Schema（含参数名/类型/必填）。用法：遇到 "missing field X" 先调 `tool_schema` 查实际字段名
+- **hybrid_search 排名区分度**（2026-09-13 教训）：RRF K=60 时 rank 1/3 差距 ~3%，下游阈值过滤几乎失效。现 K=10 + min-max 归一化到 `[0,1]`（`rrf_norm` 字段），同时保留原始 `rrf_score`。Top-3 间距 15%，5× 提升
+- **embed worker 滞后会沉默吃掉 semantic_search 召回**（2026-09-13 教训）：worker 5s/job，新爬文档不能立刻查到。`crawl_url` 新增 `await_embed: bool`（默认 false），true 时阻塞轮询 embedding_status 最长 30s，返 `embedding_status` + `embed_waited_ms`。**不要**用 `await_embed=true` 做批量 ingest（会撑爆 timeout），只用于"先爬立刻查"的同步路径
+- **Neo4j 节点 id 用于日志关联**（2026-09-13 教训）：`query_entity` 现在每行返 `id` 字段（Int64，bolt_to_json 转 JSON number）。**注意**：id 在 REINDEX 时会变，关系操作仍用 (kind, name)；id 仅供 grep/日志追踪
