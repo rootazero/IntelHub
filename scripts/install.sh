@@ -23,6 +23,16 @@
 #                              write-once — never regenerated)
 set -euo pipefail
 
+# Pre-load INTELHUB_ENV_FILE (unattended mode). Runs BEFORE any other env
+# vars are read so user-supplied INTELHUB_HOME / LAN_IP / INTELHUB_LAN take
+# effect for the rest of the script. Missing keys remain empty → step_keys
+# will prompt for them (or skip under INTELHUB_NONINTERACTIVE=1).
+if [[ -n "${INTELHUB_ENV_FILE:-}" ]]; then
+  [[ -r "${INTELHUB_ENV_FILE}" ]] || { printf '\033[31m!! INTELHUB_ENV_FILE=%s unreadable\033[0m\n' "${INTELHUB_ENV_FILE}" >&2; exit 1; }
+  set -a; . "${INTELHUB_ENV_FILE}"; set +a
+  echo "    preloaded $(grep -cE '^[A-Z_]+=' "${INTELHUB_ENV_FILE}") keys from ${INTELHUB_ENV_FILE}"
+fi
+
 # ---------------------------------------------------------------- config ----
 # Placeholder until the GitHub repo is created; INTELHUB_TARBALL bypasses it.
 REPO_URL="__INTELHUB_REPO_URL__"
@@ -208,6 +218,11 @@ EOF
   fi
 
   if [[ ! -f "$HOME_DIR/core/secrets.env" ]]; then
+    # >>>INTELHUB_SECRETS_TEMPLATE_V1>>>
+    # Marker block consumed by scripts/update.sh to detect newly-introduced
+    # optional keys. To add a new optional secret: append `KEY=` inside the
+    # heredoc below — update.sh will auto-add it to existing deployments on
+    # the next update run.
     cat > "$HOME_DIR/core/secrets.env" <<'EOF'
 # IntelHub hub-core secrets (0600, never commit). Referenced by hub.env names only.
 EMBEDDING_API_KEY=
@@ -233,6 +248,7 @@ EIA_API_KEY=
 EOF
     chmod 600 "$HOME_DIR/core/secrets.env"
     echo "    wrote core/secrets.env (empty key slots)"
+    # <<<INTELHUB_SECRETS_TEMPLATE_V1<<<
   fi
 }
 
@@ -373,6 +389,12 @@ say "IntelHub installer — crash-safe, resumable. State: $STATE"
 
 run_step preflight        step_preflight
 run_step fetch-code       step_fetch_code
+# Dispatch: `bash -s -- update` hands off to update.sh after the shared
+# preflight + fetch-code prologue. The install state machine already fast-
+# skips completed steps, so re-running the same update command is cheap.
+if [[ "${1:-}" == "update" ]]; then
+    exec bash "$HOME_DIR/scripts/update.sh"
+fi
 run_step bootstrap        step_bootstrap
 run_step versions         step_versions
 run_step secrets          step_secrets
