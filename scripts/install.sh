@@ -184,6 +184,12 @@ HUB_ALERT_WEBHOOK_MIN_SEVERITY=warning
 HUB_EMBED_MIN_WORDS=50
 HUB_EMBED_WORKER_ENABLED=true
 HUB_SEED_ENABLED=true
+# Cross-encoder rerank stage (e2e audit 2026-09-13). Off by default — flip
+# on after you've verified T8star /v1/rerank is reachable from your VM.
+HUB_RERANK_ENABLED=false
+HUB_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+HUB_RERANK_TOP_K=50
+HUB_RERANK_TIMEOUT_SECS=10
 EOF
     chmod 600 "$HOME_DIR/core/hub.env"
     echo "$ADMIN" > "$HOME_DIR/core/admin-token.txt" && chmod 600 "$HOME_DIR/core/admin-token.txt"

@@ -38,6 +38,20 @@ pub struct Config {
     /// §40: documents shorter than this are not auto-embedded.
     pub embed_min_words: u32,
     pub embed_enabled: bool,
+    /// Cross-encoder rerank stage (e2e audit 2026-09-13). Runs after RRF in
+    /// hybrid_inner and after vector search in semantic_inner. Uses the
+    /// same T8star relay as embed (reuses EMBEDDING_API_KEY +
+    /// EMBEDDING_BASE_URL). Off by default — flip HUB_RERANK_ENABLED=true
+    /// to enable. Failures degrade gracefully (return pre-rerank order).
+    pub rerank_enabled: bool,
+    /// Default `BAAI/bge-reranker-v2-m3` (multilingual en+zh, fits OSINT).
+    pub rerank_model: String,
+    /// Top-K retrieval candidates fed into the rerank model per call.
+    /// Higher = better ordering, slower. 50 is the sweet spot for OSINT.
+    pub rerank_top_k: usize,
+    /// HTTP timeout per `/v1/rerank` call. Anything > this is treated as
+    /// a transient failure and the pre-rerank order is returned.
+    pub rerank_timeout_secs: u64,
     /// One-shot entity seeder on hub-core boot. Gates the populate-the-
     /// graph step so clean-test deployments don't accumulate seed rows.
     pub seed_enabled: bool,
@@ -140,6 +154,10 @@ impl Config {
             // gates noise. Override via HUB_EMBED_MIN_WORDS env.
             embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "50").parse().unwrap_or(50),
             embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
+            rerank_enabled: env_or("HUB_RERANK_ENABLED", "false") == "true",
+            rerank_model: env_or("HUB_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
+            rerank_top_k: env_or("HUB_RERANK_TOP_K", "50").parse().unwrap_or(50),
+            rerank_timeout_secs: env_or("HUB_RERANK_TIMEOUT_SECS", "10").parse().unwrap_or(10),
             seed_enabled: env_or("HUB_SEED_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),

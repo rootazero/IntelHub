@@ -732,11 +732,15 @@ impl HubMcp {
             }
             Err(_) => {}
         }
-        let mut items = Vec::new();
-        for s in scored {
-            if items.len() >= limit as usize {
-                break;
-            }
+
+        // Hydrate top rerank_top_k rows so we have title+excerpt to send to
+        // the cross-encoder. We hydrate more than `limit` so rerank has
+        // breathing room and url_contains filter (if set) doesn't leave us
+        // with too few.
+        let hydrate_n = self.state.config.rerank_top_k.max(limit as usize);
+        let mut hydrated: std::collections::HashMap<uuid::Uuid, (String, String, String)> = std::collections::HashMap::new();
+        let mut rrf_lookup: std::collections::HashMap<uuid::Uuid, (f64, f64)> = std::collections::HashMap::new();
+        for s in scored.iter().take(hydrate_n) {
             let row: Option<(String, Option<String>, String)> = sqlx::query_as(
                 "SELECT url_canonical, title, left(content_text, 400) FROM documents WHERE document_id = $1",
             )
@@ -744,22 +748,86 @@ impl HubMcp {
             .fetch_optional(&self.state.pg)
             .await?;
             if let Some((url, title, excerpt)) = row {
-                if let Some(f) = url_contains {
-                    if !url.contains(f) {
-                        continue;
-                    }
-                }
-                items.push(json!({
-                    "document_id": s.doc_id,
-                    "rrf_score": (s.raw * 1e6).round() / 1e6,
-                    "rrf_norm": (s.norm * 1e6).round() / 1e6,
-                    "url": url, "title": title, "excerpt": excerpt,
-                }));
+                hydrated.insert(s.doc_id, (url, title.unwrap_or_default(), excerpt));
+                rrf_lookup.insert(s.doc_id, (s.raw, s.norm));
             }
+        }
+
+        // Optionally rerank — graceful degradation if disabled / unreachable.
+        let mut final_order: Vec<uuid::Uuid> = scored.iter().take(hydrate_n).map(|s| s.doc_id).collect();
+        let mut rerank_status = "disabled".to_string();
+        let mut rerank_scores: std::collections::HashMap<uuid::Uuid, f64> = std::collections::HashMap::new();
+        if self.state.config.rerank_enabled && !hydrated.is_empty() {
+            let top = self.state.config.rerank_top_k.min(hydrated.len());
+            let candidates: Vec<(uuid::Uuid, String)> = final_order
+                .iter()
+                .take(top)
+                .filter_map(|id| {
+                    hydrated.get(id).map(|(_, title, excerpt)| {
+                        let text = if title.is_empty() { excerpt.clone() } else { format!("{title}. {excerpt}") };
+                        (*id, text)
+                    })
+                })
+                .collect();
+            let outcome = crate::rerank::rerank_documents(&self.state, query, &candidates, top).await;
+            rerank_status = outcome.status.clone();
+            if outcome.tokens_billed > 0 {
+                let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
+                let _ = crate::cost::record_cost(
+                    &self.state,
+                    agent_id,
+                    None,
+                    "rerank_tokens",
+                    outcome.tokens_billed as f64,
+                    "token",
+                    json!({ "purpose": "hybrid_rerank", "model": self.state.config.rerank_model }),
+                ).await;
+            }
+            if !outcome.scored.is_empty() {
+                // Prepend rerank hits (their order wins), then append any
+                // pre-rerank candidates the rerank dropped — they remain
+                // retrievable rather than disappearing silently.
+                let reranked_ids: Vec<uuid::Uuid> = outcome.scored.iter().map(|(id, _)| *id).collect();
+                for (id, score) in &outcome.scored {
+                    rerank_scores.insert(*id, *score);
+                }
+                let reranked_set: std::collections::HashSet<uuid::Uuid> = reranked_ids.iter().copied().collect();
+                let tail: Vec<uuid::Uuid> = final_order
+                    .iter()
+                    .copied()
+                    .filter(|id| !reranked_set.contains(id))
+                    .collect();
+                final_order = reranked_ids.into_iter().chain(tail).collect();
+            }
+        }
+
+        let mut items = Vec::new();
+        for doc_id in final_order {
+            if items.len() >= limit as usize {
+                break;
+            }
+            let Some((url, title, excerpt)) = hydrated.get(&doc_id) else { continue };
+            if let Some(f) = url_contains {
+                if !url.contains(f) {
+                    continue;
+                }
+            }
+            let (rrf_raw, rrf_norm) = rrf_lookup.get(&doc_id).copied().unwrap_or((0.0, 0.0));
+            let mut obj = json!({
+                "document_id": doc_id,
+                "rrf_score": (rrf_raw * 1e6).round() / 1e6,
+                "rrf_norm": (rrf_norm * 1e6).round() / 1e6,
+                "url": url, "title": title, "excerpt": excerpt,
+            });
+            if let Some(r) = rerank_scores.get(&doc_id) {
+                obj["rerank_score"] = json!(*r);
+            }
+            items.push(obj);
         }
         Ok(json!({
             "query": query,
             "mode": if vec_ok { "hybrid-rrf" } else { "keyword (vector channel unavailable or empty)" },
+            "rerank": rerank_status,
             "count": items.len(),
             "items": items,
         }))
@@ -805,10 +873,15 @@ impl HubMcp {
             v["note"] = json!("no embedded documents yet; these are keyword results, not vector similarity");
             return Ok(v);
         }
-        let mut items = Vec::new();
+
+        // Hydrate top rerank_top_k candidates (dedupe by URL first so the
+        // rerank sees a diverse candidate set, not the same page twice).
+        let hydrate_n = self.state.config.rerank_top_k.max(limit as usize);
+        let mut hydrated: std::collections::HashMap<uuid::Uuid, (String, String, String, f64)> = std::collections::HashMap::new();
         let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (doc_id, score) in hits.iter() {
-            if items.len() >= limit as usize {
+        let mut vec_order: Vec<uuid::Uuid> = Vec::new();
+        for (doc_id, vec_score) in hits.iter() {
+            if hydrated.len() >= hydrate_n {
                 break;
             }
             let row: Option<(String, Option<String>, String)> = sqlx::query_as(
@@ -818,20 +891,72 @@ impl HubMcp {
             .fetch_optional(&self.state.pg)
             .await?;
             if let Some((url, title, excerpt)) = row {
-                // Dedupe page snapshots: repeated crawls of a changing page
-                // store one document per content hash; without this a single
-                // page can occupy every result slot (hits are best-score
-                // ordered, so the first occurrence is the best match).
                 if !seen_urls.insert(url.clone()) {
                     continue;
                 }
-                items.push(json!({
-                    "document_id": doc_id, "score": score, "url": url,
-                    "title": title, "excerpt": excerpt,
-                }));
+                hydrated.insert(*doc_id, (url, title.unwrap_or_default(), excerpt, f64::from(*vec_score)));
+                vec_order.push(*doc_id);
             }
         }
-        Ok(json!({ "query": query, "mode": "vector", "count": items.len(), "items": items }))
+
+        // Optionally rerank — graceful degradation if disabled / unreachable.
+        let mut final_order: Vec<uuid::Uuid> = vec_order.clone();
+        let mut rerank_status = "disabled".to_string();
+        let mut rerank_scores: std::collections::HashMap<uuid::Uuid, f64> = std::collections::HashMap::new();
+        if self.state.config.rerank_enabled && !hydrated.is_empty() {
+            let top = self.state.config.rerank_top_k.min(hydrated.len());
+            let candidates: Vec<(uuid::Uuid, String)> = final_order
+                .iter()
+                .take(top)
+                .filter_map(|id| {
+                    hydrated.get(id).map(|(_, title, excerpt, _)| {
+                        let text = if title.is_empty() { excerpt.clone() } else { format!("{title}. {excerpt}") };
+                        (*id, text)
+                    })
+                })
+                .collect();
+            let outcome = crate::rerank::rerank_documents(&self.state, query, &candidates, top).await;
+            rerank_status = outcome.status.clone();
+            if outcome.tokens_billed > 0 {
+                let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
+                let _ = crate::cost::record_cost(
+                    &self.state,
+                    agent_id,
+                    None,
+                    "rerank_tokens",
+                    outcome.tokens_billed as f64,
+                    "token",
+                    json!({ "purpose": "semantic_rerank", "model": self.state.config.rerank_model }),
+                ).await;
+            }
+            if !outcome.scored.is_empty() {
+                let reranked_ids: Vec<uuid::Uuid> = outcome.scored.iter().map(|(id, _)| *id).collect();
+                for (id, score) in &outcome.scored {
+                    rerank_scores.insert(*id, *score);
+                }
+                let reranked_set: std::collections::HashSet<uuid::Uuid> = reranked_ids.iter().copied().collect();
+                let tail: Vec<uuid::Uuid> = final_order.iter().copied().filter(|id| !reranked_set.contains(id)).collect();
+                final_order = reranked_ids.into_iter().chain(tail).collect();
+            }
+        }
+
+        let mut items = Vec::new();
+        for doc_id in final_order {
+            if items.len() >= limit as usize {
+                break;
+            }
+            let Some((url, title, excerpt, vec_score)) = hydrated.get(&doc_id) else { continue };
+            let mut obj = json!({
+                "document_id": doc_id,
+                "vector_score": vec_score,
+                "url": url, "title": title, "excerpt": excerpt,
+            });
+            if let Some(r) = rerank_scores.get(&doc_id) {
+                obj["rerank_score"] = json!(*r);
+            }
+            items.push(obj);
+        }
+        Ok(json!({ "query": query, "mode": "vector", "rerank": rerank_status, "count": items.len(), "items": items }))
     }
 
     #[tool(description = "Query entities in the relationship graph by name (read-only, parameterized — no arbitrary Cypher).")]
