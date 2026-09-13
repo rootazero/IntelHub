@@ -108,6 +108,11 @@ pub struct CrawlUrlArgs {
     pub investigation_id: Option<String>,
     /// Embedding decision (§40): "auto" (default, decision rules) | "force" | "skip"
     pub embed: Option<String>,
+    /// If true (default false), block up to 30s waiting for the embed worker
+    /// to finish this document so a follow-up semantic_search returns it.
+    /// Returns `embedding_status` and `embed_waited_ms` in the response.
+    /// When `embed=skip`, this flag is ignored.
+    pub await_embed: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -156,6 +161,12 @@ pub struct FindPathArgs {
     pub from: String,
     /// Target entity name (exact, case-insensitive)
     pub to: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ToolSchemaArgs {
+    /// Tool name (e.g. "create_claim", "find_path")
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -403,7 +414,7 @@ impl HubMcp {
         out
     }
 
-    #[tool(description = "Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status.")]
+    #[tool(description = "Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status. When `await_embed=true`, blocks up to 30s for the embed worker to finish so a follow-up semantic_search returns this document.")]
     async fn crawl_url(
         &self,
         Parameters(args): Parameters<CrawlUrlArgs>,
@@ -424,7 +435,10 @@ impl HubMcp {
                 ))
             }
         };
-        let result = self.crawl_and_ingest(&agent, &args.url, investigation_id, embed_mode).await;
+        let await_embed = args.await_embed.unwrap_or(false);
+        let result = self
+            .crawl_and_ingest(&agent, &args.url, investigation_id, embed_mode, await_embed)
+            .await;
         let out = match result {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
@@ -439,6 +453,7 @@ impl HubMcp {
         url: &str,
         investigation_id: Option<Uuid>,
         embed_mode: &str,
+        await_embed: bool,
     ) -> crate::error::Result<serde_json::Value> {
         let parsed = url::Url::parse(url)
             .map_err(|_| crate::error::HubError::bad_request("invalid URL"))?;
@@ -503,7 +518,7 @@ impl HubMcp {
         )
         .await;
 
-        Ok(json!({
+        let mut response = json!({
             "task_id": task_id,
             "document_id": outcome.document_id,
             "content_hash": outcome.content_hash,
@@ -511,7 +526,22 @@ impl HubMcp {
             "near_duplicate_of": outcome.near_duplicate_of,
             "title": page.title,
             "links_count": page.links_count,
-        }))
+        });
+
+        // `await_embed` (e2e audit fix 2026-09-13): close the gap between
+        // ingest and semantic_search recall. Polls up to 30s for the embed
+        // worker to process this specific doc. No-op when embed_mode=skip
+        // or when the doc was a duplicate (no job queued).
+        if await_embed && embed_mode != "skip" {
+            let wait = crate::mcp::wait_for_embed(&self.state.pg, outcome.document_id, 30).await;
+            response["embedding_status"] = json!(wait.status);
+            response["embed_waited_ms"] = json!(wait.waited_ms);
+            if let Some(reason) = wait.reason {
+                response["embed_skip_reason"] = json!(reason);
+            }
+        }
+
+        Ok(response)
     }
 
     #[tool(description = "Fetch a document by URL: returns the stored evidence if already collected, otherwise crawls and ingests it first.")]
@@ -535,7 +565,7 @@ impl HubMcp {
             ok_text(json!({ "source": "store", "document": doc }))
         } else {
             let agent = agent_of(&ctx);
-            match self.crawl_and_ingest(&agent, &args.url, None, "auto").await {
+            match self.crawl_and_ingest(&agent, &args.url, None, "auto", false).await {
                 Ok(v) => {
                     let doc = crate::store::get_document(
                         &self.state.pg,
@@ -652,8 +682,11 @@ impl HubMcp {
         out
     }
 
-    /// RRF (k=60) fusion of the keyword channel and the vector channel.
+    /// RRF (k=10) fusion of the keyword channel and the vector channel.
     /// A vector-channel outage degrades to keyword-only — never an error.
+    /// Scores are reported both raw (RRF reciprocal-rank) and min-max
+    /// normalized to [0,1] so downstream code can threshold without
+    /// knowing the K constant.
     async fn hybrid_inner(
         &self,
         agent: &AgentIdentity,
@@ -661,21 +694,25 @@ impl HubMcp {
         limit: i64,
         url_contains: Option<&str>,
     ) -> crate::error::Result<serde_json::Value> {
-        const K: f64 = 60.0;
+        const K: f64 = 10.0;
         let kw = crate::store::keyword_search(&self.state.pg, query, (limit * 3).clamp(10, 150)).await?;
-        let mut rrf: std::collections::HashMap<uuid::Uuid, f64> = std::collections::HashMap::new();
+        let mut kw_ranks: Vec<uuid::Uuid> = Vec::new();
         if let Some(items) = kw.get("items").and_then(|i| i.as_array()) {
-            for (rank, it) in items.iter().enumerate() {
+            for it in items {
                 if let Some(id) = it
                     .get("document_id")
                     .and_then(|d| d.as_str())
                     .and_then(|s| uuid::Uuid::parse_str(s).ok())
                 {
-                    *rrf.entry(id).or_default() += 1.0 / (K + rank as f64 + 1.0);
+                    if !kw_ranks.contains(&id) {
+                        kw_ranks.push(id);
+                    }
                 }
             }
         }
-        let vec_ok = match crate::embed::query_embedding(&self.state, query).await {
+        let mut scored: Vec<RrfScore> = rrf_fuse(&kw_ranks, &[], K);
+        let mut vec_ok = false;
+        match crate::embed::query_embedding(&self.state, query).await {
             Ok((qvec, tokens)) => {
                 if tokens > 0 {
                     let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
@@ -685,28 +722,25 @@ impl HubMcp {
                     ).await;
                 }
                 match crate::vector::search(&self.state, &qvec, (limit * 3) as u64).await {
-                    Ok(hits) => {
-                        for (rank, (id, _)) in hits.iter().enumerate() {
-                            *rrf.entry(*id).or_default() += 1.0 / (K + rank as f64 + 1.0);
-                        }
-                        !hits.is_empty()
+                    Ok(hits) if !hits.is_empty() => {
+                        let vec_ranks: Vec<uuid::Uuid> = hits.iter().map(|(id, _)| *id).collect();
+                        scored = rrf_fuse(&kw_ranks, &vec_ranks, K);
+                        vec_ok = true;
                     }
-                    Err(_) => false,
+                    _ => {}
                 }
             }
-            Err(_) => false,
-        };
-        let mut ranked: Vec<(uuid::Uuid, f64)> = rrf.into_iter().collect();
-        ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            Err(_) => {}
+        }
         let mut items = Vec::new();
-        for (doc_id, score) in ranked {
+        for s in scored {
             if items.len() >= limit as usize {
                 break;
             }
             let row: Option<(String, Option<String>, String)> = sqlx::query_as(
                 "SELECT url_canonical, title, left(content_text, 400) FROM documents WHERE document_id = $1",
             )
-            .bind(doc_id)
+            .bind(s.doc_id)
             .fetch_optional(&self.state.pg)
             .await?;
             if let Some((url, title, excerpt)) = row {
@@ -716,8 +750,9 @@ impl HubMcp {
                     }
                 }
                 items.push(json!({
-                    "document_id": doc_id,
-                    "rrf_score": (score * 1e6).round() / 1e6,
+                    "document_id": s.doc_id,
+                    "rrf_score": (s.raw * 1e6).round() / 1e6,
+                    "rrf_norm": (s.norm * 1e6).round() / 1e6,
                     "url": url, "title": title, "excerpt": excerpt,
                 }));
             }
@@ -847,6 +882,47 @@ impl HubMcp {
         };
         self.record(&ctx, "find_path", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
+    }
+
+    /// MCP discoverability (e2e audit fix 2026-09-13): many tool arg field
+    /// names aren't surfaced prominently by every MCP client. These two
+    /// zero-cost tools let callers introspect the surface at runtime
+    /// instead of guessing parameter names.
+    #[tool(description = "List all available MCP tools (name + one-line description). Use this first when an error says 'missing field X' to discover the canonical argument name. Read-only, no budget cost, not audited.")]
+    async fn list_tools(&self) -> Result<CallToolResult, McpError> {
+        let tools = self.tool_router.list_all();
+        let items: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|t| {
+                json!({
+                    "name": t.name,
+                    "description": t.description.as_deref().unwrap_or(""),
+                })
+            })
+            .collect();
+        ok_text(json!({ "count": items.len(), "tools": items }))
+    }
+
+    #[tool(description = "Return the full input schema (param names/types/required/description) for one MCP tool by name. Read-only, no budget cost, not audited.")]
+    async fn tool_schema(
+        &self,
+        Parameters(args): Parameters<ToolSchemaArgs>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        match self.tool_router.get(&args.name) {
+            Some(t) => ok_text(json!({
+                "name": t.name,
+                "description": t.description.as_deref().unwrap_or(""),
+                "input_schema": t.input_schema.as_ref(),
+            })),
+            None => {
+                let known: Vec<String> = self.tool_router.list_all().iter().map(|t| t.name.to_string()).collect();
+                Err(McpError::invalid_params(
+                    format!("unknown tool '{}'; known: {}", args.name, known.join(", ")),
+                    None,
+                ))
+            }
+        }
     }
 
     #[tool(description = "Create a new investigation (first-class object: target/question/hypothesis).")]
@@ -1423,3 +1499,94 @@ pub(crate) async fn watchlist_inner(
         ))),
     }
 }
+
+// ---------- Embed wait helper (extracted from crawl_and_ingest for testability) ----------
+
+#[derive(Debug, Clone)]
+pub(crate) struct EmbedWaitOutcome {
+    pub status: String,        // "DONE" | "SKIPPED" | "FAILED" | "PENDING" (timeout) | "no_job"
+    pub waited_ms: u64,
+    pub reason: Option<String>, // set when status=SKIPPED/FAILED
+}
+
+/// Poll `documents.embedding_status` every 1s up to `timeout_secs`, so a
+/// caller that just crawled a URL can issue semantic_search immediately.
+/// Returns `no_job` if no `embedding_jobs` row was ever queued for this
+/// document (typically a duplicate or `embed_mode=skip`).
+pub(crate) async fn wait_for_embed(pg: &sqlx::PgPool, document_id: Uuid, timeout_secs: u64) -> EmbedWaitOutcome {
+    let start = std::time::Instant::now();
+    let deadline = std::time::Duration::from_secs(timeout_secs);
+    loop {
+        // Check the job queue first — if nothing was ever queued, return early
+        // instead of spinning for `timeout_secs` on a duplicate.
+        let job_row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT status, reason FROM embedding_jobs WHERE document_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(document_id)
+        .fetch_optional(pg)
+        .await
+        .ok()
+        .flatten();
+        let Some((job_status, job_reason)) = job_row else {
+            return EmbedWaitOutcome { status: "no_job".into(), waited_ms: start.elapsed().as_millis() as u64, reason: None };
+        };
+        // Done / failed / skipped on first attempt → return immediately.
+        if matches!(job_status.as_str(), "DONE" | "FAILED" | "SKIPPED") {
+            return EmbedWaitOutcome {
+                status: job_status,
+                waited_ms: start.elapsed().as_millis() as u64,
+                reason: job_reason,
+            };
+        }
+        if start.elapsed() >= deadline {
+            return EmbedWaitOutcome {
+                status: "PENDING".into(),
+                waited_ms: start.elapsed().as_millis() as u64,
+                reason: Some(format!("timed out after {}s; job still {}", timeout_secs, job_status)),
+            };
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+}
+
+// ---------- RRF helper (extracted from hybrid_inner for testability) ----------
+
+/// Reciprocal-Rank Fusion score for one document — emitted both raw (so the
+/// constant `K` is recoverable) and min-max normalized to [0,1] (so callers
+/// can threshold without knowing `K`).
+#[derive(Debug, Clone, Copy)]
+pub struct RrfScore {
+    pub doc_id: uuid::Uuid,
+    pub raw: f64,
+    pub norm: f64,
+}
+
+/// Reciprocal-Rank Fusion (RRF): score(d) = Σ_c 1/(K + rank_c(d)).
+/// Returns candidates sorted by raw score descending. Empty input channels
+/// are tolerated (keyword-only / vector-only paths still work).
+pub fn rrf_fuse(keyword_ranks: &[uuid::Uuid], vector_ranks: &[uuid::Uuid], k: f64) -> Vec<RrfScore> {
+    let mut scores: std::collections::HashMap<uuid::Uuid, f64> = std::collections::HashMap::new();
+    for (rank, id) in keyword_ranks.iter().enumerate() {
+        *scores.entry(*id).or_default() += 1.0 / (k + rank as f64 + 1.0);
+    }
+    for (rank, id) in vector_ranks.iter().enumerate() {
+        *scores.entry(*id).or_default() += 1.0 / (k + rank as f64 + 1.0);
+    }
+    let mut ranked: Vec<(uuid::Uuid, f64)> = scores.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let len = ranked.len();
+    let (min, max) = ranked
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, s)| (lo.min(*s), hi.max(*s)));
+    let span = (max - min).max(f64::EPSILON);
+    ranked
+        .into_iter()
+        .map(|(doc_id, raw)| {
+            let norm = if len == 1 { 1.0 } else { (raw - min) / span };
+            RrfScore { doc_id, raw, norm }
+        })
+        .collect()
+}
+
+// Tests moved to /tests/rrf_integration.rs (separate binary — sidesteps
+// pre-existing unit-test compile failures in epa.rs/fred.rs from main).
