@@ -403,6 +403,46 @@ def check_29_layout_and_autofit_in_bundle():
         f"d3-force={'yes' if has_layout else 'NO'} autoFit={'yes' if has_autofit else 'NO'}"
 
 
+def check_30_neo4j_entity_ids_backfilled():
+    """2026-09-14 mirror regression guard: every Neo4j Entity node must carry
+    its PG uuid as entity_id (graphw historically MERGEd by (kind,name) and
+    never SET it, orphaning the whole mirror from the uuid-keyed read path).
+    Runs the same Neo4j HTTP probe the backfill script uses."""
+    try:
+        import base64 as _b64
+        # Reuse the password-extraction trick from the backfill script.
+        out = subprocess.run(
+            ["docker", "inspect", "intelhub-neo4j",
+             "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout
+        pw = ""
+        for line in out.splitlines():
+            if line.startswith("NEO4J_AUTH=neo4j/"):
+                pw = line.split("=", 1)[1].split("/", 1)[1]
+                break
+        if not pw:
+            return False, "NEO4J_AUTH not found"
+        # Neo4j publishes no host ports — exec wget inside the container.
+        body = json.dumps({"statements": [{
+            "statement": "MATCH (e:Entity) WHERE e.entity_id IS NULL RETURN count(e)"}]})
+        r = subprocess.run(
+            ["docker", "exec", "intelhub-neo4j",
+             "wget", "-qO-",
+             "--header=Content-Type: application/json",
+             "--header=Authorization: Basic " + _b64.b64encode(f"neo4j:{pw}".encode()).decode(),
+             "--post-data=" + body,
+             "http://localhost:7474/db/neo4j/tx/commit"],
+            capture_output=True, text=True, timeout=30,
+        )
+        data = json.loads(r.stdout or "{}")
+        rows = data.get("results", [{}])[0].get("data", [])
+        n = rows[0]["row"][0] if rows else -1
+        return n == 0, f"{n} Entity nodes with entity_id NULL (expect 0)"
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+
+
 CHECKS = [
     ("01 edges expose source_id/target_id", check_01_edges_have_ids),
     ("02 multi-hop path real source/target", check_02_multi_hop_source_target),
@@ -433,6 +473,7 @@ CHECKS = [
     ("27 Graph.tsx has <SidePanel> JSX", check_27_graph_has_sidepanel_jsx),
     ("28 Graph.tsx uses source_id/target_id", check_28_graph_uses_source_target_ids),
     ("29 layout (d3-force) + autoFit in bundle", check_29_layout_and_autofit_in_bundle),
+    ("30 Neo4j Entity nodes all have entity_id", check_30_neo4j_entity_ids_backfilled),
 ]
 
 print(f"== SP10 acceptance ({len(CHECKS)} assertions) ==")
