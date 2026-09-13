@@ -428,7 +428,7 @@ pub async fn list_evidence_for_entity(
 ) -> Result<Value, HubError> {
     let rel = relation.unwrap_or("supports");
     let docs: Vec<(Uuid, String, DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT d.document_id, d.base_url, d.retrieved_at, ce.relation \
+        "SELECT d.document_id, d.url_canonical, d.retrieved_at, ce.relation \
            FROM documents d \
            JOIN claim_evidence ce ON ce.document_id = d.document_id \
            JOIN claim_entities c ON c.claim_id = ce.claim_id \
