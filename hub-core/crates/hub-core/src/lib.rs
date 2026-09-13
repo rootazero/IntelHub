@@ -16,6 +16,7 @@ pub mod graphw;
 pub mod ingest;
 pub mod mcp;
 pub mod monitor;
+pub mod neo4j_init;
 pub mod policy;
 pub mod sensors;
 pub mod server;
