@@ -52,6 +52,16 @@ pub struct Config {
     /// HTTP timeout per `/v1/rerank` call. Anything > this is treated as
     /// a transient failure and the pre-rerank order is returned.
     pub rerank_timeout_secs: u64,
+    /// A: Redis-backed cache over hybrid_search / semantic_search /
+    /// keyword_search. Identical (query, limit, url_contains) within
+    /// TTL returns the cached response blob, skipping PG + Qdrant +
+    /// T8star entirely. Set HUB_QUERY_CACHE_ENABLED=false to disable
+    /// (e.g. while debugging a freshness issue).
+    pub query_cache_enabled: bool,
+    /// TTL in seconds. Short by design (300s) — this is a perf layer,
+    /// not a replacement for fresh retrieval. The cache key changes
+    /// when corpus embeds complete so longer TTL isn't needed.
+    pub query_cache_ttl_secs: u64,
     /// One-shot entity seeder on hub-core boot. Gates the populate-the-
     /// graph step so clean-test deployments don't accumulate seed rows.
     pub seed_enabled: bool,
@@ -158,6 +168,8 @@ impl Config {
             rerank_model: env_or("HUB_RERANK_MODEL", "BAAI/bge-reranker-v2-m3"),
             rerank_top_k: env_or("HUB_RERANK_TOP_K", "50").parse().unwrap_or(50),
             rerank_timeout_secs: env_or("HUB_RERANK_TIMEOUT_SECS", "10").parse().unwrap_or(10),
+            query_cache_enabled: env_or("HUB_QUERY_CACHE_ENABLED", "true") == "true",
+            query_cache_ttl_secs: env_or("HUB_QUERY_CACHE_TTL_SECS", "300").parse().unwrap_or(300),
             seed_enabled: env_or("HUB_SEED_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),

@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod alerts;
 pub mod auth;
+pub mod cache;
 pub mod components;
 pub mod config;
 pub mod console;

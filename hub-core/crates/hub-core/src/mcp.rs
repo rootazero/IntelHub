@@ -673,9 +673,32 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "keyword_search").await?;
+        let agent = agent_of(&ctx);
+        let trace = trace_of(&ctx);
+        let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let out = match crate::store::keyword_search(&self.state.pg, &args.query, limit).await {
-            Ok(v) => ok_text(v),
+        let url_contains = args.url_contains.as_deref();
+        let pg = &self.state.pg;
+        let query = args.query.clone();
+        let (inner_result, cache_status) = crate::cache::search_with_cache(
+            &self.state,
+            Some(agent.agent_id),
+            trace_uuid,
+            crate::cache::CacheMode::Keyword,
+            &query,
+            limit,
+            url_contains,
+            || async { crate::store::keyword_search(pg, &query, limit).await },
+        )
+        .await;
+        let out = match inner_result {
+            Ok(mut v) => {
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("trace_id".to_string(), json!(trace.trace_id));
+                    obj.insert("cache".to_string(), json!(cache_status.as_str()));
+                }
+                ok_text(v)
+            }
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "keyword_search", started, if out.is_ok() { "ok" } else { "error" }).await;
@@ -694,13 +717,29 @@ impl HubMcp {
         let trace = trace_of(&ctx);
         let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let out = match self
-            .hybrid_inner(&agent, &args.query, limit, args.url_contains.as_deref(), trace_uuid)
-            .await
-        {
+        let url_contains = args.url_contains.as_deref();
+        let query = args.query.clone();
+        let agent_id = Some(agent.agent_id);
+        let state = &self.state;
+        let hybrid_fut = || async {
+            self.hybrid_inner(&agent, &query, limit, url_contains, trace_uuid).await
+        };
+        let (inner_result, cache_status) = crate::cache::search_with_cache(
+            state,
+            agent_id,
+            trace_uuid,
+            crate::cache::CacheMode::Hybrid,
+            &query,
+            limit,
+            url_contains,
+            hybrid_fut,
+        )
+        .await;
+        let out = match inner_result {
             Ok(mut v) => {
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("trace_id".to_string(), json!(trace.trace_id));
+                    obj.insert("cache".to_string(), json!(cache_status.as_str()));
                 }
                 ok_text(v)
             }
@@ -875,10 +914,29 @@ impl HubMcp {
         let trace = trace_of(&ctx);
         let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let out = match self.semantic_inner(&agent, &args.query, limit, trace_uuid).await {
+        let url_contains = args.url_contains.as_deref();
+        let query = args.query.clone();
+        let agent_id = Some(agent.agent_id);
+        let state = &self.state;
+        let semantic_fut = || async {
+            self.semantic_inner(&agent, &query, limit, trace_uuid).await
+        };
+        let (inner_result, cache_status) = crate::cache::search_with_cache(
+            state,
+            agent_id,
+            trace_uuid,
+            crate::cache::CacheMode::Semantic,
+            &query,
+            limit,
+            url_contains,
+            semantic_fut,
+        )
+        .await;
+        let out = match inner_result {
             Ok(mut v) => {
                 if let Some(obj) = v.as_object_mut() {
                     obj.insert("trace_id".to_string(), json!(trace.trace_id));
+                    obj.insert("cache".to_string(), json!(cache_status.as_str()));
                 }
                 ok_text(v)
             }
