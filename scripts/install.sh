@@ -194,6 +194,13 @@ HUB_RERANK_TIMEOUT_SECS=10
 # hybrid/semantic/keyword search within TTL skips PG + Qdrant + T8star.
 HUB_QUERY_CACHE_ENABLED=true
 HUB_QUERY_CACHE_TTL_SECS=300
+# B: LLM-driven planner for investigate() (2026-09-13). Falls back to
+# rule-based silently on timeout/parse/empty. Off by default — flip on
+# after verifying T8star /v1/chat/completions is reachable.
+HUB_LLM_ENABLED=false
+HUB_LLM_MODEL=gpt-4.1-mini
+HUB_LLM_TIMEOUT_MS=5000
+HUB_LLM_MAX_TOKENS=800
 EOF
     chmod 600 "$HOME_DIR/core/hub.env"
     echo "$ADMIN" > "$HOME_DIR/core/admin-token.txt" && chmod 600 "$HOME_DIR/core/admin-token.txt"

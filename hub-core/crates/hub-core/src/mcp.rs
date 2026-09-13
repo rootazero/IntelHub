@@ -1178,7 +1178,12 @@ impl HubMcp {
             .map_err(map_err)?,
         };
 
-        let plan = crate::investigate::plan(&args.question, Some(investigation_id));
+        let (plan, planner_src) = crate::investigate::plan_with_llm(
+            &self.state,
+            &args.question,
+            Some(investigation_id),
+        )
+        .await;
         let max_steps = args.max_steps.unwrap_or(6).min(12) as usize;
         let plan = if plan.len() > max_steps { plan[..max_steps].to_vec() } else { plan };
 
@@ -1192,6 +1197,7 @@ impl HubMcp {
             "question": outcome.question,
             "investigation_id": outcome.investigation_id,
             "trace_id": trace.trace_id,
+            "planner": planner_src,
             "total_steps": outcome.total_steps,
             "successful_steps": outcome.successful_steps,
             "evidence_count": outcome.evidence.len(),

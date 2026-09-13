@@ -62,6 +62,21 @@ pub struct Config {
     /// not a replacement for fresh retrieval. The cache key changes
     /// when corpus embeds complete so longer TTL isn't needed.
     pub query_cache_ttl_secs: u64,
+    /// B: LLM-driven planner for investigate() (2026-09-13). Falls back
+    /// to rule-based when the rule plan is "trivial" (single SearchHybrid).
+    /// Off by default — enable after T8star /v1/chat/completions is
+    /// reachable and you've verified token cost on a few real questions.
+    pub llm_enabled: bool,
+    /// Chat model. Cheap, fast: `gpt-4.1-mini` is the sweet spot for
+    /// structured JSON plan output. Anything stronger burns tokens for
+    /// no quality gain at this task complexity.
+    pub llm_model: String,
+    /// Hard timeout on the planner HTTP call. Must be short — a slow
+    /// LLM blocks the agent. 5s is the budget.
+    pub llm_timeout_ms: u64,
+    /// Output cap for the plan response. The model is asked for JSON
+    /// only, so 800 tokens is plenty (4 steps × ~150 chars each).
+    pub llm_max_tokens: u32,
     /// One-shot entity seeder on hub-core boot. Gates the populate-the-
     /// graph step so clean-test deployments don't accumulate seed rows.
     pub seed_enabled: bool,
@@ -170,6 +185,10 @@ impl Config {
             rerank_timeout_secs: env_or("HUB_RERANK_TIMEOUT_SECS", "10").parse().unwrap_or(10),
             query_cache_enabled: env_or("HUB_QUERY_CACHE_ENABLED", "true") == "true",
             query_cache_ttl_secs: env_or("HUB_QUERY_CACHE_TTL_SECS", "300").parse().unwrap_or(300),
+            llm_enabled: env_or("HUB_LLM_ENABLED", "false") == "true",
+            llm_model: env_or("HUB_LLM_MODEL", "gpt-4.1-mini"),
+            llm_timeout_ms: env_or("HUB_LLM_TIMEOUT_MS", "5000").parse().unwrap_or(5000),
+            llm_max_tokens: env_or("HUB_LLM_MAX_TOKENS", "800").parse().unwrap_or(800),
             seed_enabled: env_or("HUB_SEED_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),

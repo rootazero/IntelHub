@@ -91,7 +91,7 @@ pub fn plan(question: &str, investigation_id: Option<Uuid>) -> Vec<Step> {
     else if q_lower.contains("relationship between") || q_lower.contains("connection between")
         || q_lower.contains("how is") || q_lower.contains("link between")
     {
-        if let Some((a, b)) = parse_two_entities(question) {
+        if let Some((a, b)) = parse_two_entities_inner(question) {
             all_steps.push((
                 StepKind::GraphPath { from: a, to: b },
                 "graph path",
@@ -119,10 +119,7 @@ pub fn plan(question: &str, investigation_id: Option<Uuid>) -> Vec<Step> {
         // skip if the question was the keyword query itself (rare; cheap dedup)
     }
 
-    kinds.reserve(all_steps.len());
-    for (kind, _desc) in all_steps {
-        kinds.push(kind);
-    }
+    let kinds: Vec<StepKind> = all_steps.into_iter().map(|(k, _)| k).collect();
     kinds
         .into_iter()
         .enumerate()
@@ -134,7 +131,9 @@ pub fn plan(question: &str, investigation_id: Option<Uuid>) -> Vec<Step> {
         .collect()
 }
 
-fn desc_for(kind: &StepKind) -> String {
+/// Used by both the planner builder and the LLM planner when an LLM
+/// step lacks an explicit description.
+pub fn desc_for(kind: &StepKind) -> String {
     match kind {
         StepKind::SearchHybrid { query, .. } => format!("hybrid_search: {query}"),
         StepKind::SearchKeyword { query, .. } => format!("keyword_search: {query}"),
@@ -149,7 +148,7 @@ fn desc_for(kind: &StepKind) -> String {
 
 /// Cheap "A and B" parser for the relationship-between archetype.
 /// Returns ("A", "B") on match, else None.
-fn parse_two_entities(question: &str) -> Option<(String, String)> {
+fn parse_two_entities_inner(question: &str) -> Option<(String, String)> {
     let lower = question.to_ascii_lowercase();
     let start = [
         "relationship between", "connection between", "link between", "how is",
@@ -170,6 +169,80 @@ fn parse_two_entities(question: &str) -> Option<(String, String)> {
 
 /// Execute the plan. Each step is independent — one failure doesn't abort
 /// the rest (we collect all results + the error in the StepResult).
+/// Parse two entities out of "relationship between X and Y" style questions.
+/// Public for the LLM planner tests (plan_llm_integration.rs).
+pub fn parse_two_entities(question: &str) -> Option<(String, String)> {
+    parse_two_entities_inner(question)
+}
+
+/// Plan + optional LLM expansion. Triggered when the rule-based plan
+/// is trivial AND `HUB_LLM_ENABLED=true`. Falls back silently to the
+/// rule plan on any failure (timeout, parse, empty).
+///
+/// Returns `(plan, planner_source)` where planner_source is one of:
+///   - "rule": rule-based plan used as-is (archetype matched)
+///   - "llm": LLM decomposed the trivial plan into more steps
+///   - "llm_fallback": LLM was called but fell back to the rule plan
+pub async fn plan_with_llm(
+    state: &AppState,
+    question: &str,
+    investigation_id: Option<Uuid>,
+) -> (Vec<Step>, &'static str) {
+    let rule_plan = plan(question, investigation_id);
+    if !crate::planner_llm::plan_is_trivial(&rule_plan) {
+        return (rule_plan, "rule");
+    }
+    if !state.config.llm_enabled {
+        return (rule_plan, "rule");
+    }
+    let api_key = match state.config.embedding_api_key.as_ref() {
+        Some(k) => k.clone(),
+        None => return (rule_plan, "rule"),
+    };
+    let planner = std::sync::Arc::new(crate::planner_llm::T8starPlanner::new(
+        state.config.embedding_base_url.clone(),
+        api_key,
+        state.config.llm_model.clone(),
+        state.config.llm_max_tokens,
+        state.config.llm_timeout_ms,
+    )) as std::sync::Arc<dyn crate::planner_llm::PlannerLlm>;
+    let raw = match tokio::time::timeout(
+        std::time::Duration::from_millis(state.config.llm_timeout_ms + 100),
+        planner.plan(question),
+    )
+    .await
+    {
+        Ok(Ok(s)) => {
+            tracing::debug!(planner_raw_len = s.len(), "llm planner returned");
+            s
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "llm planner failed, falling back to rule plan");
+            return (rule_plan, "llm_fallback");
+        }
+        Err(_) => {
+            tracing::warn!("llm planner timed out, falling back to rule plan");
+            return (rule_plan, "llm_fallback");
+        }
+    };
+    let mut llm_steps = match crate::planner_llm::parse_plan_response(&raw) {
+        Ok(s) if !s.is_empty() => s,
+        _ => return (rule_plan, "llm_fallback"),
+    };
+    // Append a ClaimLookup if the caller supplied an investigation_id
+    // and the LLM didn't already include one.
+    if investigation_id.is_some()
+        && !llm_steps.iter().any(|s| matches!(s.kind, StepKind::ClaimLookup { .. }))
+    {
+        llm_steps.push(Step {
+            kind: StepKind::ClaimLookup { limit: 5 },
+            trace_id: uuid::Uuid::new_v4(),
+            description: "step N: list_findings (existing claims)".to_string(),
+        });
+    }
+    (llm_steps, "llm")
+}
+
 pub async fn execute(
     state: &AppState,
     plan: Vec<Step>,
