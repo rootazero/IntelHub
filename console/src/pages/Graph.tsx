@@ -31,7 +31,14 @@ export default function GraphPage() {
   const [entitiesStatus, setEntitiesStatus] = useState<string>("loading…");
 
   // ---------- canvas state ----------
-  const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
+  // ?root=<uuid> URL param (2026-09-14): lets users share/deep-link a graph
+  // view — and lets the headless probe drive a known Neo4j entity whose
+  // name never appears in the PG-backed picker (e.g. SP9 Neo4j-only seeds).
+  const [selectedRoot, setSelectedRoot] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const q = new URLSearchParams(window.location.search).get("root");
+    return q && UUID_RE.test(q) ? q : null;
+  });
   const [neighbors, setNeighbors] = useState<EntitySummary[] | null>(null);
   const [neighborsStatus, setNeighborsStatus] = useState<string>("idle");
 
@@ -137,9 +144,14 @@ export default function GraphPage() {
   const { g6Nodes, g6Edges } = useMemo(() => {
     const nodes = new Map<string, G6NodeData>();
     const edgesMap = new Map<string, G6EdgeData>();
+    // Root label: prefer the picker's real entity name (PG-backed list),
+    // fall back to the uuid prefix (Neo4j-only entities, deep links).
+    const rootName =
+      entities.find((e) => e.entity_id === selectedRoot)?.name ??
+      (selectedRoot ? `${selectedRoot.slice(0, 8)}…` : "root");
     nodes.set(selectedRoot ?? "_", {
       id: selectedRoot ?? "_",
-      name: "root",
+      name: rootName,
       kind: "selected",
       degree: 0,
     });
@@ -181,7 +193,7 @@ export default function GraphPage() {
       });
     }
     return { g6Nodes: Array.from(nodes.values()), g6Edges: Array.from(edgesMap.values()) };
-  }, [filteredNeighbors, selectedRoot]);
+  }, [filteredNeighbors, selectedRoot, entities]);
 
   // All rel_types observed in the *current* (server-filtered) neighbors
   // payload — feeds the FilterBar's relationship chip row.
@@ -304,8 +316,6 @@ export default function GraphPage() {
               rootId={selectedRoot}
               nodes={g6Nodes}
               edges={g6Edges}
-              selectedNodeId={selection?.kind === "node" ? selection.entityId : null}
-              selectedEdgeKey={selection?.kind === "edge" ? selection.edge.key : null}
               onSelectNode={onSelectNode}
               onSelectEdge={onSelectEdge}
             />
