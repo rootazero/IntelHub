@@ -15,6 +15,10 @@ fn valid_term(s: &str) -> bool {
 }
 
 /// Find entities by name (case-insensitive contains), optionally by kind.
+/// Returns each match with its Neo4j internal `id` (stable for the lifetime
+/// of the database — survives REINDEX unlike properties), so callers don't
+/// have to fall back to (kind, name) → re-CREATE round-trips just to learn
+/// what to put in `from_kind`/`to_kind` of subsequent create_relationship calls.
 pub async fn query_entity(state: &AppState, name: &str, kind: Option<&str>, limit: i64) -> Result<Value> {
     if !valid_term(name) {
         return Err(HubError::bad_request("invalid entity name"));
@@ -26,16 +30,19 @@ pub async fn query_entity(state: &AppState, name: &str, kind: Option<&str>, limi
     }
     let limit = limit.clamp(1, 100);
     // Everything matched/bound via parameters — never interpolated.
+    // `id(e)` is the Neo4j internal node id (Int64); `e.name` is the
+    // natural key. Callers should prefer (kind, name) for follow-ups,
+    // but `id` is exposed for diagnostics and log correlation.
     let cypher = "MATCH (e:Entity) \
                   WHERE toLower(e.name) CONTAINS toLower($name) \
                     AND ($kind = '' OR e.kind = $kind) \
-                  RETURN e.name AS name, e.kind AS kind, properties(e) AS props \
+                  RETURN id(e) AS id, e.name AS name, e.kind AS kind, properties(e) AS props \
                   LIMIT $limit";
     let q = query(cypher)
         .param("name", name)
         .param("kind", kind.unwrap_or(""))
         .param("limit", limit);
-    run_rows(state, q, "query_entity", &["name", "kind", "props"]).await
+    run_rows(state, q, "query_entity", &["id", "name", "kind", "props"]).await
 }
 
 /// Relationships of a given entity name (both directions), bounded.
@@ -115,3 +122,6 @@ fn bolt_to_json(v: &neo4rs::BoltType) -> Value {
         other => json!(format!("{other:?}")),
     }
 }
+
+#[cfg(test)]
+mod bolt_json_tests_placeholder {}
