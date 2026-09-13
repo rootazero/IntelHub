@@ -428,7 +428,7 @@ pub async fn list_evidence_for_entity(
 ) -> Result<Value, HubError> {
     let rel = relation.unwrap_or("supports");
     let docs: Vec<(Uuid, String, DateTime<Utc>, String)> = sqlx::query_as(
-        "SELECT d.document_id, d.base_url, d.retrieved_at, ce.relation \
+        "SELECT d.document_id, d.url_canonical, d.retrieved_at, ce.relation \
            FROM documents d \
            JOIN claim_evidence ce ON ce.document_id = d.document_id \
            JOIN claim_entities c ON c.claim_id = ce.claim_id \
@@ -487,7 +487,14 @@ pub async fn get_neighbors(
                   AND (rel.valid_until IS NULL OR rel.valid_until > datetime($at_time)))) \
          WITH neighbor, relationships(p) AS rs LIMIT 100 \
          RETURN neighbor.entity_id AS id, neighbor.name AS name, neighbor.kind AS kind, \
-                [r IN rs | {{rel_type: type(r), valid_from: r.valid_from, valid_until: r.valid_until, confidence: r.confidence}}] AS edges",
+                [r IN rs | {{\
+                   rel_type: type(r), \
+                   source_id: startNode(r).entity_id, \
+                   target_id: endNode(r).entity_id, \
+                   valid_from: r.valid_from, \
+                   valid_until: r.valid_until, \
+                   confidence: r.confidence\
+                 }}] AS edges",
     );
     let at_time_value = at_time
         .map(|t| neo4rs::BoltType::String(neo4rs::BoltString { value: t.to_rfc3339() }))
