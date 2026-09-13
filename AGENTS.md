@@ -121,3 +121,4 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 ### Domain docs
 
 单 CONTEXT：`CONTEXT.md` + `docs/adr/` 位于仓库根。详见 `docs/agents/domain.md`。
+- **A — Redis-backed query result cache**（2026-09-13 部署）：hybrid_search / semantic_search / keyword_search 在 Redis 里按 (mode, query, limit, url_contains) 哈希缓存响应 blob，TTL 300s。重复调用 590× 加速（7.1s → 12ms）。所有 search 响应顶层加 `cache: "hit"|"miss"|"disabled"|"error"` 字段；cost_records 新增 kind=`cache_hit`（带 agent_id + trace_id 串联到 D-trace）。环境变量 `HUB_QUERY_CACHE_ENABLED`（默认 true）+ `HUB_QUERY_CACHE_TTL_SECS`（默认 300）。模块 `hub-core/src/cache.rs` 暴露 `cache_key()` + `search_with_cache()` helper。模式隔离：mode 字节进入 hash 输入，hybrid/semantic/keyword 三套缓存互不污染。例：`tools.intelhub_hybrid_search({query:"BRICS"})` 第一次 `cache:"miss"`、第二次 `cache:"hit"`
