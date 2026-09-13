@@ -64,6 +64,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/signals/watchlist", axum::routing::post(console_watchlist_upsert))
         .route("/api/v1/signals/watchlist/{symbol}", axum::routing::delete(console_watchlist_remove))
         // SP9: knowledge graph read API (console entity/investigation pages)
+        .route("/api/v1/graph/entities/search", get(graph_entities_search))
         .route("/api/v1/graph/neighbors", get(graph_neighbors))
         .route("/api/v1/graph/entity/{id}/timeline", get(graph_entity_timeline))
         .route("/api/v1/graph/path", get(graph_path))
@@ -1021,6 +1022,7 @@ async fn get_trace(
             "tool": t, "status": s, "at": at,
         })).collect::<Vec<_>>(),
     })))
+}
 // ---------- SP9: knowledge graph REST API (read-side, backs console) ----------
 
 #[derive(Deserialize)]
@@ -1045,6 +1047,53 @@ async fn graph_neighbors(
         .map(|d| d.with_timezone(&chrono::Utc));
     let depth = q.depth.unwrap_or(2);
     match crate::graph_queries::get_neighbors(&state, entity_id, depth, None, None, at_time).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct EntitiesSearchQuery {
+    q: Option<String>,
+    kind: Option<String>,
+    limit: Option<i64>,
+}
+
+/// SP9 entity discovery endpoint — backs the /graph page entity picker.
+/// When `q` is empty/missing, returns the most-recently-created entities
+/// (used as the default landing view of the /graph console page so users
+/// see actual content immediately, not an empty skeleton).
+async fn graph_entities_search(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<EntitiesSearchQuery>,
+) -> impl IntoResponse {
+    let lim = q.limit.unwrap_or(50).clamp(1, 200);
+    let result = if let Some(name) = q.q.as_deref().filter(|s| !s.trim().is_empty()) {
+        crate::graph_queries::search_entity(&state, name, q.kind.as_deref(), lim).await
+    } else {
+        // Default landing view: most recently created entities grouped by kind.
+        // SP10 will swap this for a richer "world" picker with degree counts.
+        let pool = &state.pg;
+        let rows: Result<Vec<(Uuid, String, String, f64)>, _> = sqlx::query_as(
+            "SELECT entity_id, kind, name, \
+                    (CASE WHEN lower(name) ~ '^(brics|china|russia|iran|saudi|emirates|putin|xi)' \
+                          THEN 0.9 ELSE 0.5 END)::float8 AS score \
+               FROM entities \
+              WHERE merged_into IS NULL \
+              ORDER BY created_at DESC NULLS LAST \
+              LIMIT $1",
+        )
+        .bind(lim)
+        .fetch_all(pool)
+        .await;
+        match rows {
+            Ok(rs) => Ok(json!(rs.into_iter().map(|(id, k, n, s)| json!({
+                "entity_id": id, "kind": k, "name": n, "aliases": json!([]), "score": s
+            })).collect::<Vec<_>>())),
+            Err(e) => Err(crate::error::HubError::Internal(format!("entity landing query: {e}"))),
+        }
+    };
+    match result {
         Ok(v) => Json(v).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     }

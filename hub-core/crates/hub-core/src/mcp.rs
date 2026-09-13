@@ -1318,6 +1318,8 @@ impl HubMcp {
         });
         let out = ok_text(payload);
         self.record(&ctx, "investigate", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
     // ---------- SP9 graph read tools (10 new — spec §6) ----------
 
     #[tool(description = "Search entities by name with alias-aware matching. Returns up to `limit` matches with scores.")]

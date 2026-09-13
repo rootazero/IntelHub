@@ -87,7 +87,7 @@ pub async fn search_entity(
     let lim = limit.clamp(1, 100);
     let mut q = String::from(
         "SELECT e.entity_id, e.kind, e.name, e.aliases, \
-                CASE WHEN lower(e.name) = lower($1) THEN 1.0 ELSE 0.5 END AS score \
+                (CASE WHEN lower(e.name) = lower($1) THEN 1.0 ELSE 0.5 END)::float8 AS score \
            FROM entities e \
           WHERE e.merged_into IS NULL \
             AND (lower(e.name) LIKE '%' || lower($1) || '%' \
@@ -261,7 +261,7 @@ pub async fn find_relationship_changes(
         Option<DateTime<Utc>>,
         Option<DateTime<Utc>>,
         DateTime<Utc>,
-        Option<f64>,
+        Option<f32>,
     )> = sqlx::query_as(
         "SELECT r.relationship_id, r.rel_type, r.to_entity, ent.name, \
                 r.valid_from, r.valid_until, r.discovered_at, r.confidence \
@@ -479,13 +479,13 @@ pub async fn get_neighbors(
 ) -> Result<Value, HubError> {
     let d = depth.clamp(1, 4);
     let cypher = format!(
-        "MATCH (e:Entity {{entity_id: $eid}})-[*1..{d}]-(neighbor:Entity) \
+        "MATCH p = (e:Entity {{entity_id: $eid}})-[*1..{d}]-(neighbor:Entity) \
          WHERE e <> neighbor \
            AND ($at_time IS NULL \
-                OR ALL(rel IN relationships(path) WHERE \
+                OR ALL(rel IN relationships(p) WHERE \
                   (rel.valid_from IS NULL OR rel.valid_from <= datetime($at_time)) \
                   AND (rel.valid_until IS NULL OR rel.valid_until > datetime($at_time)))) \
-         WITH neighbor, relationships(path) AS rs LIMIT 100 \
+         WITH neighbor, relationships(p) AS rs LIMIT 100 \
          RETURN neighbor.entity_id AS id, neighbor.name AS name, neighbor.kind AS kind, \
                 [r IN rs | {{rel_type: type(r), valid_from: r.valid_from, valid_until: r.valid_until, confidence: r.confidence}}] AS edges",
     );
