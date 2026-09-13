@@ -20,7 +20,7 @@
 use_default_settings: true
 
 server:
-  secret_key: "ultrasecretkey"
+  secret_key: "REDACTED-searxng-secret-2026-10-01"  # static dev key — LAN-only; change per deployment
   limiter: false          # no redis-backed limiter in SP1; Hub Gateway enforces policy in SP2
   image_proxy: true
   method: "GET"

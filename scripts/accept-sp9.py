@@ -93,7 +93,8 @@ def cypher(stmt, timeout=60):
     # safely embedded in the ssh'd shell command.
     cmd = (f"docker exec intelhub-neo4j cypher-shell -u neo4j "
            f"-p {shlex_quote(pw)} --format plain {shlex_quote(stmt)}")
-    return ssh(cmd, timeout)
+    out = ssh(cmd, timeout)
+    return [l for l in out.splitlines() if l.strip()]
 
 
 def cypher_table(stmt):
@@ -306,7 +307,7 @@ def check_02_neo4j_constraints():
                   "investigation_status"]
     has_all_indexes = all(any(n in line for line in indexes) for n in needed_idx)
     return has_all_constraints and has_all_indexes, (
-        f"constraints={[l for l in constraints if 'CONSTRAINT' in l.upper()]}; "
+        f"constraints={[l for l in constraints if 'UNIQUENESS' in l.upper() or 'EXISTS' in l.upper()][:3]}; "
         f"indexes_present={[n for n in needed_idx if any(n in l for l in indexes)]}"
     )
 
