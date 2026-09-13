@@ -110,31 +110,76 @@ async fn graph_write(state: &AppState, op: Value) -> bool {
 async fn try_graph_write(state: &AppState, op: &Value) -> Result<()> {
     match op.get("type").and_then(|t| t.as_str()) {
         Some("create_entity") => {
-            let q = neo4rs::query(
-                "MERGE (e:Entity {kind: $kind, name: $name})
-                 SET e.aliases = $aliases, e.attributes = $attributes",
-            )
-            .param("kind", op["kind"].as_str().unwrap_or(""))
-            .param("name", op["name"].as_str().unwrap_or(""))
-            .param("aliases", op["aliases"].to_string())
-            .param("attributes", op["attributes"].to_string());
-            state.neo4j.run(q).await?;
+            // 2026-09-14 fix: the op JSON now carries entity_id (from the PG
+            // INSERT ... RETURNING). Legacy queue rows (pre-fix) lack it, so
+            // the SET clause for entity_id is conditional — replay of an old
+            // op must not fail on a missing param.
+            let eid = op["entity_id"].as_str().unwrap_or("");
+            if eid.is_empty() {
+                let q = neo4rs::query(
+                    "MERGE (e:Entity {kind: $kind, name: $name})
+                     SET e.aliases = $aliases, e.attributes = $attributes",
+                )
+                .param("kind", op["kind"].as_str().unwrap_or(""))
+                .param("name", op["name"].as_str().unwrap_or(""))
+                .param("aliases", op["aliases"].to_string())
+                .param("attributes", op["attributes"].to_string());
+                state.neo4j.run(q).await?;
+            } else {
+                let q = neo4rs::query(
+                    "MERGE (e:Entity {kind: $kind, name: $name})
+                     SET e.entity_id = $eid, e.aliases = $aliases, e.attributes = $attributes",
+                )
+                .param("kind", op["kind"].as_str().unwrap_or(""))
+                .param("name", op["name"].as_str().unwrap_or(""))
+                .param("eid", eid)
+                .param("aliases", op["aliases"].to_string())
+                .param("attributes", op["attributes"].to_string());
+                state.neo4j.run(q).await?;
+            }
         }
         Some("create_relationship") => {
             // rel type interpolated ONLY after whitelist validation.
             let rel = valid_rel(op["rel_type"].as_str().unwrap_or(""))?;
-            let cypher = format!(
-                "MATCH (a:Entity {{kind: $fk, name: $fn}}), (b:Entity {{kind: $tk, name: $tn}})
-                 MERGE (a)-[r:{rel}]->(b)
-                 SET r.attributes = $attributes"
-            );
-            let q = neo4rs::query(&cypher)
-                .param("fk", op["from_kind"].as_str().unwrap_or(""))
-                .param("fn", op["from_name"].as_str().unwrap_or(""))
-                .param("tk", op["to_kind"].as_str().unwrap_or(""))
-                .param("tn", op["to_name"].as_str().unwrap_or(""))
-                .param("attributes", op["attributes"].to_string());
-            state.neo4j.run(q).await?;
+            // 2026-09-14 fix: ops now carry from_id/to_id (+ relationship_id)
+            // so the matched endpoints get their PG uuid backfilled and the
+            // edge gets its canonical relationship_id. Legacy ops lack them;
+            // fall back to the old statement so replay keeps working.
+            let from_id = op["from_id"].as_str().unwrap_or("");
+            let to_id = op["to_id"].as_str().unwrap_or("");
+            let rel_id = op["relationship_id"].as_str().unwrap_or("");
+            let has_ids = !from_id.is_empty() && !to_id.is_empty() && !rel_id.is_empty();
+            if has_ids {
+                let cypher = format!(
+                    "MATCH (a:Entity {{kind: $fk, name: $fn}}), (b:Entity {{kind: $tk, name: $tn}})
+                     SET a.entity_id = $from_id, b.entity_id = $to_id
+                     MERGE (a)-[r:{rel}]->(b)
+                     SET r.attributes = $attributes, r.relationship_id = $rel_id"
+                );
+                let q = neo4rs::query(&cypher)
+                    .param("fk", op["from_kind"].as_str().unwrap_or(""))
+                    .param("fn", op["from_name"].as_str().unwrap_or(""))
+                    .param("tk", op["to_kind"].as_str().unwrap_or(""))
+                    .param("tn", op["to_name"].as_str().unwrap_or(""))
+                    .param("from_id", from_id)
+                    .param("to_id", to_id)
+                    .param("rel_id", rel_id)
+                    .param("attributes", op["attributes"].to_string());
+                state.neo4j.run(q).await?;
+            } else {
+                let cypher = format!(
+                    "MATCH (a:Entity {{kind: $fk, name: $fn}}), (b:Entity {{kind: $tk, name: $tn}})
+                     MERGE (a)-[r:{rel}]->(b)
+                     SET r.attributes = $attributes"
+                );
+                let q = neo4rs::query(&cypher)
+                    .param("fk", op["from_kind"].as_str().unwrap_or(""))
+                    .param("fn", op["from_name"].as_str().unwrap_or(""))
+                    .param("tk", op["to_kind"].as_str().unwrap_or(""))
+                    .param("tn", op["to_name"].as_str().unwrap_or(""))
+                    .param("attributes", op["attributes"].to_string());
+                state.neo4j.run(q).await?;
+            }
         }
         Some("create_claim") => {
             let q = neo4rs::query(
@@ -200,7 +245,9 @@ pub async fn create_entity(state: &AppState, actor: &str, intent: EntityIntent) 
     .await?;
 
     let op = json!({
-        "type": "create_entity", "kind": kind, "name": name,
+        "type": "create_entity",
+        "entity_id": entity_id.to_string(),
+        "kind": kind, "name": name,
         "aliases": aliases, "attributes": attributes,
     });
     let synced = graph_write(state, op).await;
@@ -384,6 +431,9 @@ pub async fn create_relationship(
 
     let op = json!({
         "type": "create_relationship",
+        "relationship_id": rel_id.to_string(),
+        "from_id": from_id.to_string(),
+        "to_id": to_id.to_string(),
         "from_kind": from_kind, "from_name": from_name,
         "to_kind": to_kind, "to_name": to_name,
         "rel_type": rel_type, "attributes": attributes,
