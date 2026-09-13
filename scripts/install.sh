@@ -54,7 +54,10 @@ die()  { printf '\033[31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ------------------------------------------------------- state machinery ----
 done_step()   { grep -qxF "$1" "$STATE" 2>/dev/null; }
-mark_done()   { grep -qxF "$1" "$STATE" 2>/dev/null || echo "$1" >> "$STATE"; }
+mark_done() {
+  [[ -f "$STATE" ]] || { mkdir -p "$(dirname "$STATE")"; touch "$STATE"; chmod 600 "$STATE"; }
+  grep -qxF "$1" "$STATE" 2>/dev/null || echo "$1" >> "$STATE"
+}
 mark_undone() { [[ -f "$STATE" ]] && sed -i "/^$1\$/d" "$STATE" || true; }
 want_step() { # REDO=a,b or FORCE=1 → true even if recorded done
   [[ "$FORCE" == "1" ]] && return 0
@@ -111,9 +114,8 @@ step_preflight() {
   command -v curl  >/dev/null || die "curl missing: apt-get install -y curl"
   command -v git   >/dev/null || warn "git not installed yet — bootstrap will install it"
   command -v openssl >/dev/null || die "openssl missing"
-  sudo -v  # cache credentials; bootstrap needs passwordless or cached sudo
+  sudo -n -v 2>/dev/null || warn "sudo requires password or tty; NOPASSWD+tty-free setup recommended (see step_bootstrap)"
   mkdir -p "$HOME_DIR"
-  touch "$STATE" && chmod 600 "$STATE"
   echo "    os=${PRETTY_NAME:-$ID} user=$RUN_USER home=$HOME_DIR"
 }
 
@@ -121,6 +123,14 @@ step_fetch_code() {
   if [[ -f "$HOME_DIR/scripts/hub-compose.sh" && -d "$HOME_DIR/compose" ]]; then
     echo "    code already present at $HOME_DIR"
     return 0
+  fi
+  # Clean up stale .install-state from a prior aborted preflight; STATE gets
+  # lazily recreated by mark_done() so removing it here is always safe.
+  if [[ -d "$HOME_DIR" ]]; then
+    stale=$(find "$HOME_DIR" -mindepth 1 ! -name .install-state 2>/dev/null | wc -l)
+    if [[ "$stale" -eq 0 ]]; then
+      rm -f "$HOME_DIR/.install-state"
+    fi
   fi
   if [[ -n "${INTELHUB_TARBALL:-}" ]]; then
     say "fetching tarball: $INTELHUB_TARBALL"
