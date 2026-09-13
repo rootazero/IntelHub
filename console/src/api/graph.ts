@@ -7,6 +7,9 @@ import { api } from "../api";
 
 export interface GraphEdge {
   rel_type: string;
+  /** SP10: real Neo4j endpoint IDs (was hard-coded `root→neighbor` in SP9). */
+  source_id: string;
+  target_id: string;
   valid_from?: string | null;
   valid_until?: string | null;
   confidence?: number | null;
@@ -60,10 +63,16 @@ export async function listEntities(opts: {
 export async function getNeighbors(
   root: string,
   depth = 2,
-  atTime?: string,
+  opts?: { atTime?: string; relTypes?: string[]; minConfidence?: number },
 ): Promise<EntitySummary[]> {
   const q = new URLSearchParams({ root, depth: String(depth) });
-  if (atTime) q.set("at_time", atTime);
+  if (opts?.atTime) q.set("at_time", opts.atTime);
+  if (opts?.relTypes && opts.relTypes.length > 0) {
+    q.set("rel_types", opts.relTypes.join(","));
+  }
+  if (opts?.minConfidence != null) {
+    q.set("min_confidence", String(opts.minConfidence));
+  }
   return api<EntitySummary[]>(`/api/v1/graph/neighbors?${q}`);
 }
 
