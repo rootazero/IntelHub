@@ -9,6 +9,7 @@ Usage: accept-sp7.py <agent-api-key> [base-url]
 """
 import json
 import subprocess
+import os
 import sys
 import time
 import urllib.request
@@ -17,6 +18,9 @@ import urllib.error
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 HUB = BASE
 KEY = sys.argv[1]
+# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
+# when running acceptance against the 415 test VM (default: production).
+SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
 passed = failed = 0
 
 
@@ -48,7 +52,7 @@ def req(path, key=KEY, timeout=20, method="GET", body=None):
 
 def vm(cmd):
     return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "IntelHub", cmd],
+        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
         capture_output=True, text=True, timeout=90,
     ).stdout.strip()
 
