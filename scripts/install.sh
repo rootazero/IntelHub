@@ -190,6 +190,10 @@ HUB_RERANK_ENABLED=false
 HUB_RERANK_MODEL=BAAI/bge-reranker-v2-m3
 HUB_RERANK_TOP_K=50
 HUB_RERANK_TIMEOUT_SECS=10
+# A: Redis-backed query result cache (2026-09-13). Repeated identical
+# hybrid/semantic/keyword search within TTL skips PG + Qdrant + T8star.
+HUB_QUERY_CACHE_ENABLED=true
+HUB_QUERY_CACHE_TTL_SECS=300
 EOF
     chmod 600 "$HOME_DIR/core/hub.env"
     echo "$ADMIN" > "$HOME_DIR/core/admin-token.txt" && chmod 600 "$HOME_DIR/core/admin-token.txt"
