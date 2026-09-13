@@ -391,6 +391,18 @@ def check_28_graph_uses_source_target_ids():
     return n >= 4, f"{n} hits (>=4 expected)"
 
 
+def check_29_layout_and_autofit_in_bundle():
+    """2026-09-14 layout regression guard: G6 requires an explicit `layout`
+    option — without it every node renders at (0,0) and the canvas shows a
+    single half-clipped dot in the top-left corner. 'd3-force' and 'autoFit'
+    are string literals that survive Vite minification."""
+    b = BUNDLE or ""
+    has_layout = "d3-force" in b
+    has_autofit = "autoFit" in b
+    return has_layout and has_autofit, \
+        f"d3-force={'yes' if has_layout else 'NO'} autoFit={'yes' if has_autofit else 'NO'}"
+
+
 CHECKS = [
     ("01 edges expose source_id/target_id", check_01_edges_have_ids),
     ("02 multi-hop path real source/target", check_02_multi_hop_source_target),
@@ -420,6 +432,7 @@ CHECKS = [
     ("26 kindColor wired via kindmeta consumers", check_26_kindcolor_in_kindmeta_consumers),
     ("27 Graph.tsx has <SidePanel> JSX", check_27_graph_has_sidepanel_jsx),
     ("28 Graph.tsx uses source_id/target_id", check_28_graph_uses_source_target_ids),
+    ("29 layout (d3-force) + autoFit in bundle", check_29_layout_and_autofit_in_bundle),
 ]
 
 print(f"== SP10 acceptance ({len(CHECKS)} assertions) ==")
