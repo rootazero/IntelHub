@@ -14,7 +14,7 @@ ALTER TABLE relationships
   ADD COLUMN IF NOT EXISTS discovered_at     timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN IF NOT EXISTS confidence        real NULL CHECK (confidence BETWEEN 0 AND 1),
   ADD COLUMN IF NOT EXISTS evidence_doc_ids  uuid[] NULL,
-  ADD COLUMN IF NOT EXISTS source_ids        int[] NULL,
+  ADD COLUMN IF NOT EXISTS source_ids        uuid[] NULL,
   ADD COLUMN IF NOT EXISTS created_by_task_id uuid NULL REFERENCES tasks(task_id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS entities_kind_name_norm     ON entities (kind, lower(name));
