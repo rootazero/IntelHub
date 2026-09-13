@@ -79,6 +79,30 @@ pub fn require_evidence(intent: &Value) -> Result<(), HubError> {
     Ok(())
 }
 
+/// Spec §4 rule 6: confidence MUST be in `[0.0, 1.0]` when present.
+/// Called at every parse site that reads `confidence` from an intent.
+pub fn check_confidence(c: f64, field: &str) -> Result<(), HubError> {
+    if !(0.0..=1.0).contains(&c) {
+        return Err(HubError::Validation(format!(
+            "{field} confidence {c} out of [0,1]"
+        )));
+    }
+    Ok(())
+}
+
+/// Spec §3.3: every entity kind MUST be in `ALLOWED_KINDS`. The list mixes
+/// the v1 lowercase set (back-compat with seeded entities) with the v2
+/// TitleCase additions from spec §3.3 — both forms must resolve to the
+/// same canonical entity row.
+pub fn check_kind(kind: &str) -> Result<(), HubError> {
+    if !ALLOWED_KINDS.contains(&kind) {
+        return Err(HubError::Validation(format!(
+            "kind {kind} not in ALLOWED_KINDS allowlist"
+        )));
+    }
+    Ok(())
+}
+
 async fn dispatch_assert_entity(
     intent: &Value,
     actor: &str,
@@ -90,6 +114,7 @@ async fn dispatch_assert_entity(
         .get("kind")
         .and_then(|v| v.as_str())
         .ok_or_else(|| HubError::Validation("missing kind".into()))?;
+    check_kind(kind)?;
     let name = intent
         .get("name")
         .and_then(|v| v.as_str())
@@ -98,6 +123,7 @@ async fn dispatch_assert_entity(
         .get("confidence")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
+    check_confidence(conf, "assert_entity")?;
     let ids: Vec<Uuid> = parse_doc_ids(intent);
     // Only validate doc IDs when the caller actually provided some.
     // require_evidence already permitted the (empty_ids, non_empty_absent_reason)
@@ -158,6 +184,7 @@ async fn dispatch_assert_relationship(
         .get("confidence")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
+    check_confidence(conf, "assert_relationship")?;
     let s_id = resolve_entity_ref(subject, actor, conf, pool).await?;
     let o_id = resolve_entity_ref(object, actor, conf, pool).await?;
     let ids: Vec<Uuid> = parse_doc_ids(intent);
@@ -264,6 +291,11 @@ async fn resolve_entity_ref(
     conf: f64,
     pool: &PgPool,
 ) -> Result<Uuid, HubError> {
+    // Defensive confidence re-check: callers (dispatch_assert_relationship)
+    // already validate conf once at the top of their flow, but resolve_entity_ref
+    // is also reachable from future dispatchers; spec §4 rule 6 mandates the
+    // invariant at every parse site.
+    check_confidence(conf, "entity_ref")?;
     if let Some(s) = v.as_str() {
         return Uuid::parse_str(s).map_err(|_| HubError::Validation("entity id not uuid".into()));
     }
@@ -271,6 +303,7 @@ async fn resolve_entity_ref(
         .get("kind")
         .and_then(|x| x.as_str())
         .ok_or_else(|| HubError::Validation("entity ref needs kind or id".into()))?;
+    check_kind(kind)?;
     let name = v
         .get("name")
         .and_then(|x| x.as_str())
@@ -290,6 +323,9 @@ async fn dispatch_assert_contradiction(
     require_evidence(intent)?;
     let a = parse_uuid(intent.get("claim_a"), "claim_a")?;
     let b = parse_uuid(intent.get("claim_b"), "claim_b")?;
+    // Spec §4 rule 7: FK existence pre-validation.
+    evidence::validate_id_exists("claims", "claim_id", a, "claim_a", pool).await?;
+    evidence::validate_id_exists("claims", "claim_id", b, "claim_b", pool).await?;
     let reason = intent.get("reason").and_then(|v| v.as_str()).unwrap_or("");
     let cid = contradiction::record(a, b, reason, actor, task, pool).await?;
     Ok(json!({ "contradiction_id": cid }))
@@ -307,6 +343,16 @@ async fn dispatch_link_evidence(
     // evidence. require_evidence is intentionally skipped here.
     let claim_id = parse_uuid(intent.get("claim_id"), "claim_id")?;
     let document_id = parse_uuid(intent.get("document_id"), "document_id")?;
+    // Spec §4 rule 7: FK existence pre-validation.
+    evidence::validate_id_exists("claims", "claim_id", claim_id, "claim_id", pool).await?;
+    evidence::validate_id_exists(
+        "documents",
+        "document_id",
+        document_id,
+        "document_id",
+        pool,
+    )
+    .await?;
     let relation = intent
         .get("relation")
         .and_then(|v| v.as_str())
@@ -360,10 +406,14 @@ async fn dispatch_mark_finding(
     // the canonical entity ↔ document link table.
     let finding_id = parse_uuid(intent.get("finding_id"), "finding_id")?;
     let entity_id = parse_uuid(intent.get("entity_id"), "entity_id")?;
+    // Spec §4 rule 7: FK existence pre-validation for finding_id.
+    evidence::validate_id_exists("findings", "finding_id", finding_id, "finding_id", pool)
+        .await?;
     let conf = intent
         .get("confidence")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
+    check_confidence(conf, "mark_finding")?;
     sqlx::query(
         "INSERT INTO finding_evidence (finding_id, document_id, relation)
          SELECT $1, o.document_id, 'supports'
@@ -399,6 +449,15 @@ async fn dispatch_close_investigation(
     pool: &PgPool,
 ) -> Result<Value, HubError> {
     let investigation_id = parse_uuid(intent.get("investigation_id"), "investigation_id")?;
+    // Spec §4 rule 7: FK existence pre-validation for investigation_id.
+    evidence::validate_id_exists(
+        "investigations",
+        "investigation_id",
+        investigation_id,
+        "investigation_id",
+        pool,
+    )
+    .await?;
     let extractions = intent
         .get("extraction")
         .and_then(|v| v.as_array())
@@ -452,6 +511,35 @@ fn parse_doc_ids(intent: &Value) -> Vec<Uuid> {
         })
         .unwrap_or_default()
 }
+
+/// Spec §3.3 allowlist of entity kinds. The list mixes the v1 lowercase
+/// set (back-compat with seeded entities) with the v2 TitleCase additions —
+/// both forms must resolve to the same canonical entity row.
+pub const ALLOWED_KINDS: &[&str] = &[
+    // v1 set (12)
+    "person",
+    "org",
+    "domain",
+    "ip",
+    "location",
+    "event",
+    "infrastructure",
+    "software",
+    "handle",
+    "email",
+    "phone",
+    "crypto_wallet",
+    // v2 additions
+    "Person",
+    "Organization",
+    "GovernmentEntity",
+    "Company",
+    "Asset",
+    "Aircraft",
+    "Vessel",
+    "Source",
+    "ManualEntity",
+];
 
 pub const ALLOWED_PREDICATES: &[&str] = &[
     "controls",

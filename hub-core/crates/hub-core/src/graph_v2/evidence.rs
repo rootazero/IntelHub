@@ -37,6 +37,34 @@ pub async fn validate_doc_ids(ids: &[Uuid], pool: &PgPool) -> Result<(), HubErro
     Ok(())
 }
 
+/// Confirm `id` exists as a primary key in `{table}.{pk_col}`. Spec §4 rule 7
+/// (FK existence pre-validation): every intent that takes an FK reference
+/// (`claim_id`, `document_id`, `finding_id`, `investigation_id`, `claim_a`,
+/// `claim_b`) MUST validate the row exists before issuing its INSERT.
+///
+/// `table` and `pk_col` are static compile-time strings — never user
+/// input — so the `format!` here cannot inject SQL. The id is bound
+/// through sqlx's parameterized query as a true placeholder.
+pub async fn validate_id_exists(
+    table: &'static str,
+    pk_col: &'static str,
+    id: Uuid,
+    field: &'static str,
+    pool: &PgPool,
+) -> Result<(), HubError> {
+    let sql = format!("SELECT 1 FROM {table} WHERE {pk_col} = $1 LIMIT 1");
+    let row: Option<(i32,)> = sqlx::query_as(&sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    if row.is_none() {
+        return Err(HubError::Validation(format!(
+            "{field} {id} not found in {table}"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     // Integration tests live in Task 5/9 (require live PG).
@@ -50,5 +78,16 @@ mod tests {
         pool: &sqlx::PgPool,
     ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> {
         super::validate_doc_ids(ids, pool)
+    }
+
+    /// Compile-time signature check for `validate_id_exists` — pins both
+    /// the function shape and the static-string contract on `table` and
+    /// `pk_col`.
+    #[allow(dead_code)]
+    fn _fk_sig_compiles(
+        id: uuid::Uuid,
+        pool: &sqlx::PgPool,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> {
+        super::validate_id_exists("claims", "claim_id", id, "claim_id", pool)
     }
 }
