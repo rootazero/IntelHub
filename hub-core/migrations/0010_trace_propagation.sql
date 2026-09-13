@@ -1,4 +1,8 @@
--- 0009_trace_propagation.sql — D: trace_id propagation for observability.
+-- 0010_trace_propagation.sql — D: trace_id propagation for observability.
+-- Originally created as 0009_trace_propagation.sql; bumped to 0010 after
+-- SP9 took the 0009 slot with observations_write_path.sql. Idempotent
+-- (uses IF NOT EXISTS) so the rename is safe.
+--
 -- Each MCP tool call generates a UUID `trace_id` (caller may supply their
 -- own to chain across calls). Propagated to cost_records + embedding_jobs
 -- so /api/v1/traces/{trace_id} can walk the full call → embed → write
