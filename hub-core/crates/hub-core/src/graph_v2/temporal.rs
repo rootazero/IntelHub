@@ -1,0 +1,1 @@
+// Stub — Task 5 overwrites this with valid_from/valid_until semantics + point-in-time reads.

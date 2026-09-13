@@ -1,0 +1,1 @@
+// Stub — Task 3 overwrites this with the claim-to-graph compiler.

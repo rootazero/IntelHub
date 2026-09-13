@@ -1,0 +1,1 @@
+// Stub — Task 4 overwrites this with claim contradiction detection + review.

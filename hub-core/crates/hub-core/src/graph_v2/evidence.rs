@@ -1,0 +1,1 @@
+// Stub — Task 3 overwrites this with evidence binding logic.
