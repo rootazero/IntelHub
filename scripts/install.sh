@@ -338,6 +338,13 @@ step_build_hub() {
 }
 
 step_stack_up() {
+  # Build local-only images first. intelhub/spiderfoot is pinned to a
+  # smicallef/spiderfoot git commit (build-spiderfoot.sh) — no upstream
+  # prebuilt image exists, so `docker compose pull` will fail for it on
+  # a fresh VM. build-spiderfoot.sh is idempotent (skips if image exists).
+  if grep -q '^SPIDERFOOT_IMAGE=' "$HOME_DIR/compose/.env" 2>/dev/null; then
+    bash "$HOME_DIR/scripts/build-spiderfoot.sh" || warn "build-spiderfoot.sh failed (spiderfoot is profile:optional, install continues)"
+  fi
   (cd "$HOME_DIR" && bash scripts/hub-compose.sh --profile optional up -d)
   # wait for postgres healthy (hub migrations need it)
   local i
