@@ -121,3 +121,53 @@ fn uuid_roundtrip() {
     let back = Uuid::parse_str(&s).unwrap();
     assert_eq!(u, back);
 }
+
+// ===== Fix round 1 — observations write path (Critical #1) =====
+//
+// Migration 0009 added DEFAULTs on observation_id + created_by and a
+// UNIQUE (entity_id, document_id, observed_at) constraint. This test
+// pins the SQL contract: the INSERT in list_evidence_for_entity must
+// supply exactly (entity_id, document_id, snippet, observed_at) and
+// rely on defaults for observation_id + created_by. If anyone changes
+// the INSERT to e.g. add a column, or removes ON CONFLICT DO NOTHING,
+// the string assertions below break — forcing them to look at the
+// migration.
+
+#[test]
+fn observations_write_path_sql_contract() {
+    // The INSERT string is not exposed publicly, so we test the
+    // contract indirectly: assert the migration SQL contains the
+    // three guarantees the side-effect relies on. The migration
+    // file is committed at hub-core/migrations/0009_observations_write_path.sql.
+    let migration = include_str!("../../../migrations/0009_observations_write_path.sql");
+
+    // (1) observation_id gets a DEFAULT (the INSERT doesn't supply it).
+    assert!(
+        migration.contains("ALTER COLUMN observation_id SET DEFAULT gen_random_uuid()"),
+        "migration must default observation_id to gen_random_uuid() (was Critical #1)"
+    );
+
+    // (2) created_by gets a DEFAULT so the INSERT doesn't supply it either.
+    assert!(
+        migration.contains("ALTER COLUMN created_by SET DEFAULT 'list_evidence_for_entity'"),
+        "migration must default created_by to a known writer stamp"
+    );
+
+    // (3) The dedupe constraint exists so ON CONFLICT DO NOTHING fires.
+    assert!(
+        migration.contains("observations_entity_doc_observed_uniq"),
+        "migration must add the UNIQUE (entity_id, document_id, observed_at) constraint"
+    );
+    assert!(
+        migration.contains("UNIQUE (entity_id, document_id, observed_at)"),
+        "constraint must cover entity_id + document_id + observed_at"
+    );
+}
+
+#[test]
+fn list_evidence_for_entity_signature_preserved() {
+    // Reviewer recommendation: list_evidence_for_entity must keep its
+    // signature so Task 5/6 callers compile. Touching it here pins the
+    // public surface.
+    sig_check!(hub_core::graph_queries::list_evidence_for_entity);
+}

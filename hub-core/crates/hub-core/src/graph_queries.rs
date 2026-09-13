@@ -440,9 +440,14 @@ pub async fn list_evidence_for_entity(
     .fetch_all(&state.pg)
     .await?;
     // Side-effect: populate the previously orphaned observations table.
-    // Best-effort — failures don't affect the primary return value.
+    // After migration 0009 the table has DEFAULTs on observation_id +
+    // created_by plus a UNIQUE (entity_id, document_id, observed_at),
+    // so this INSERT is well-formed and ON CONFLICT DO NOTHING actually
+    // fires. Errors propagate (no `let _ =`) so callers see if the
+    // side-effect failed — silently swallowing them left the table
+    // un-populated for months (reviewer finding Critical #1).
     for (doc_id, _url, observed_at, _r) in &docs {
-        let _ = sqlx::query(
+        sqlx::query(
             "INSERT INTO observations (entity_id, document_id, snippet, observed_at) \
              VALUES ($1, $2, '', $3) ON CONFLICT DO NOTHING",
         )
@@ -450,7 +455,7 @@ pub async fn list_evidence_for_entity(
         .bind(doc_id)
         .bind(observed_at)
         .execute(&state.pg)
-        .await;
+        .await?;
     }
     Ok(json!(docs.into_iter().map(|(id,u,t,r)| json!({
         "document_id": id, "base_url": u, "retrieved_at": t, "relation": r
