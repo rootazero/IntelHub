@@ -124,7 +124,7 @@ async fn earnings_calendar(
             &content, None,
             serde_json::json!({"kind": "earnings_calendar", "symbol": sym, "date": date}),
             serde_json::json!({"collector": "monitor:finintel"}),
-            None, "auto",
+            None, "auto", None,
         )
         .await?;
         if !out.duplicate {
@@ -158,7 +158,7 @@ async fn company_news(
             it.published,
             serde_json::json!({"kind": "company_news", "symbol": symbol, "source_name": it.source_name}),
             serde_json::json!({"collector": "monitor:finintel"}),
-            None, "auto",
+            None, "auto", None,
         )
         .await?;
         if !out.duplicate {
@@ -244,7 +244,7 @@ async fn insider_transactions(
             &content, None,
             serde_json::json!({"kind": "insider_transaction", "symbol": symbol, "direction": dir, "insider": name}),
             serde_json::json!({"collector": "monitor:finintel"}),
-            None, "auto",
+            None, "auto", None,
         )
         .await?;
         if !out.duplicate {
@@ -297,7 +297,7 @@ async fn stocktwits_sentiment(state: &AppState, ctx: &Ctx, symbol: &str) -> Resu
             &content, None,
             serde_json::json!({"kind": "retail_sentiment", "symbol": symbol, "regime": regime, "net_ratio": ratio}),
             serde_json::json!({"collector": "monitor:finintel"}),
-            None, "auto",
+            None, "auto", None,
         )
         .await?;
         if !out.duplicate {

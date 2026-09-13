@@ -119,7 +119,7 @@ async fn sync_once(state: &AppState) -> crate::error::Result<()> {
             serde_json::json!({ "scan_id": id, "scan_row": scan }),
             serde_json::json!({ "ingested_by": "hub:spiderfoot-sync" }),
             None,
-            "auto",
+            "auto", None,
         )
         .await?;
         let _: Option<i64> = state
