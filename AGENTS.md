@@ -105,3 +105,19 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 - **Cross-encoder rerank stage**（2026-09-13 部署）：`hybrid_search` 和 `semantic_search` 在 RRF/cosine 召回后，把 top-K 候选送到 T8star `/v1/rerank`（默认 `BAAI/bge-reranker-v2-m3` 多语）重新排序。K=10 默认（生产环境实测 50 太慢）。**默认关闭**：`HUB_RERANK_ENABLED=false` —— flip to true 后才能拿到 `rerank_score` 字段。失败优雅降级（`rerank: "skipped: ..."` 字段可见），不会让搜索失败。代价记录到 `cost_records.kind='rerank_tokens'`，~4 char/token 估算（T8star 不返 usage）
 - **trace_id 贯穿全链路**（2026-09-13 部署）：每个 MCP 调用生成 UUID `trace_id`（来自现有 `RequestTrace.trace_id`），自动串到 `cost_records.trace_id` + `embedding_jobs.trace_id` + 响应 JSON 顶层 `trace_id` 字段。**新 REST 端点** `GET /api/v1/traces/{trace_id}` 走一次调用全图：embedding_tokens / rerank_tokens / tool_call 审计 / 触发的 embed jobs 一并返回。**用法**：`curl -H "Authorization: Bearer $KEY" http://10.10.10.41:8800/api/v1/traces/<uuid>`。MCP 响应顶层 `trace_id` 字段拿到 UUID 后立即能 walk。背景 worker（embed 队列、monitor 收集器）传 `None` —— 它们没有父请求
 - **Multi-hop Q&A via `investigate(question)`**（2026-09-13 部署）：B 阶段 — 规则化 planner 把 OSINT 问题拆成 2-6 步（hybrid_search / entity_lookup / graph_path / claim_lookup），每步独立 sub-trace-id。5 种 archetype：①currency/BRICS/yuan/de-dollarization → hybrid_search + entity_lookup(NDB)；②conflict/war/sanctions → hybrid + OFAC 关键词；③"relationship between X and Y" → graph_path X → Y；④默认 → hybrid_search；⑤有 investigation_id 时末尾加 claim_lookup。执行器容错——一步失败不影响其他。返回 synthesized evidence chain + 每步 trace_id + investigation_id（无则自动创建）。用法：`tools.intelhub_investigate({question: "BRICS de-dollarization 2026 Q4"})`
+
+## Agent skills
+
+工程技能（to-issues、triage、to-prd、qa、diagnose、tdd 等）会读取下列配置：
+
+### Issue tracker
+
+GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `gh` CLI）。详见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+默认五角色：`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`。详见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单 CONTEXT：`CONTEXT.md` + `docs/adr/` 位于仓库根。详见 `docs/agents/domain.md`。
