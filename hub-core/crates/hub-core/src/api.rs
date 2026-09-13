@@ -62,6 +62,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/signals/watchlist", get(console_watchlist_list))
         .route("/api/v1/signals/watchlist", axum::routing::post(console_watchlist_upsert))
         .route("/api/v1/signals/watchlist/{symbol}", axum::routing::delete(console_watchlist_remove))
+        // SP9: knowledge graph read API (console entity/investigation pages)
+        .route("/api/v1/graph/neighbors", get(graph_neighbors))
+        .route("/api/v1/graph/entity/{id}/timeline", get(graph_entity_timeline))
+        .route("/api/v1/graph/path", get(graph_path))
+        .route("/api/v1/graph/investigation/{id}", get(graph_investigation))
+        .route("/api/v1/graph/evidence", get(graph_evidence))
         // SP3 static console (public shell; every data call still needs a key)
         .fallback(serve_static)
 }
@@ -951,4 +957,108 @@ async fn console_watchlist_remove(
     .await
     .map(Json)
     .map_err(hub_err)
+}
+
+// ---------- SP9: knowledge graph REST API (read-side, backs console) ----------
+
+#[derive(Deserialize)]
+struct NeighborsQuery {
+    root: String,
+    depth: Option<u8>,
+    at_time: Option<String>,
+}
+
+async fn graph_neighbors(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<NeighborsQuery>,
+) -> impl IntoResponse {
+    let entity_id = match Uuid::parse_str(&q.root) {
+        Ok(x) => x,
+        Err(e) => return err(StatusCode::BAD_REQUEST, format!("{e}")),
+    };
+    let at_time = q
+        .at_time
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let depth = q.depth.unwrap_or(2);
+    match crate::graph_queries::get_neighbors(&state, entity_id, depth, None, None, at_time).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct TimelineQuery {
+    from: Option<String>,
+    to: Option<String>,
+}
+
+async fn graph_entity_timeline(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Query(q): Query<TimelineQuery>,
+) -> impl IntoResponse {
+    let from = q
+        .from
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let to = q
+        .to
+        .as_deref()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    match crate::graph_queries::get_entity_timeline(&state, id, from, to, 100).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct PathQuery {
+    from: String,
+    to: String,
+    max_hops: Option<u8>,
+}
+
+async fn graph_path(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<PathQuery>,
+) -> impl IntoResponse {
+    let max_hops = q.max_hops.unwrap_or(5);
+    match crate::graph_queries::find_path(&state, &q.from, &q.to, true, max_hops).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
+}
+
+async fn graph_investigation(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    match crate::graph_queries::query_investigation_graph(&state, id).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
+}
+
+#[derive(Deserialize)]
+struct EvidenceQuery {
+    entity: String,
+    relation: Option<String>,
+}
+
+async fn graph_evidence(
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<EvidenceQuery>,
+) -> impl IntoResponse {
+    let entity_id = match Uuid::parse_str(&q.entity) {
+        Ok(x) => x,
+        Err(e) => return err(StatusCode::BAD_REQUEST, format!("{e}")),
+    };
+    match crate::graph_queries::list_evidence_for_entity(&state, entity_id, q.relation.as_deref()).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
+    }
 }
