@@ -49,6 +49,11 @@ pub fn policy_for(tool: &str) -> ToolPolicy {
         "crawl_url" | "fetch_document" => (L2Validated, Crawl),
         // SP2B graph writes (L2: typed intent schema validation in graphw.rs)
         "create_entity" | "create_claim" | "create_relationship" => (L2Validated, Write),
+        // SP9 graph reads (L1: read-only Cypher/SQL templates, no writes)
+        "search_entity" | "get_entity" | "get_entity_timeline" | "get_neighbors"
+        | "find_relationship_changes" | "find_supporting_claims"
+        | "find_contradicting_claims" | "query_investigation_graph"
+        | "list_evidence_for_entity" => (L1Auto, Free),
         // SP2B alerts + budgets (L1)
         "list_alerts" | "acknowledge_alert" | "mute_alert" | "get_budget_status" => {
             (L1Auto, Free)
