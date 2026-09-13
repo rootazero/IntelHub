@@ -8,6 +8,7 @@ pub mod config;
 pub mod console;
 pub mod cost;
 pub mod embed;
+pub mod entity_seeder;
 pub mod error;
 pub mod events;
 pub mod graph;

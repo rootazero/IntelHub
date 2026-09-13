@@ -1,6 +1,22 @@
 # SearXNG settings for IntelHub sensor fabric.
+#
+# Engine policy (revised Sept 2026): datacenter egress IP gets CAPTCHA-
+# blocked by every major consumer engine — duckduckgo (CAPTCHA wt-wt),
+# startpage (JSONDecodeError "Extra data" → rate limit), bing (Akamai
+# block), google (403). 48 alerts in 24h were all "Component searxng went
+# DOWN" because the upstream engine probes failed.
+#
+# Strategy: keep `use_default_settings: true` so all built-in engines
+# (incl. mojeek, brave, wikipedia, arxiv, etc.) are registered — only
+# explicitly disable the CAPTCHA-blocked ones. Trying to override the
+# default engine list (`use_default_settings: false`) trips "ambiguous
+# shortcut: -" because built-in engines reserve certain shortcut symbols
+# even when not selected, and the override parser then collides.
+#
 # The official image entrypoint replaces "ultrasecretkey" with a random
 # secret on first start (requires the config volume to be writable).
+# Don't use that literal — SearXNG refuses to start otherwise.
+
 use_default_settings: true
 
 server:
@@ -23,3 +39,62 @@ enabled_plugins:
   - "Hash plugin"
   - "Self Information"
   - "Tracker URL remover"
+
+engines:
+  # --- explicitly disabled (CAPTCHA / block from datacenter egress) ---
+  # The default set still includes them; flipping disabled: true
+  # prevents SearXNG from probing them on every request (which is what
+  # produced the "Component searxng went DOWN" alerts in the audit).
+  - name: duckduckgo
+    engine: duckduckgo
+    disabled: true
+
+  - name: duckduckgo images
+    engine: duckduckgo
+    disabled: true
+
+  - name: startpage
+    engine: startpage
+    disabled: true
+
+  - name: google
+    engine: google
+    disabled: true
+
+  - name: bing
+    engine: bing
+    disabled: true
+
+  - name: bing images
+    engine: bing
+    disabled: true
+
+  - name: yahoo
+    engine: yahoo
+    disabled: true
+
+  - name: yandex
+    engine: yandex
+    disabled: true
+
+  # --- datacenter-friendly overrides: boost weight so they surface
+  #     above slower consumer engines (which we keep enabled but
+  #     ranked lower). All three return real results from our egress
+  #     IP without CAPTCHA / 403.
+  - name: mojeek
+    engine: mojeek
+    disabled: false
+    weight: 2.0
+    timeout: 4.0
+
+  - name: brave
+    engine: brave
+    disabled: false
+    weight: 1.8
+    timeout: 4.0
+
+  - name: wikipedia
+    engine: wikipedia
+    disabled: false
+    weight: 1.2
+    timeout: 4.0
