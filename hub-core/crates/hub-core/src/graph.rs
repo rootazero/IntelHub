@@ -59,22 +59,6 @@ pub async fn query_relationship(state: &AppState, name: &str, limit: i64) -> Res
     run_rows(state, q, "query_relationship", &["from", "rel", "props", "to"]).await
 }
 
-/// Shortest path between two entities, depth-bounded (max 5) — fixed
-/// template, parameters only.
-pub async fn find_path(state: &AppState, from: &str, to: &str) -> Result<Value> {
-    if !valid_term(from) || !valid_term(to) {
-        return Err(HubError::bad_request("invalid entity name"));
-    }
-    let cypher = "MATCH p = shortestPath((a:Entity)-[*..5]-(b:Entity)) \
-                  WHERE toLower(a.name) = toLower($from) AND toLower(b.name) = toLower($to) \
-                  RETURN [n IN nodes(p) | n.name] AS nodes, \
-                         [r IN relationships(p) | type(r)] AS relationships, \
-                         length(p) AS hops \
-                  LIMIT 5";
-    let q = query(cypher).param("from", from).param("to", to);
-    run_rows(state, q, "find_path", &["nodes", "relationships", "hops"]).await
-}
-
 /// Execute a template and extract its known RETURN columns (neo4rs rows are
 /// accessed by key; our templates declare exactly these columns).
 async fn run_rows(state: &AppState, q: neo4rs::Query, op: &str, cols: &[&str]) -> Result<Value> {

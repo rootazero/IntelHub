@@ -8,6 +8,7 @@ export const en = {
     radar: "Radar",
     signals: "Signals",
     investigations: "Investigations",
+    graph: "Graph",
     search: "Search",
     evidence: "Evidence",
     alerts: "Alerts",

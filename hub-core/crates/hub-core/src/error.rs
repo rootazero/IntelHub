@@ -31,6 +31,9 @@ pub enum HubError {
     #[error("bad request: {0}")]
     BadRequest(String),
 
+    #[error("validation error: {0}")]
+    Validation(String),
+
     #[error("upstream sensor error: {0}")]
     Sensor(String),
 
@@ -56,6 +59,9 @@ impl HubError {
     }
     pub fn bad_request(msg: impl Into<String>) -> Self {
         HubError::BadRequest(msg.into())
+    }
+    pub fn validation(msg: impl Into<String>) -> Self {
+        HubError::Validation(msg.into())
     }
     pub fn sensor(msg: impl Into<String>) -> Self {
         HubError::Sensor(msg.into())

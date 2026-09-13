@@ -82,6 +82,11 @@ impl AppState {
         )
         .await?;
 
+        // PG migrations are durable above; now ensure Neo4j constraints/indexes.
+        // Idempotent (IF NOT EXISTS) so re-runs are safe. Failures bubble up.
+        crate::neo4j_init::ensure_neo4j_schema(&neo4j).await?;
+        tracing::info!(target: "hub.boot", "neo4j schema ensured");
+
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .user_agent("intelhub-core/0.1 (SP3)")

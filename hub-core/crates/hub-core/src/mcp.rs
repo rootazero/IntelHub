@@ -68,6 +68,7 @@ fn map_err(e: crate::error::HubError) -> McpError {
     use crate::error::HubError::*;
     match e {
         BadRequest(m) => McpError::invalid_params(m, None),
+        Validation(m) => McpError::invalid_params(format!("validation: {m}"), None),
         NotFound(m) => McpError::invalid_params(format!("not_found: {m}"), None),
         GraphUnavailable(m) => McpError::internal_error(format!("graph_unavailable: {m}"), None),
         PolicyDenied(m) => McpError::internal_error(format!("policy_denied: {m}"), None),
@@ -86,6 +87,17 @@ fn parse_uuid(s: &str, field: &str) -> Result<Uuid, McpError> {
 fn parse_uuid_opt(s: &Option<String>, field: &str) -> Result<Option<Uuid>, McpError> {
     match s {
         Some(v) if !v.is_empty() => Ok(Some(parse_uuid(v, field)?)),
+        _ => Ok(None),
+    }
+}
+
+/// ISO8601 timestamps cross the MCP boundary as strings; parse centrally
+/// and return `None` on absent/empty input.
+fn parse_dt_opt(s: Option<&str>, field: &str) -> Result<Option<chrono::DateTime<chrono::Utc>>, McpError> {
+    match s {
+        Some(v) if !v.is_empty() => chrono::DateTime::parse_from_rfc3339(v)
+            .map(|dt| Some(dt.with_timezone(&chrono::Utc)))
+            .map_err(|e| McpError::invalid_params(format!("invalid RFC3339 timestamp in {field}: {e}"), None)),
         _ => Ok(None),
     }
 }
@@ -156,11 +168,101 @@ pub struct QueryRelationshipArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct FindPathArgs {
-    /// Start entity name (exact, case-insensitive)
+pub struct FindPathArgsV2 {
+    /// Start entity name (case-insensitive exact match)
     pub from: String,
-    /// Target entity name (exact, case-insensitive)
+    /// Target entity name (case-insensitive exact match)
     pub to: String,
+    /// Weight edges by 1 - confidence (sum), default true. false = raw hop count.
+    pub weighted: Option<bool>,
+    /// Maximum hops to expand (default 5, clamped 1..=8)
+    pub max_hops: Option<u8>,
+}
+
+// ---------- SP9 graph read arg structs (10 new tools, spec §6) ----------
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SearchEntityArgs {
+    /// Name fragment (case-insensitive contains match on name + aliases)
+    pub name: String,
+    /// Optional entity kind filter (person|org|domain|ip|location|event|...)
+    pub kind: Option<String>,
+    /// Max results (default 20, max 100)
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetEntityArgs {
+    /// Entity UUID
+    pub entity_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetEntityTimelineArgs {
+    /// Entity UUID
+    pub entity_id: String,
+    /// ISO8601 lower bound (optional)
+    pub from: Option<String>,
+    /// ISO8601 upper bound (optional)
+    pub to: Option<String>,
+    /// Max results (default 100, max 500)
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetNeighborsArgs {
+    /// Entity UUID to expand from
+    pub entity_id: String,
+    /// Expansion depth (default 1, clamped 1..=4)
+    pub depth: Option<u8>,
+    /// Optional filter: only follow these rel_types (e.g. ["controls","owns"])
+    pub rel_types: Option<Vec<String>>,
+    /// Drop edges with confidence below this (0.0..=1.0, default 0.0)
+    pub min_confidence: Option<f64>,
+    /// Optional ISO8601 timestamp for temporal filter (only edges valid at this time)
+    pub at_time: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindRelationshipChangesArgs {
+    /// Entity A name fragment
+    pub a: String,
+    /// Entity B name fragment
+    pub b: String,
+    /// ISO8601 lower bound (optional)
+    pub from: Option<String>,
+    /// ISO8601 upper bound (optional)
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindSupportingClaimsArgs {
+    /// Entity UUID
+    pub entity_id: String,
+    /// Max results (default 50, max 100)
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindContradictingClaimsArgs {
+    /// Contradictions touching this claim UUID (mutually exclusive with entity_id)
+    pub claim_id: Option<String>,
+    /// Contradictions touching any claim about this entity UUID (mutually exclusive with claim_id)
+    pub entity_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct QueryInvestigationGraphArgs {
+    /// Investigation UUID
+    pub investigation_id: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ListEvidenceForEntityArgs {
+    /// Entity UUID
+    pub entity_id: String,
+    /// "supports" (default) or "contradicts"
+    pub relation: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1090,15 +1192,19 @@ impl HubMcp {
         out
     }
 
-    #[tool(description = "Find the shortest path (max 5 hops) between two entities in the graph (read-only, parameterized).")]
+    #[tool(description = "Find the shortest path between two entities in the knowledge graph. v2: temporal-aware, weighted by 1-confidence. Replaces v1 (no back-compat: v1 was unused in production).")]
     async fn find_path(
         &self,
-        Parameters(args): Parameters<FindPathArgs>,
+        Parameters(args): Parameters<FindPathArgsV2>,
         ctx: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "find_path").await?;
-        let out = match crate::graph::find_path(&self.state, &args.from, &args.to).await {
+        let max_hops = args.max_hops.unwrap_or(5).clamp(1, 8);
+        let weighted = args.weighted.unwrap_or(true);
+        let out = match crate::graph_queries::find_path(
+            &self.state, &args.from, &args.to, weighted, max_hops,
+        ).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };
@@ -1212,6 +1318,193 @@ impl HubMcp {
         });
         let out = ok_text(payload);
         self.record(&ctx, "investigate", started, if out.is_ok() { "ok" } else { "error" }).await;
+    // ---------- SP9 graph read tools (10 new — spec §6) ----------
+
+    #[tool(description = "Search entities by name with alias-aware matching. Returns up to `limit` matches with scores.")]
+    async fn search_entity(
+        &self,
+        Parameters(args): Parameters<SearchEntityArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "search_entity").await?;
+        let limit = args.limit.unwrap_or(20);
+        let out = match crate::graph_queries::search_entity(
+            &self.state, &args.name, args.kind.as_deref(), limit,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "search_entity", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Get an entity by id with aliases, outgoing relationships, and claims (resolves `merged_into` to the parent if applicable).")]
+    async fn get_entity(
+        &self,
+        Parameters(args): Parameters<GetEntityArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "get_entity").await?;
+        let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
+        let out = match crate::graph_queries::get_entity(&self.state, entity_id).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "get_entity", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Audit timeline of an entity and its relationships (graph_change_log filtered by entity + relationship target_id).")]
+    async fn get_entity_timeline(
+        &self,
+        Parameters(args): Parameters<GetEntityTimelineArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "get_entity_timeline").await?;
+        let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
+        let from = parse_dt_opt(args.from.as_deref(), "from")?;
+        let to = parse_dt_opt(args.to.as_deref(), "to")?;
+        let limit = args.limit.unwrap_or(100);
+        let out = match crate::graph_queries::get_entity_timeline(
+            &self.state, entity_id, from, to, limit,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "get_entity_timeline", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Variable-length neighborhood expansion in the graph (depth default 2, clamped 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).")]
+    async fn get_neighbors(
+        &self,
+        Parameters(args): Parameters<GetNeighborsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "get_neighbors").await?;
+        let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
+        let depth = args.depth.unwrap_or(2).clamp(1, 4);
+        let at_time = parse_dt_opt(args.at_time.as_deref(), "at_time")?;
+        let out = match crate::graph_queries::get_neighbors(
+            &self.state,
+            entity_id,
+            depth,
+            args.rel_types.clone(),
+            args.min_confidence,
+            at_time,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "get_neighbors", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Relationship changes between two entities (by name fragment, case-insensitive). Most recent first, optional time window.")]
+    async fn find_relationship_changes(
+        &self,
+        Parameters(args): Parameters<FindRelationshipChangesArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "find_relationship_changes").await?;
+        let from = parse_dt_opt(args.from.as_deref(), "from")?;
+        let to = parse_dt_opt(args.to.as_deref(), "to")?;
+        let out = match crate::graph_queries::find_relationship_changes(
+            &self.state, &args.a, &args.b, from, to,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "find_relationship_changes", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Claims that cite this entity, joined with documents that support them (supports-only by design; use find_contradicting_claims for the opposing half).")]
+    async fn find_supporting_claims(
+        &self,
+        Parameters(args): Parameters<FindSupportingClaimsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "find_supporting_claims").await?;
+        let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
+        let limit = args.limit.unwrap_or(50);
+        let out = match crate::graph_queries::find_supporting_claims(
+            &self.state, entity_id, limit,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "find_supporting_claims", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Contradictions touching a claim (by claim_id) OR any claim about an entity (by entity_id). Exactly one must be supplied.")]
+    async fn find_contradicting_claims(
+        &self,
+        Parameters(args): Parameters<FindContradictingClaimsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "find_contradicting_claims").await?;
+        let claim_id = parse_uuid_opt(&args.claim_id, "claim_id")?;
+        let entity_id = parse_uuid_opt(&args.entity_id, "entity_id")?;
+        if claim_id.is_none() && entity_id.is_none() {
+            return Err(McpError::invalid_params(
+                "claim_id or entity_id required",
+                None,
+            ));
+        }
+        let out = match crate::graph_queries::find_contradicting_claims(
+            &self.state, claim_id, entity_id,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "find_contradicting_claims", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Findings + entities + claims for an investigation (joins via claim_entities + findings.investigation_id).")]
+    async fn query_investigation_graph(
+        &self,
+        Parameters(args): Parameters<QueryInvestigationGraphArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "query_investigation_graph").await?;
+        let investigation_id = parse_uuid(&args.investigation_id, "investigation_id")?;
+        let out = match crate::graph_queries::query_investigation_graph(
+            &self.state, investigation_id,
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "query_investigation_graph", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "Documents that cite this entity via claim_evidence. relation defaults to \"supports\". Side-effect: writes observations rows (idempotent).")]
+    async fn list_evidence_for_entity(
+        &self,
+        Parameters(args): Parameters<ListEvidenceForEntityArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "list_evidence_for_entity").await?;
+        let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
+        let out = match crate::graph_queries::list_evidence_for_entity(
+            &self.state, entity_id, args.relation.as_deref(),
+        ).await {
+            Ok(v) => ok_text(v),
+            Err(e) => Err(map_err(e)),
+        };
+        self.record(&ctx, "list_evidence_for_entity", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
     }
 
@@ -1657,6 +1950,9 @@ impl ServerHandler for HubMcp {
                  semantic_search (vector), query_entity, query_relationship, find_path, \
                  create_investigation, update_investigation, create_finding (evidence-bound), \
                  list_investigations, get_task_status, get_system_health. \
+                 Knowledge graph (read): search_entity, get_entity, get_entity_timeline, \
+                 get_neighbors, find_path, find_relationship_changes, find_supporting_claims, \
+                 find_contradicting_claims, query_investigation_graph, list_evidence_for_entity. \
                  Governance & write plane: create_entity, create_claim (evidence REQUIRED), \
                  create_relationship (typed intents → PG canonical + Neo4j), \
                  list_alerts, acknowledge_alert, mute_alert, get_budget_status (self-throttle), \

@@ -656,3 +656,178 @@ pub async fn recent_events(pg: &PgPool, limit: i64) -> Result<Value> {
         .collect();
     Ok(json!({ "count": items.len(), "items": items }))
 }
+
+// ---------- entities (SP9 KG memory) ----------
+//
+// Helpers consumed by `crate::graph_v2::resolve` (Task 2) and later Tasks 3-5.
+// Migrated columns (valid_from/valid_until/merged_into/resolution_method/
+// resolution_confidence) live on `entities`; the new `entity_aliases` table
+// is the join surface for resolution.
+//
+// All queries are runtime-checked (sqlx::query / sqlx::query_as) so Docker
+// builds do not require a live PG.
+
+pub mod entities {
+    use chrono::{DateTime, Utc};
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    use crate::error::HubError;
+
+    /// Name normalization: trim + collapse internal whitespace + drop control
+    /// chars + cap 256. Mirrors `graphw::normalize_name` but does not reject
+    /// control chars (resolver silently strips; the write-plane rejects).
+    pub fn normalize_name(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut last_space = true;
+        for ch in s.chars() {
+            if ch.is_control() {
+                continue;
+            }
+            if ch.is_whitespace() {
+                if !last_space {
+                    out.push(' ');
+                    last_space = true;
+                }
+            } else {
+                out.push(ch);
+                last_space = false;
+            }
+        }
+        let trimmed = out.trim();
+        if trimmed.chars().count() > 256 {
+            trimmed.chars().take(256).collect()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    /// Exact (kind, normalized-name) lookup. Caller normalizes.
+    pub async fn find_by_kind_name(
+        pool: &PgPool,
+        kind: &str,
+        name_norm: &str,
+    ) -> Result<Option<Uuid>, HubError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT entity_id FROM entities WHERE kind = $1 AND lower(name) = lower($2) LIMIT 1",
+        )
+        .bind(kind)
+        .bind(name_norm)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// Exact alias lookup. The aliases table has UNIQUE(kind, alias_norm).
+    pub async fn lookup_alias_exact(
+        pool: &PgPool,
+        kind: &str,
+        alias_norm: &str,
+    ) -> Result<Option<Uuid>, HubError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT entity_id FROM entity_aliases WHERE kind = $1 AND alias_norm = $2 LIMIT 1",
+        )
+        .bind(kind)
+        .bind(alias_norm)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(|r| r.0))
+    }
+
+    /// Single row from `find_candidates_by_kind`.
+    pub struct Candidate {
+        pub entity_id: Uuid,
+        pub name_norm: String,
+    }
+
+    /// Pull all live (non-merged) candidates for a kind, capped at 5000.
+    /// The jaro_winkler scan is O(n) over the result.
+    pub async fn find_candidates_by_kind(
+        pool: &PgPool,
+        kind: &str,
+    ) -> Result<Vec<Candidate>, HubError> {
+        let rows: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT entity_id, lower(name) FROM entities WHERE kind = $1 AND merged_into IS NULL LIMIT 5000",
+        )
+        .bind(kind)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(entity_id, name_norm)| Candidate { entity_id, name_norm })
+            .collect())
+    }
+
+    /// Record an alias for an existing entity. ON CONFLICT DO NOTHING so a
+    /// concurrent resolver can't double-insert.
+    pub async fn write_alias(
+        pool: &PgPool,
+        entity_id: Uuid,
+        alias: &str,
+        alias_norm: &str,
+        kind: &str,
+        source: &str,
+        confidence: f64,
+    ) -> Result<(), HubError> {
+        sqlx::query(
+            "INSERT INTO entity_aliases (entity_id, alias, alias_norm, kind, source, confidence) \
+             VALUES ($1,$2,$3,$4,$5,$6) \
+             ON CONFLICT (kind, alias_norm) DO NOTHING",
+        )
+        .bind(entity_id)
+        .bind(alias)
+        .bind(alias_norm)
+        .bind(kind)
+        .bind(source)
+        .bind(confidence)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Insert a new entity + its initial self-alias inside one transaction.
+    /// ON CONFLICT (kind, name) DO UPDATE returns the existing id so the
+    /// function is idempotent for retries.
+    pub async fn create_with_alias(
+        pool: &PgPool,
+        kind: &str,
+        name: &str,
+        name_norm: &str,
+        source: &str,
+        confidence: f64,
+    ) -> Result<Uuid, HubError> {
+        let mut tx = pool.begin().await?;
+        let row: (Uuid,) = sqlx::query_as(
+            "INSERT INTO entities (kind, name) VALUES ($1,$2) \
+             ON CONFLICT (kind, name) DO UPDATE SET kind = EXCLUDED.kind \
+             RETURNING entity_id",
+        )
+        .bind(kind)
+        .bind(name)
+        .fetch_one(&mut *tx)
+        .await?;
+        let eid = row.0;
+        sqlx::query(
+            "INSERT INTO entity_aliases (entity_id, alias, alias_norm, kind, source, confidence) \
+             VALUES ($1,$2,$3,$4,$5,$6) \
+             ON CONFLICT (kind, alias_norm) DO NOTHING",
+        )
+        .bind(eid)
+        .bind(name)
+        .bind(name_norm)
+        .bind(kind)
+        .bind(source)
+        .bind(confidence)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(eid)
+    }
+
+    #[allow(dead_code)]
+    pub struct ResolutionHit {
+        pub entity_id: Uuid,
+        pub score: f64,
+        pub matched_at: DateTime<Utc>,
+    }
+}

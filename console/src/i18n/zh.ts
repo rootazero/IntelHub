@@ -11,6 +11,7 @@ export const zh: Dict = {
     radar: "雷达",
     signals: "信号",
     investigations: "调查",
+    graph: "图谱",
     search: "搜索",
     evidence: "证据",
     alerts: "告警",

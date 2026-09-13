@@ -1,0 +1,10 @@
+CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.entity_id IS UNIQUE;
+CREATE CONSTRAINT claim_id IF NOT EXISTS FOR (c:Claim) REQUIRE c.claim_id IS UNIQUE;
+CREATE CONSTRAINT investigation_id IF NOT EXISTS FOR (i:Investigation) REQUIRE i.investigation_id IS UNIQUE;
+CREATE CONSTRAINT finding_id IF NOT EXISTS FOR (f:Finding) REQUIRE f.finding_id IS UNIQUE;
+CREATE CONSTRAINT document_fk IF NOT EXISTS FOR (d:Document) REQUIRE d.document_id IS UNIQUE;
+CREATE INDEX entity_aliases_idx IF NOT EXISTS FOR (e:Entity) ON (e.aliases);
+CREATE INDEX relationship_valid_from IF NOT EXISTS FOR ()-[r:RELATIONSHIP]-() ON (r.valid_from);
+CREATE INDEX relationship_valid_until IF NOT EXISTS FOR ()-[r:RELATIONSHIP]-() ON (r.valid_until);
+CREATE INDEX finding_about IF NOT EXISTS FOR (f:Finding) ON (f.investigation_id);
+CREATE INDEX investigation_status IF NOT EXISTS FOR (i:Investigation) ON (i.status);
