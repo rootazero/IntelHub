@@ -38,6 +38,9 @@ pub struct Config {
     /// §40: documents shorter than this are not auto-embedded.
     pub embed_min_words: u32,
     pub embed_enabled: bool,
+    /// One-shot entity seeder on hub-core boot. Gates the populate-the-
+    /// graph step so clean-test deployments don't accumulate seed rows.
+    pub seed_enabled: bool,
     /// SP3: directory holding the built console SPA (index.html + assets).
     pub console_dir: String,
     // ── SP4 ────────────────────────────────────────────────────────
@@ -130,8 +133,14 @@ impl Config {
             alert_webhook_min_severity: env_or("HUB_ALERT_WEBHOOK_MIN_SEVERITY", "warning"),
             manifests_dir: env_or("HUB_MANIFESTS_DIR", "/home/zou/IntelHub/manifests"),
             scripts_dir: env_or("HUB_SCRIPTS_DIR", "/home/zou/IntelHub/scripts"),
-            embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "300").parse().unwrap_or(300),
+            // OSINT is naturally short-form (headlines, alert snippets, RSS
+            // titles, Telegram messages). The previous 300-word floor rejected
+            // 98% of our corpus (verified via PG: 461 docs <30w, 439 docs 30-99w,
+            // only 5 docs ≥300w). 50 words covers tweet-equivalents and still
+            // gates noise. Override via HUB_EMBED_MIN_WORDS env.
+            embed_min_words: env_or("HUB_EMBED_MIN_WORDS", "50").parse().unwrap_or(50),
             embed_enabled: env_or("HUB_EMBED_WORKER_ENABLED", "true") == "true",
+            seed_enabled: env_or("HUB_SEED_ENABLED", "true") == "true",
             console_dir: env_or("HUB_CONSOLE_DIR", "/home/zou/IntelHub/console/dist"),
             prometheus_url: env_or("HUB_PROMETHEUS_URL", "http://172.30.3.20:9090"),
             alert_telegram_bot_token: std::env::var("HUB_ALERT_TELEGRAM_BOT_TOKEN").ok().filter(|s| !s.is_empty()),

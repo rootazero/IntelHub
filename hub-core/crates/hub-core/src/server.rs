@@ -97,6 +97,18 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tracing::warn!(error = %e, "qdrant collection init failed (non-fatal)");
     }
 
+    // One-shot entity seeder: populate the graph from existing data +
+    // curated roster. Idempotent via ON CONFLICT (kind, name). Fire-and-
+    // forget (logged inside) — must not block the HTTP listener.
+    {
+        let s = (*state).clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::entity_seeder::seed_all(&s).await {
+                tracing::warn!(error = %e, "entity seeder failed");
+            }
+        });
+    }
+
     let mcp_state = state.clone();
     let mcp_config = StreamableHttpServerConfig::default()
         .with_cancellation_token(ct.child_token())
