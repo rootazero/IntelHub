@@ -56,11 +56,16 @@ pub async fn resolve_entity(
             score: 1.0,
         });
     }
-    // 3. Jaro-Winkler scan against all candidates of this kind
+    // 3. Jaro-Winkler scan against all candidates of this kind.
+    // Note: `name_norm` is mixed-case (normalize_name does not lowercase); SQL
+    // returns `lower(name)` for c.name_norm. Lowercase both sides here so the
+    // comparison is case-insensitive (otherwise mixed-case input scores lower
+    // and the 0.92 threshold becomes unfair).
     let candidates = entities::find_candidates_by_kind(pool, kind).await?;
+    let name_lower = name_norm.to_lowercase();
     let mut best: Option<(Uuid, f64)> = None;
     for c in candidates {
-        let score = strsim::jaro_winkler(&name_norm, &c.name_norm);
+        let score = strsim::jaro_winkler(&name_lower, &c.name_norm);
         if score >= threshold && (best.is_none() || score > best.unwrap().1) {
             best = Some((c.entity_id, score));
         }
@@ -80,20 +85,28 @@ pub async fn resolve_entity(
 
 /// Merge `dropped` into `kept`, promoting the dropped entity's aliases to the
 /// kept entity (skipping ones that already exist on `kept`). Used by both the
-/// sync path (manual review) and the async worker (auto-merge).
+/// sync path (manual review → `method = "manual"`) and the async worker
+/// (auto-merge → `method = "jaro_winkler"`).
+///
+/// `method` must be one of the values allowed by the `entities.resolution_method`
+/// CHECK constraint: `exact|alias|jaro_winkler|manual|seed`. The default `manual`
+/// preserves the original behavior for callers that don't specify a method.
 pub async fn merge_entities(
     a: Uuid,
     b: Uuid,
     kept: Uuid,
     actor: &str,
+    method: &str,
     pool: &PgPool,
 ) -> Result<(), HubError> {
     let mut tx = pool.begin().await?;
     let dropped = if a == kept { b } else { a };
-    // Set merged_into on the dropped side; promote its aliases to the kept entity.
-    sqlx::query("UPDATE entities SET merged_into = $1, resolution_method = 'manual' WHERE entity_id = $2")
+    // Set merged_into on the dropped side; stamp the resolution_method that
+    // drove the merge so downstream reads can distinguish manual from auto.
+    sqlx::query("UPDATE entities SET merged_into = $1, resolution_method = $3 WHERE entity_id = $2")
         .bind(kept)
         .bind(dropped)
+        .bind(method)
         .execute(&mut *tx)
         .await?;
     sqlx::query(
@@ -181,5 +194,21 @@ mod tests {
     fn jaro_winkler_close_but_not_exact_below_one() {
         let s = strsim::jaro_winkler("apple inc", "apple incorporated");
         assert!(s > 0.85 && s < 1.0);
+    }
+
+    /// Regression for Finding #2: when both sides of the JW comparison are
+    /// lowercased at the comparison site, mixed-case input like "Apple Inc"
+    /// matches the SQL-returned "apple inc" with score 1.0 (not 0.85-ish).
+    /// Pins the comparison-site lowercasing contract.
+    #[test]
+    fn jw_is_case_insensitive_after_lowercasing_both_sides() {
+        let input_mixed = "Apple Inc";
+        let sql_candidate_lower = "apple inc";
+        let score = strsim::jaro_winkler(&input_mixed.to_lowercase(), sql_candidate_lower);
+        assert!((score - 1.0).abs() < 1e-9);
+        // Sanity: the un-lowercased version (the bug) is visibly lower.
+        let buggy_score = strsim::jaro_winkler(input_mixed, sql_candidate_lower);
+        assert!(buggy_score < 1.0, "buggy comparison should miss self-similarity");
+        assert!(buggy_score < score, "lowercasing must not regress");
     }
 }

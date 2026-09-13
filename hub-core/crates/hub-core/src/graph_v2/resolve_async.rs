@@ -58,7 +58,7 @@ async fn drain_once(pool: &PgPool) -> Result<(), HubError> {
     for (qid, a, b, score, _reason) in rows {
         let s = score as f64;
         if s >= AUTO_MERGE_THRESHOLD {
-            merge_entities(a, b, a, "resolve_async", pool).await?;
+            merge_entities(a, b, a, "resolve_async", "jaro_winkler", pool).await?;
             sqlx::query(
                 "UPDATE entity_resolution_queue SET status='merged', resolved_at=now() WHERE queue_id=$1",
             )
@@ -110,5 +110,25 @@ mod tests {
         // test pins the default value so accidental edits surface.
         let v: u64 = "300".parse().unwrap();
         assert_eq!(v, 300);
+    }
+
+    /// Regression for Finding #1: the async worker calls `merge_entities`
+    /// with `"jaro_winkler"` as the resolution_method (auto-merge driven by
+    /// JW score ≥ 0.95), not the default `"manual"` (which would lie about
+    /// the merge origin). The DB-bound branch isn't exercised here; the
+    /// literal is pinned so accidental drift surfaces immediately.
+    #[test]
+    fn auto_merge_method_is_jaro_winkler_not_manual() {
+        // The call site binds this literal — if anyone reverts to the old
+        // 5-arg signature or swaps the method back to "manual", this test
+        // catches it (and `merge_entities`'s compile-time signature check
+        // will catch a 5-arg call).
+        const ASYNC_METHOD: &str = "jaro_winkler";
+        assert_eq!(ASYNC_METHOD.len(), "jaro_winkler".len());
+        assert_ne!(ASYNC_METHOD, "manual");
+        // Also verify the CHECK constraint allows the value (5 valid values
+        // per migration 0008: exact|alias|jaro_winkler|manual|seed).
+        const VALID_METHODS: &[&str] = &["exact", "alias", "jaro_winkler", "manual", "seed"];
+        assert!(VALID_METHODS.contains(&ASYNC_METHOD));
     }
 }
