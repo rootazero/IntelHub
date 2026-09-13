@@ -1,4 +1,4 @@
-// SP9 Knowledge Graph Memory — typed wrappers for the 5 REST endpoints
+// SP9 Knowledge Graph Memory — typed wrappers for the 6 REST endpoints
 // backing the /graph console page. The backend returns `entity_id`
 // (UUID string); there is no exported `Uuid` type in this codebase, so
 // we use plain `string` for IDs.
@@ -19,6 +19,14 @@ export interface EntitySummary {
   edges: GraphEdge[];
 }
 
+export interface EntitySearchHit {
+  entity_id: string;
+  kind: string;
+  name: string;
+  aliases: unknown[];
+  score: number;
+}
+
 export interface TimelineEntry {
   event_id?: string;
   occurred_at?: string;
@@ -29,6 +37,24 @@ export interface PathResult {
   names: string[];
   edges: Array<{ rel_type: string; confidence?: number }>;
   hops: number;
+}
+
+/// List entities for the /graph picker. Pass `q` to search by name (alias-aware),
+/// or omit for the default landing view (most-recently-created entities).
+/// `kind` optionally filters by kind string.
+export async function listEntities(opts: {
+  q?: string;
+  kind?: string;
+  limit?: number;
+}): Promise<EntitySearchHit[]> {
+  const params = new URLSearchParams();
+  if (opts.q) params.set("q", opts.q);
+  if (opts.kind) params.set("kind", opts.kind);
+  if (opts.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return api<EntitySearchHit[]>(
+    `/api/v1/graph/entities/search${qs ? `?${qs}` : ""}`,
+  );
 }
 
 export async function getNeighbors(

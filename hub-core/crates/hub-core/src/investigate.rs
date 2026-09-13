@@ -273,7 +273,7 @@ pub async fn execute(
                 None,
             ),
             StepKind::GraphPath { from, to } => (
-                crate::graph::find_path(state, from, to).await.ok(),
+                crate::graph_queries::find_path(state, from, to, true, 5).await.ok(),
                 None,
             ),
             StepKind::ClaimLookup { .. } => (

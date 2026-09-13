@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SP9 acceptance — Knowledge Graph Memory Layer (14 assertions).
+"""SP9 acceptance — Knowledge Graph Memory Layer (15 assertions).
 
 Covers spec 2026-09-13-intelhub-sp9-kg-memory-design.md §9:
   1. Migration 0008 applied; new columns + 5 new tables exist
@@ -603,6 +603,44 @@ def check_13_mcp_tool_count():
     )
 
 
+def check_15_entity_search_rest():
+    """/api/v1/graph/entities/search works in two modes:
+       - default landing view (no q): returns the most-recent entities
+       - search mode (q=): alias-aware name match
+    Backs the console /graph page entity picker. Replaces the empty skeleton
+    with an auto-loaded list of entities the user can click to expand."""
+    # Mode 1: default landing view.
+    st, payload = req("/api/v1/graph/entities/search?limit=20")
+    if st != 200:
+        return False, f"default landing status={st} body={str(payload)[:200]}"
+    rows = payload if isinstance(payload, list) else payload.get("rows") or payload.get("results") or []
+    if not rows:
+        return False, f"default landing returned 0 entities"
+    # Each row has entity_id (uuid), kind, name, score.
+    required = {"entity_id", "kind", "name", "score"}
+    bad = [r for r in rows if not required.issubset(r.keys())]
+    if bad:
+        return False, f"rows missing fields: {bad[:2]}"
+
+    # Mode 2: search by name (alias-aware).
+    # Use a name likely present (BRICS Pay launch is in the seed sample).
+    probe = "BRICS"
+    st, payload = req(f"/api/v1/graph/entities/search?q={probe}&limit=10")
+    if st != 200:
+        return False, f"search status={st} body={str(payload)[:200]}"
+    rows = payload if isinstance(payload, list) else payload.get("rows") or payload.get("results") or []
+    if not rows:
+        return False, f"search q={probe!r} returned 0"
+    # Verify alias-aware: a probe that should match an alias if any registered.
+    # We don't enforce this strictly (depends on test environment's aliases),
+    # just verify structure.
+    kinds = {r["kind"] for r in rows}
+    return True, (
+        f"landing={len(rows)} kinds={sorted(kinds)} "
+        f"search_q={probe!r} hits={len(rows)}"
+    )
+
+
 def check_14_neo4j_mirror_lag():
     """50 mixed write intents drain via graph_sync_queue in < 30s."""
     pending_before = sql("SELECT count(*) FROM graph_sync_queue WHERE status='PENDING'")
@@ -657,6 +695,7 @@ CHECKS = [
     ("12 health metrics unchanged", check_12_health_metrics_unchanged),
     ("13 MCP tool count (28 + 10 = 38+)", check_13_mcp_tool_count),
     ("14 Neo4j mirror lag < 30s smoke", check_14_neo4j_mirror_lag),
+    ("15 /api/v1/graph/entities/search (entity picker REST)", check_15_entity_search_rest),
 ]
 
 try:
