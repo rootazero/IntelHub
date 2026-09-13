@@ -1,13 +1,15 @@
 # IntelHub — Agent 操作手册
 
-> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-12，main @05521ee）。
+> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-13，main @09ece20）。
 
 ## 主机与路径
 
 | 项 | 值 |
 |---|---|
-| 宿主机 | PVE40（Proxmox），VM 410（4 vCPU，balloon 8–16G） |
-| VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
+| **生产宿主机** | PVE40（Proxmox），VM 410（4 vCPU，8G RAM，balloon 0）。**生产环境，严禁测试** |
+| 生产 VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
+| **测试宿主机** | PVE40 节点上 VM 415（4 vCPU，8G RAM，UEFI，OVMF）。从模板 9000 (debian-13-cloud) 全量克隆 |
+| 测试 VM 地址 | `10.10.10.45`，ssh 别名 **`IntelHub-test`**（免密已配），用户 `zou` |
 | VM 部署目录 | `/home/zou/IntelHub`（rsync 目标 + 构建现场） |
 | Mac 主仓库 | `/Volumes/TBU/Workspace/IntelHub`（网络盘，有同步延迟） |
 | GitHub | `https://github.com/rootazero/IntelHub`（**PRIVATE**，push over HTTPS） |
@@ -16,29 +18,64 @@
 
 ## 开发流程（铁律）
 
+> **生产 / 测试隔离**：所有改动先在 **`IntelHub-test`** 验证通过，再合并到 main 并部署到 **`IntelHub`**。410 是生产服务，绝对不允许测试用——任何 `ssh IntelHub` 之前必须确认改动已在 415 验收全绿。
+
 1. **worktree 隔离**：`cd /Volumes/TBU/Workspace/IntelHub && git worktree add ../IntelHub-<suffix> -b feat/<name>`（网络盘有同步延迟，紧接着操作前 `sleep 4`；失败的 worktree → `rm -rf ../IntelHub-<suffix> && git branch -D feat/<name> && git worktree prune`）
 2. 在 worktree 里改代码
-3. **rsync → VM 构建 → 重启 → 验收**（命令见下）
-4. 验收全绿后：`git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d` → **`git push origin main`**
-5. **绝不**：直接在 main 工作区改、跳过验收合并、提交 secrets
+3. **rsync → 测试 VM 构建 → 重启 → 验收**（命令见下）—— **全在 IntelHub-test 上**
+4. 415 验收全绿 → `git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d`
+5. **再次 rsync → IntelHub 生产部署**（与 415 同样的编译/重启序列）
+6. 生产验收（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）
+7. **`git push origin main`**
+8. **绝不**：① 直接在 main 工作区改；② 跳过 415 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
 
 ## 部署命令（每次必走的完整序列）
 
+### 阶段 1：IntelHub-test 验收（必做）
+
 ```bash
-# 1. rsync（exclude 清单固定，照搬）
+# 1. rsync 到测试 VM（exclude 清单固定，照搬）
 cd /Volumes/TBU/Workspace/IntelHub-<suffix> && rsync -az --delete \
   --exclude '.git/' --exclude 'backups/' --exclude '.DS_Store' \
   --exclude 'compose/.env' --exclude 'compose/.env.crucix' --exclude 'docs/' --exclude 'build/' \
   --exclude 'config/searxng/' --exclude 'hub-core/target/' \
   --exclude 'console/node_modules/' --exclude 'console/dist/' \
   --exclude 'core/' --exclude 'data/' \
-  ./ IntelHub:/home/zou/IntelHub/
+  ./ IntelHub-test:/home/zou/IntelHub/
 
-# 2. 构建 + 重启（hub 改动跑 build-hub.sh；console 改动跑 build-console.sh；都改都跑）
-ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
+# 2. 测试 VM 构建 + 重启
+ssh -o BatchMode=yes IntelHub-test 'cd /home/zou/IntelHub \
   && bash scripts/build-hub.sh 2>&1 | grep -E "^error|built" | head -8 \
   && bash scripts/build-console.sh 2>&1 | tail -1 \
   && sudo systemctl restart hub-core && sleep 4 && systemctl is-active hub-core'
+
+# 3. 415 验收全绿
+KEY=$(ssh -o BatchMode=yes IntelHub-test 'grep "api_key:" /home/zou/IntelHub/core/agent-keys.txt | head -1 | grep -o "ihk_[a-f0-9]*"')
+for a in sp8 sp6 sp7 sp3; do
+  python3 scripts/accept-$a.py "$KEY" 2>&1 | grep -E '==.*(passed|failed)' | tail -1
+done
+```
+
+### 阶段 2：合并 main → 部署 IntelHub（仅 415 全绿后）
+
+```bash
+git add -A && git commit
+cd /Volumes/TBU/Workspace/IntelHub && git merge --no-ff feat/<name> && git worktree remove ../IntelHub-<suffix> && git branch -d feat/<name>
+
+# 与 415 同样的 rsync + 构建 + 重启，目标换成 IntelHub
+cd /Volumes/TBU/Workspace/IntelHub && rsync -az --delete \
+  --exclude '.git/' ...（同 415 exclude 清单）
+  ./ IntelHub:/home/zou/IntelHub/
+
+ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
+  && bash scripts/build-hub.sh ... && bash scripts/build-console.sh ... \
+  && sudo systemctl restart hub-core && sleep 4 && systemctl is-active hub-core'
+
+# 生产验收（同样 sp8/sp6/sp7/sp3）
+KEY=$(ssh -o BatchMode=yes IntelHub '...')
+for a in sp8 sp6 sp7 sp3; do python3 scripts/accept-$a.py "$KEY"; done
+
+git push origin main
 ```
 
 - `build-hub.sh` 在 rust:trixie docker 里编译（named volume 缓存 `intelhub-hub-target`/`intelhub-cargo-registry`），产物到 `core/hub`
@@ -56,7 +93,8 @@ for a in sp8 sp6 sp7 sp3; do
 done
 ```
 
-当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 18 · sp7 24 · sp8 18 · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
+- **测试 VM 验收**：`KEY=$(ssh -o BatchMode=yes IntelHub-test '...')` + 同样的脚本
+- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 18 · sp7 24 · sp8 18 · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
 
 ## 健康检查速查
 
@@ -77,6 +115,78 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 - console-build.env 含 VITE_CARTO_KEY，同样 VM-only
 - **上游 API 探测一律从 VM 发**（采集器真实出口路径，走 openclash 代理），Mac 直测会得出错误结论
 - openclash 诊断：`ssh ImmortalWrt`（10.10.10.1）；runtime yaml 在 `/etc/openclash/`；controller 127.0.0.1:9090（secret 在 yaml 里）；切节点 `PUT /proxies/<urlencoded-group> {"name":X}`；日志 `/tmp/openclash.log`
+
+## 测试 VM 基础设施（VM 415 IntelHub-test）
+
+> 所有会话在动 410 之前必须用 415 验过；下面是后续会话直接拿来用的全部信息。
+
+### 创建与配置（首次会话已完成，复用即可）
+
+```bash
+# 从模板 9000 (debian-13-cloud) 全量克隆（pve40 节点上）
+ssh root@10.10.10.40 'qm clone 9000 415 --name IntelHub-test --full true --storage local-lvm'
+ssh root@10.10.10.40 'qm set 415 --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
+  --efidisk0 local-lvm:1,efitype=4m,ms-cert=2023k,pre-enrolled-keys=1,size=4M \
+  --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
+
+# cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP
+ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
+  --ipconfig0 ip=10.10.10.45/24,gw=10.10.10.1'
+ssh root@10.10.10.40 'qm cloudinit update 415'
+ssh root@10.10.10.40 'qm start 415'
+
+# VM 起来后装 qemu-guest-agent（agent 是 static unit，需手动 enable）
+ssh IntelHub-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent \
+  && sudo systemctl enable --now qemu-guest-agent'
+```
+
+### SSH 别名（Mac `~/.ssh/config`）
+
+```
+Host IntelHub-test
+    HostName 10.10.10.45
+    User zou
+    IdentityFile ~/.ssh/intelhub-test/id_ed25519
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile ~/.ssh/known_hosts IntelHub-test
+```
+
+### 测试 VM 专用密钥对（IntelHub-test 专用，不用于 410）
+
+- **路径**：`~/.ssh/intelhub-test/id_ed25519`（Mac 本地）
+- **公钥指纹**：`SHA256:1clCZK3NaxqR1lQhZQ/q2qSyzdwi99CKkDafWv9fr80`（comment: `intelhub-test-mac-pi`）
+- **私钥内容**（仅 415 测试用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 415 的 authorized_keys）：
+
+```
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUx
+OQAAACBQofH6DYUAlrb/A0VEtNdY4xhmfr1SiKodj5ZxH/1R6wAAAJjV0VN81dFTfAAAAAtz
+c2gtZWQyNTUxOQAAACBQofH6DYUAlrb/A0VEtNdY4xhmfr1SiKodj5ZxH/1R6wAAAEB/0HQH
+JGnYOMwmZsGjmfwnDJC+MRaQYpuhFVo1nhwpA6P8mVoBJ5HEgNZJKekHjEXJ4dMiX7t+jeMM
+fFfmcOQHm5RxA8nHDkkEx9Lc/8v7Huc7Kb9XIBkRz1eis6lv4GTkmpxSnjvkajsZLbbMQGyN
+OQTHhFxoxm+JwImRf+Qp0eI/SRYzWohYMVttnA1dcsYxkj38JzxhPxIQAaBLBdAVxv1OELdB
+5H/hkmJLkqWdOOnShcYI/92YPnz5eSfDpYxuhBsX9wsVfb7HJ1tUL+akAAAADWludGVsaHVi
+LXRlc3QtbWFjLXBp
+-----END OPENSSH PRIVATE KEY-----
+```
+
+- **公钥**（已注入 415 authorized_keys）：
+  `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFCh8foNhQCWtv8DRUS4113jWGZ+vVKIqh2PlnEf/VHr intelhub-test-mac-pi`
+
+### 已知边界
+
+- VM 415 **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
+- cloud-init 默认 **禁用密码登录**（`ssh_pwauth: false`）——cipassword 不会生效，必须靠 SSH key
+- qemu-guest-agent 包安装后服务是 **static unit**（`/usr/lib/systemd/system/qemu-guest-agent.service`），必须 `systemctl enable --now` 手动起
+- PVE 端 `qm guest cmd 415 ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/415/agent/ping`（pve30 代理）总是稳
+
+### pve40 宿主机操作禁令（血泪）
+
+- **不装包**：不要 `apt-get install` 任何东西（即使想 `socat`/`sshpass` 这类临时工具也不行）
+- **不改配置**：不动 `/etc/network/interfaces`、`/etc/ssh/`、`/etc/fstab` 等
+- **不留垃圾文件**：所有写到 pve40 `/tmp` 的临时文件（公钥、log、qemu screendump 等）**用完立即 `rm`**
+- **不破坏 VM**：losetup/lvm 操作仅限修 SSH 这种阻塞场景，事后必须 `losetup -d` + `umount` + 清零 `/tmp`
+- 唯一允许：经 qm/pvesh/qemu-monitor 操作 VM 410/415/9000——这些是 PVE 标准运维
 
 ## 已知坑（血泪）
 
