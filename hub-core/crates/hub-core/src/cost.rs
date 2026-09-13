@@ -71,22 +71,27 @@ pub struct Limits {
 }
 
 /// Record one cost event (post-flight metering, §59).
+/// `trace_id` (D: trace propagation) lets the caller walk the full MCP
+/// request → embed → write graph via /api/v1/traces/{trace_id}. None when
+/// the call doesn't have a parent request (e.g. background worker tick).
 pub async fn record_cost(
     state: &AppState,
     agent_id: Option<Uuid>,
     task_id: Option<Uuid>,
+    trace_id: Option<Uuid>,
     kind: &str,
     amount: f64,
     unit: &str,
     detail: serde_json::Value,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO cost_records (cost_id, agent_id, task_id, kind, amount, unit, detail)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        "INSERT INTO cost_records (cost_id, agent_id, task_id, trace_id, kind, amount, unit, detail)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(Uuid::new_v4())
     .bind(agent_id)
     .bind(task_id)
+    .bind(trace_id)
     .bind(kind)
     .bind(amount)
     .bind(unit)

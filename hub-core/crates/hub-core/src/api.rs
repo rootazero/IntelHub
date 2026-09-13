@@ -38,6 +38,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/alerts", get(list_alerts))
         .route("/api/v1/alerts/{id}/ack", axum::routing::post(ack_alert))
         .route("/api/v1/alerts/{id}/mute", axum::routing::post(mute_alert))
+        .route("/api/v1/traces/{trace_id}", get(get_trace))
         .route("/api/v1/components", get(list_components))
         .route("/api/v1/components/{name}/actions", axum::routing::post(component_action))
         // SP3 console API (read-only aggregates, §24)
@@ -251,7 +252,7 @@ async fn create_investigation(
     // SP2B: REST goes through the same governance gate as MCP.
     crate::policy::preflight(&state, &agent, "create_investigation")
         .await
-        .map_err(hub_err)?;
+        .map_err(|e| hub_err(e.into()))?;
     let id = crate::store::create_investigation(
         &state.pg,
         &body.title,
@@ -261,7 +262,7 @@ async fn create_investigation(
         &format!("agent:{}", agent.name),
     )
     .await
-    .map_err(hub_err)?;
+    .map_err(|e| hub_err(e.into()))?;
     // Seed from the originating Radar event (console convert flow) so the
     // investigation never opens empty; best-effort — a seed failure must not
     // fail investigation creation.
@@ -310,7 +311,7 @@ async fn update_investigation(
 ) -> Result<Json<Value>, Response> {
     crate::policy::preflight(&state, &agent, "update_investigation")
         .await
-        .map_err(hub_err)?;
+        .map_err(|e| hub_err(e.into()))?;
     crate::store::update_investigation(
         &state.pg,
         id,
@@ -459,7 +460,7 @@ async fn component_action(
 ) -> Result<Json<Value>, Response> {
     crate::policy::preflight(&state, &agent, "run_component_action")
         .await
-        .map_err(hub_err)?;
+        .map_err(|e| hub_err(e.into()))?;
     crate::components::run_action(
         &state,
         &name,
@@ -671,9 +672,10 @@ async fn post_evidence(
         body.provenance.unwrap_or_else(|| json!({ "pushed_by": agent.name })),
         None,
         "auto",
+        None,
     )
     .await
-    .map_err(hub_err)?;
+    .map_err(|e| hub_err(e.into()))?;
     Ok(Json(json!({
         "document_id": outcome.document_id,
         "content_hash": outcome.content_hash,
@@ -771,7 +773,7 @@ async fn console_signals_history(
     let days = p.days.unwrap_or(40).clamp(1, 400);
     let rows = crate::monitor::signals::series_history(&state, &series, days, 500)
         .await
-        .map_err(hub_err)?;
+        .map_err(|e| hub_err(e.into()))?;
     let points: Vec<Value> = rows.iter().map(|(t, v)| json!({"t": t, "v": v})).collect();
     Ok(Json(json!({"series": series, "days": days, "points": points})))
 }
@@ -867,7 +869,7 @@ async fn console_signals_latest(
 ) -> Result<Json<Value>, Response> {
     let rows = crate::monitor::signals::latest_observations(&state, p.pattern.as_deref())
         .await
-        .map_err(hub_err)?;
+        .map_err(|e| hub_err(e.into()))?;
     let items: Vec<Value> = rows
         .iter()
         .map(|(series, ts, value, payload)| {
@@ -915,7 +917,7 @@ async fn console_watchlist_upsert(
             .execute(&state.pg)
             .await
             .map_err(crate::error::HubError::from)
-            .map_err(hub_err)?;
+            .map_err(|e| hub_err(e.into()))?;
         if r.rows_affected() == 0 {
             return Err(err(StatusCode::NOT_FOUND, format!("watchlist symbol {sym}")));
         }
@@ -951,4 +953,66 @@ async fn console_watchlist_remove(
     .await
     .map(Json)
     .map_err(hub_err)
+}
+
+/// D: trace propagation — walk the full call graph for one MCP request.
+/// Returns cost_records + embedding_jobs + documents joined by trace_id.
+/// Useful for "where did this result come from?" debugging.
+async fn get_trace(
+    State(state): State<Arc<AppState>>,
+    Path(trace_id): Path<Uuid>,
+) -> Result<Json<Value>, Response> {
+    let cost: Vec<(String, f64, String, serde_json::Value, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT kind, amount, unit, detail, created_at FROM cost_records
+         WHERE trace_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(trace_id)
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| hub_err(e.into()))?;
+    let jobs: Vec<(Uuid, Uuid, String, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT job_id, document_id, status, reason, created_at FROM embedding_jobs
+         WHERE trace_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(trace_id)
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| hub_err(e.into()))?;
+    let mut documents = serde_json::Map::new();
+    for (_job_id, doc_id, status, reason, _created) in &jobs {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT url_canonical, title FROM documents WHERE document_id = $1",
+        )
+        .bind(doc_id)
+        .fetch_optional(&state.pg)
+        .await
+        .map_err(|e| hub_err(e.into()))?;
+        if let Some((url, title)) = row {
+            documents.insert(
+                doc_id.to_string(),
+                json!({ "url": url, "title": title, "status": status, "reason": reason }),
+            );
+        }
+    }
+    let tool_calls: Vec<(String, Option<String>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT tool, status, created_at FROM tool_calls
+         WHERE trace_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(trace_id.to_string())
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| hub_err(e.into()))?;
+    Ok(Json(json!({
+        "trace_id": trace_id,
+        "cost_records": cost.into_iter().map(|(k, a, u, d, t)| json!({
+            "kind": k, "amount": a, "unit": u, "detail": d, "at": t,
+        })).collect::<Vec<_>>(),
+        "embedding_jobs": jobs.into_iter().map(|(j, d, s, r, t)| json!({
+            "job_id": j, "document_id": d, "status": s, "reason": r, "at": t,
+        })).collect::<Vec<_>>(),
+        "documents": documents,
+        "tool_calls": tool_calls.into_iter().map(|(t, s, at)| json!({
+            "tool": t, "status": s, "at": at,
+        })).collect::<Vec<_>>(),
+    })))
 }

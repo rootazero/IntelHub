@@ -101,6 +101,7 @@ pub async fn ingest_content(
     provenance: serde_json::Value,
     parent_task: Option<Uuid>,
     embed_mode: &str, // "auto"|"force"|"skip" (SP2B §40)
+    trace_id: Option<Uuid>, // D: trace propagation — None for non-MCP triggers
 ) -> Result<IngestOutcome> {
     let canonical = canonicalize_url(url);
     let hash = content_hash(content);
@@ -164,6 +165,7 @@ pub async fn ingest_content(
                     inserted.document_id,
                     &state.config.embedding_model,
                     mode == "force",
+                    trace_id,
                 )
                 .await?;
             }
@@ -266,6 +268,7 @@ pub async fn run_worker(state: AppState, ct: tokio_util::sync::CancellationToken
                             ev.provenance.clone(),
                             None,
                             "auto",
+                            None,
                         )
                         .await
                         {
