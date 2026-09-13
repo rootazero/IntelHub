@@ -9,7 +9,7 @@ Usage: accept-sp3.py <agent_key>
 """
 import json, sys, time, urllib.request, urllib.error
 
-HUB = "http://10.10.10.41:8800"
+HUB = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 KEY = sys.argv[1]
 PASS = FAIL = 0
 

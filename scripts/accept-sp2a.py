@@ -3,7 +3,7 @@
 HTTP handshake plus the key tool flows against intelhub-core."""
 import json, sys, urllib.request, urllib.error
 
-BASE = "http://10.10.10.41:8800"
+BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 KEY = sys.argv[1]
 PASS, FAIL = [], []
 
