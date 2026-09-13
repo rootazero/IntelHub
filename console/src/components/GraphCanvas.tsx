@@ -1,6 +1,16 @@
-// SP10 G6 mount. Takes pre-built data + selection state; emits clicks.
+// SP10 G6 mount. Takes pre-built data; emits clicks for the side panel.
 // No data fetch logic — that's in GraphPage so filters and selection can
 // be lifted and stay in sync with the side panel.
+//
+// Layout note (2026-09-14 fix): G6 v5 does NOT auto-layout — without a
+// `layout` option every node lands at (0,0) and the canvas shows a single
+// half-clipped dot in the top-left corner ("root" label rendered as "ot").
+// We use d3-force + autoFit:'view' so the graph is spread and framed.
+//
+// Selection note: clicking used to re-create the whole graph (re-running
+// the force simulation → visible jitter). Highlight now goes through G6's
+// built-in 'click-select' behavior + state.selected style overrides, so
+// the graph instance is only re-created when the data itself changes.
 
 import { useEffect, useRef } from "react";
 import { kindColor } from "../kindmeta";
@@ -25,8 +35,6 @@ interface Props {
   rootId: string;
   nodes: G6NodeData[];
   edges: G6EdgeData[];
-  selectedNodeId: string | null;
-  selectedEdgeKey: string | null;
   onSelectNode: (id: string | null) => void;
   onSelectEdge: (key: string | null) => void;
 }
@@ -47,15 +55,13 @@ export default function GraphCanvas({
   rootId,
   nodes,
   edges,
-  selectedNodeId,
-  selectedEdgeKey,
   onSelectNode,
   onSelectEdge,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<unknown>(null);
 
-  // Render / re-render on data or selection change.
+  // Render / re-render ONLY when the data changes (not on click).
   useEffect(() => {
     if (!containerRef.current) return;
     let cancelled = false;
@@ -69,20 +75,37 @@ export default function GraphCanvas({
         container: containerRef.current,
         width: containerRef.current.clientWidth,
         height: containerRef.current.clientHeight,
+        // d3-force spreads nodes; autoFit frames the result in the viewport.
+        // (Both required — autoFit alone doesn't layout, layout alone may
+        // leave the graph off-screen.)
+        layout: {
+          type: "d3-force",
+          link: { distance: 140, strength: 0.6 },
+          manyBody: { strength: -260 },
+          collide: { radius: 30 },
+        },
+        autoFit: "view",
         data: { nodes, edges } as any,
         node: {
           style: {
             labelText: (d: unknown) => (d as G6NodeData).name,
             fill: (d: unknown) =>
               (d as G6NodeData).id === rootId ? "#ffffff" : kindColor((d as G6NodeData).kind),
-            stroke: (d: unknown) =>
-              (d as G6NodeData).id === selectedNodeId ? "#fff" : "rgba(255,255,255,0.5)",
-            lineWidth: (d: unknown) => ((d as G6NodeData).id === selectedNodeId ? 3 : 1),
+            stroke: "rgba(255,255,255,0.5)",
+            lineWidth: 1,
             size: (d: unknown) => nodeSize((d as G6NodeData).degree),
             labelBackground: true,
             labelPadding: [2, 4],
             labelFill: "#0a0e14",
             labelFontSize: 11,
+          },
+          // G6 'click-select' toggles this state automatically — no
+          // re-render needed to show the highlight.
+          state: {
+            selected: {
+              stroke: "#ffffff",
+              lineWidth: 3,
+            },
           },
         },
         edge: {
@@ -90,16 +113,14 @@ export default function GraphCanvas({
           style: {
             stroke: (d: unknown) => {
               const e = d as G6EdgeData;
-              const isSelected = e.key === selectedEdgeKey;
-              if (isSelected) return "#ffffff";
               return `rgba(180,200,220,${confidenceOpacity(e.confidence)})`;
             },
-            lineWidth: (d: unknown) => ((d as G6EdgeData).key === selectedEdgeKey ? 2.5 : 1),
+            lineWidth: 1,
             endArrow: true,
             endArrowSize: 8,
             endArrowFill: (d: unknown) => {
               const e = d as G6EdgeData;
-              return e.key === selectedEdgeKey ? "#ffffff" : `rgba(180,200,220,${confidenceOpacity(e.confidence)})`;
+              return `rgba(180,200,220,${confidenceOpacity(e.confidence)})`;
             },
             labelText: (d: unknown) => (d as G6EdgeData).rel_type,
             labelBackground: true,
@@ -107,14 +128,22 @@ export default function GraphCanvas({
             labelFontSize: 9,
             labelFill: "#9aa4b2",
           },
+          state: {
+            selected: {
+              stroke: "#ffffff",
+              lineWidth: 2.5,
+              endArrowFill: "#ffffff",
+            },
+          },
         },
         behaviors: ["drag-canvas", "zoom-canvas", "click-select"],
       }) as unknown as typeof graph;
 
       await graph!.render();
 
-      // Wire up click → selection. G6 v5 fires 'node:click' and 'edge:click'
-      // (and 'canvas:click' for deselect).
+      // Wire up click → side panel. G6 v5 fires 'node:click' / 'edge:click'
+      // (and 'canvas:click' for deselect). Visual highlight is handled by
+      // the click-select behavior + state styles above.
       const ev = graph as unknown as {
         on: (evt: string, fn: (e: { target?: { id?: string; data?: { key?: string } } }) => void) => void;
       };
@@ -140,7 +169,7 @@ export default function GraphCanvas({
       cancelled = true;
       if (graph) graph.destroy();
     };
-  }, [nodes, edges, rootId, selectedNodeId, selectedEdgeKey, onSelectNode, onSelectEdge]);
+  }, [nodes, edges, rootId, onSelectNode, onSelectEdge]);
 
   // Resize observer — keep canvas matched to its container.
   useEffect(() => {
