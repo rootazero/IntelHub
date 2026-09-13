@@ -1015,7 +1015,7 @@ impl HubMcp {
         out
     }
 
-    #[tool(description = "Variable-length neighborhood expansion in the graph (depth 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).")]
+    #[tool(description = "Variable-length neighborhood expansion in the graph (depth default 2, clamped 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).")]
     async fn get_neighbors(
         &self,
         Parameters(args): Parameters<GetNeighborsArgs>,
@@ -1024,7 +1024,7 @@ impl HubMcp {
         let started = Instant::now();
         self.gate(&ctx, "get_neighbors").await?;
         let entity_id = parse_uuid(&args.entity_id, "entity_id")?;
-        let depth = args.depth.unwrap_or(1).clamp(1, 4);
+        let depth = args.depth.unwrap_or(2).clamp(1, 4);
         let at_time = parse_dt_opt(args.at_time.as_deref(), "at_time")?;
         let out = match crate::graph_queries::get_neighbors(
             &self.state,
