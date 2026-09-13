@@ -212,14 +212,14 @@ pub async fn get_entity_timeline(
         i64,
         String,
         String,
-        serde_json::Value,
-        serde_json::Value,
+        Option<serde_json::Value>,
+        Option<serde_json::Value>,
         String,
         Option<DateTime<Utc>>,
     )> = sqlx::query_as(
         "SELECT change_id, op, target_kind, before, after, changed_by, changed_at \
            FROM graph_change_log \
-          WHERE (target_kind = 'entity' AND target_id = $1) \
+          WHERE (target_kind = 'entity' AND target_id = $1::text) \
              OR (target_kind = 'relationship' AND target_id IN ( \
                   SELECT relationship_id::text FROM relationships \
                    WHERE from_entity = $1 OR to_entity = $1)) \
