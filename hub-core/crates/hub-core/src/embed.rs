@@ -380,6 +380,7 @@ async fn process_document(
             state,
             agent.map(|(id,)| id),
             None,
+            None,
             "embedding_tokens",
             total_tokens as f64,
             "token",

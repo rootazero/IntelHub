@@ -170,6 +170,16 @@ pub struct ToolSchemaArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct InvestigateArgs {
+    /// The natural-language question to investigate
+    pub question: String,
+    /// Optional existing investigation UUID to attach findings to (and to pull existing claims from)
+    pub investigation_id: Option<String>,
+    /// Max planner steps (default 6, hard cap 12)
+    pub max_steps: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateInvestigationArgs {
     /// Investigation title
     pub title: String,
@@ -366,10 +376,12 @@ impl HubMcp {
         }
         // SP2B §59: every tool call is metered into the gas model.
         if let Some(aid) = agent_id {
+            let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
             let _ = crate::cost::record_cost(
                 &self.state,
                 Some(aid),
                 None,
+                trace_uuid,
                 "tool_call",
                 1.0,
                 "call",
@@ -436,11 +448,17 @@ impl HubMcp {
             }
         };
         let await_embed = args.await_embed.unwrap_or(false);
+        let trace_id = Uuid::new_v4();
         let result = self
-            .crawl_and_ingest(&agent, &args.url, investigation_id, embed_mode, await_embed)
+            .crawl_and_ingest(&agent, &args.url, investigation_id, embed_mode, await_embed, trace_id)
             .await;
         let out = match result {
-            Ok(v) => ok_text(v),
+            Ok(mut v) => {
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("trace_id".to_string(), json!(trace_id));
+                }
+                ok_text(v)
+            }
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "crawl_url", started, if out.is_ok() { "ok" } else { "error" }).await;
@@ -454,6 +472,7 @@ impl HubMcp {
         investigation_id: Option<Uuid>,
         embed_mode: &str,
         await_embed: bool,
+        trace_id: Uuid,
     ) -> crate::error::Result<serde_json::Value> {
         let parsed = url::Url::parse(url)
             .map_err(|_| crate::error::HubError::bad_request("invalid URL"))?;
@@ -487,6 +506,7 @@ impl HubMcp {
             json!({ "sensor": "crawl4ai", "agent": agent.name, "task_id": task_id }),
             Some(task_id),
             embed_mode,
+            Some(trace_id),
         )
         .await?;
 
@@ -497,6 +517,7 @@ impl HubMcp {
                 &self.state,
                 agent_id,
                 Some(task_id),
+                Some(trace_id),
                 "crawl_page",
                 1.0,
                 "page",
@@ -565,7 +586,7 @@ impl HubMcp {
             ok_text(json!({ "source": "store", "document": doc }))
         } else {
             let agent = agent_of(&ctx);
-            match self.crawl_and_ingest(&agent, &args.url, None, "auto", false).await {
+            match self.crawl_and_ingest(&agent, &args.url, None, "auto", false, Uuid::new_v4()).await {
                 Ok(v) => {
                     let doc = crate::store::get_document(
                         &self.state.pg,
@@ -670,12 +691,19 @@ impl HubMcp {
         let started = Instant::now();
         self.gate(&ctx, "hybrid_search").await?;
         let agent = agent_of(&ctx);
+        let trace = trace_of(&ctx);
+        let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
         let out = match self
-            .hybrid_inner(&agent, &args.query, limit, args.url_contains.as_deref())
+            .hybrid_inner(&agent, &args.query, limit, args.url_contains.as_deref(), trace_uuid)
             .await
         {
-            Ok(v) => ok_text(v),
+            Ok(mut v) => {
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("trace_id".to_string(), json!(trace.trace_id));
+                }
+                ok_text(v)
+            }
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "hybrid_search", started, if out.is_ok() { "ok" } else { "error" }).await;
@@ -693,6 +721,7 @@ impl HubMcp {
         query: &str,
         limit: i64,
         url_contains: Option<&str>,
+        trace_id: Option<Uuid>,
     ) -> crate::error::Result<serde_json::Value> {
         const K: f64 = 10.0;
         let kw = crate::store::keyword_search(&self.state.pg, query, (limit * 3).clamp(10, 150)).await?;
@@ -717,7 +746,7 @@ impl HubMcp {
                 if tokens > 0 {
                     let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
                     let _ = crate::cost::record_cost(
-                        &self.state, agent_id, None, "embedding_tokens", tokens as f64, "token",
+                        &self.state, agent_id, None, trace_id, "embedding_tokens", tokens as f64, "token",
                         json!({ "purpose": "hybrid_query" }),
                     ).await;
                 }
@@ -777,6 +806,7 @@ impl HubMcp {
                     &self.state,
                     agent_id,
                     None,
+                    trace_id,
                     "rerank_tokens",
                     outcome.tokens_billed as f64,
                     "token",
@@ -842,9 +872,16 @@ impl HubMcp {
         let started = Instant::now();
         self.gate(&ctx, "semantic_search").await?;
         let agent = agent_of(&ctx);
+        let trace = trace_of(&ctx);
+        let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
         let limit = args.limit.unwrap_or(10).clamp(1, 50);
-        let out = match self.semantic_inner(&agent, &args.query, limit).await {
-            Ok(v) => ok_text(v),
+        let out = match self.semantic_inner(&agent, &args.query, limit, trace_uuid).await {
+            Ok(mut v) => {
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("trace_id".to_string(), json!(trace.trace_id));
+                }
+                ok_text(v)
+            }
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "semantic_search", started, if out.is_ok() { "ok" } else { "error" }).await;
@@ -856,12 +893,13 @@ impl HubMcp {
         agent: &AgentIdentity,
         query: &str,
         limit: i64,
+        trace_id: Option<Uuid>,
     ) -> crate::error::Result<serde_json::Value> {
         let (qvec, tokens) = crate::embed::query_embedding(&self.state, query).await?;
         if tokens > 0 {
             let agent_id = if agent.agent_id.is_nil() { None } else { Some(agent.agent_id) };
             let _ = crate::cost::record_cost(
-                &self.state, agent_id, None, "embedding_tokens", tokens as f64, "token",
+                &self.state, agent_id, None, trace_id, "embedding_tokens", tokens as f64, "token",
                 json!({ "purpose": "query", "query": query }),
             ).await;
         }
@@ -923,6 +961,7 @@ impl HubMcp {
                     &self.state,
                     agent_id,
                     None,
+                    trace_id,
                     "rerank_tokens",
                     outcome.tokens_billed as f64,
                     "token",
@@ -1048,6 +1087,68 @@ impl HubMcp {
                 ))
             }
         }
+    }
+
+    /// B: Multi-hop Q&A — rule-based planner that decomposes a question into
+    /// 2-6 retrieval steps (hybrid search, entity lookup, graph traversal,
+    /// existing claims), executes them in order, and returns a synthesized
+    /// evidence chain. Each step gets its own sub-trace-id so the parent
+    /// trace can walk the planner's individual searches via
+    /// /api/v1/traces/{step_trace_id}.
+    #[tool(description = "Investigate a question: rule-based planner runs hybrid search + entity lookup + graph traversal + existing-claims lookup, returns synthesized evidence chain. Each step is its own sub-trace.")]
+    async fn investigate(
+        &self,
+        Parameters(args): Parameters<InvestigateArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "investigate").await?;
+        let trace = trace_of(&ctx);
+        let parent_trace_id = Uuid::parse_str(&trace.trace_id).unwrap_or_else(|_| Uuid::new_v4());
+        let investigation_id = match args.investigation_id.as_deref() {
+            Some(s) => parse_uuid_opt(&Some(s.to_string()), "investigation_id")?
+                .ok_or_else(|| McpError::invalid_params("investigation_id must be a UUID", None))?,
+            None => crate::store::create_investigation(
+                &self.state.pg,
+                &format!("investigate: {}", args.question),
+                Some(&args.question),
+                None,
+                None,
+                &format!("agent:{}", agent_of(&ctx).name),
+            )
+            .await
+            .map_err(map_err)?,
+        };
+
+        let plan = crate::investigate::plan(&args.question, Some(investigation_id));
+        let max_steps = args.max_steps.unwrap_or(6).min(12) as usize;
+        let plan = if plan.len() > max_steps { plan[..max_steps].to_vec() } else { plan };
+
+        let mut outcome = crate::investigate::execute(&self.state, plan, investigation_id)
+            .await
+            .map_err(map_err)?;
+        outcome.question = args.question.clone();
+        outcome.parent_trace_id = parent_trace_id;
+
+        let payload = json!({
+            "question": outcome.question,
+            "investigation_id": outcome.investigation_id,
+            "trace_id": trace.trace_id,
+            "total_steps": outcome.total_steps,
+            "successful_steps": outcome.successful_steps,
+            "evidence_count": outcome.evidence.len(),
+            "steps": outcome.steps.iter().map(|s| json!({
+                "trace_id": s.step.trace_id,
+                "description": s.step.description,
+                "evidence_count": s.evidence_count,
+                "error": s.error,
+            })).collect::<Vec<_>>(),
+            "evidence": outcome.evidence,
+            "synthesis": outcome.synthesis,
+        });
+        let out = ok_text(payload);
+        self.record(&ctx, "investigate", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
     }
 
     #[tool(description = "Create a new investigation (first-class object: target/question/hypothesis).")]

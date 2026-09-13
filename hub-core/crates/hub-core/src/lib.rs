@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod monitor;
 pub mod policy;
 pub mod rerank;
+pub mod investigate;
 pub mod sensors;
 pub mod server;
 pub mod spiderfoot;
