@@ -109,6 +109,20 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         });
     }
 
+    // SP9: async entity resolution worker — every HUB_KG_RESOLVE_ASYNC_TICK_SECS
+    // (default 300s) drain entity_resolution_queue, classify pairs by JW score,
+    // and call merge_entities for ≥0.95 (or defer to review / reject). Loops
+    // forever by design (no cancellation token — task is aborted at process
+    // exit); spawn before MCP service assembly so it's running before the
+    // first /mcp request lands.
+    {
+        let pool = state.pg.clone();
+        tokio::spawn(async move {
+            crate::graph_v2::resolve_async::run_resolve_async_worker(pool).await;
+        });
+        tracing::info!(target: "hub.boot", "resolve_async worker started");
+    }
+
     let mcp_state = state.clone();
     let mcp_config = StreamableHttpServerConfig::default()
         .with_cancellation_token(ct.child_token())
