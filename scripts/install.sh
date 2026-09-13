@@ -34,8 +34,10 @@ if [[ -n "${INTELHUB_ENV_FILE:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------- config ----
-# Placeholder until the GitHub repo is created; INTELHUB_TARBALL bypasses it.
-REPO_URL="__INTELHUB_REPO_URL__"
+# Public repo — `curl ... | bash` on a clean VM does a fresh `git clone` of
+# the source tree. INTELHUB_TARBALL=<url> bypasses git for tarball installs
+# (firewalled VMs that can't reach GitHub, or air-gapped deployments).
+REPO_URL="https://github.com/rootazero/IntelHub.git"
 REPO_BRANCH="main"
 
 HOME_DIR="${INTELHUB_HOME:-$HOME/IntelHub}"
