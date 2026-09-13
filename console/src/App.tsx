@@ -8,6 +8,7 @@ import Radar from "./pages/Radar";
 import Investigations from "./pages/Investigations";
 import InvestigationWorkspace from "./pages/InvestigationWorkspace";
 import SearchPage from "./pages/SearchPage";
+import GraphPage from "./pages/Graph";
 import Evidence from "./pages/Evidence";
 import DocumentDetail from "./pages/DocumentDetail";
 import EntityDetail from "./pages/EntityDetail";
@@ -23,6 +24,7 @@ const NAV = [
   ["/radar", "nav.radar"],
   ["/signals", "nav.signals"],
   ["/investigations", "nav.investigations"],
+  ["/graph", "nav.graph"],
   ["/search", "nav.search"],
   ["/evidence", "nav.evidence"],
   ["/alerts", "nav.alerts"],
@@ -165,6 +167,7 @@ function Shell() {
           <Route path="/signals" element={<Signals />} />
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationWorkspace />} />
+          <Route path="/graph" element={<GraphPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/evidence" element={<Evidence />} />
           <Route path="/evidence/:id" element={<DocumentDetail />} />
