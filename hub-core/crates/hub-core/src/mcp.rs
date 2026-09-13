@@ -833,7 +833,7 @@ impl HubMcp {
         out
     }
 
-    #[tool(description = "Find the shortest path (max 5 hops) between two entities in the graph (read-only, parameterized).")]
+    #[tool(description = "Find the shortest path between two entities in the graph (read-only, parameterized). Defaults: weighted=true, max_hops=5.")]
     async fn find_path(
         &self,
         Parameters(args): Parameters<FindPathArgs>,
@@ -841,7 +841,14 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "find_path").await?;
-        let out = match crate::graph::find_path(&self.state, &args.from, &args.to).await {
+        // v2 signature (SP9): weighted (default true), max_hops (default 5).
+        // FindPathArgs still has only {from, to} (back-compat with v1 callers)
+        // — extended args come from Task 5's structured-args refactor.
+        let weighted = true;
+        let max_hops: u8 = 5;
+        let out = match crate::graph_queries::find_path(
+            &self.state, &args.from, &args.to, weighted, max_hops,
+        ).await {
             Ok(v) => ok_text(v),
             Err(e) => Err(map_err(e)),
         };

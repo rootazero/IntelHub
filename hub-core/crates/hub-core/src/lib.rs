@@ -12,6 +12,7 @@ pub mod entity_seeder;
 pub mod error;
 pub mod events;
 pub mod graph;
+pub mod graph_queries;
 pub mod graph_v2;
 pub mod graphw;
 pub mod ingest;
