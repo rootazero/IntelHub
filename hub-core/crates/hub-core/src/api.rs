@@ -1030,6 +1030,11 @@ struct NeighborsQuery {
     root: String,
     depth: Option<u8>,
     at_time: Option<String>,
+    /// SP10: comma-separated list of relationship types to include
+    /// (e.g. "located_in,affiliated_with"). Empty/missing = no filter.
+    rel_types: Option<String>,
+    /// SP10: minimum edge confidence threshold (0.0..=1.0). Default 0.0.
+    min_confidence: Option<f64>,
 }
 
 async fn graph_neighbors(
@@ -1046,7 +1051,28 @@ async fn graph_neighbors(
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.with_timezone(&chrono::Utc));
     let depth = q.depth.unwrap_or(2);
-    match crate::graph_queries::get_neighbors(&state, entity_id, depth, None, None, at_time).await {
+    // SP10: parse comma-separated rel_types and forward to backend.
+    let rel_types: Option<Vec<String>> = q
+        .rel_types
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .map(|x| x.trim().to_string())
+                .filter(|x| !x.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|v| !v.is_empty());
+    let min_confidence = q.min_confidence;
+    match crate::graph_queries::get_neighbors(
+        &state,
+        entity_id,
+        depth,
+        rel_types,
+        min_confidence,
+        at_time,
+    )
+    .await
+    {
         Ok(v) => Json(v).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     }

@@ -487,7 +487,14 @@ pub async fn get_neighbors(
                   AND (rel.valid_until IS NULL OR rel.valid_until > datetime($at_time)))) \
          WITH neighbor, relationships(p) AS rs LIMIT 100 \
          RETURN neighbor.entity_id AS id, neighbor.name AS name, neighbor.kind AS kind, \
-                [r IN rs | {{rel_type: type(r), valid_from: r.valid_from, valid_until: r.valid_until, confidence: r.confidence}}] AS edges",
+                [r IN rs | {{\
+                   rel_type: type(r), \
+                   source_id: startNode(r).entity_id, \
+                   target_id: endNode(r).entity_id, \
+                   valid_from: r.valid_from, \
+                   valid_until: r.valid_until, \
+                   confidence: r.confidence\
+                 }}] AS edges",
     );
     let at_time_value = at_time
         .map(|t| neo4rs::BoltType::String(neo4rs::BoltString { value: t.to_rfc3339() }))
