@@ -23,6 +23,9 @@ pub const ENTITY_KINDS: &[&str] = &[
 pub const REL_TYPES: &[&str] = &[
     "controls", "owns", "communicates_with", "resolves_to", "located_in",
     "affiliated_with", "uses", "hosts", "registered_by", "related_to",
+    // 2026-09-14: graph_v2 resolve.rs merge op (dropped entity → kept entity)
+    // surfaces as a :MERGED_INTO edge. Same Entity↔Entity vocabulary.
+    "MERGED_INTO",
 ];
 
 /// Property allowlist (§61 Level 2 schema validation).
@@ -201,6 +204,98 @@ async fn try_graph_write(state: &AppState, op: &Value) -> Result<()> {
                     state.neo4j.run(q).await?;
                 }
             }
+        }
+        // 2026-09-14: mirror path for graph_v2's claim_evidence / finding_about
+        // / contradiction / merge ops. See translate_change_log in this file
+        // and docs/superpowers/specs/2026-09-14-intelhub-graph-v2-mirror-design.md.
+        Some("create_document") => {
+            let q = neo4rs::query(
+                "MERGE (d:Document {document_id: $did})
+                 SET d.url_canonical = $url, d.title = $title, d.source_id = $sid",
+            )
+            .param("did", op["document_id"].as_str().unwrap_or(""))
+            .param("url", op["url_canonical"].as_str().unwrap_or(""))
+            .param("title", op["title"].as_str().unwrap_or(""))
+            .param("sid", op["source_id"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
+        }
+        Some("create_finding") => {
+            let q = neo4rs::query(
+                "MERGE (f:Finding {finding_id: $fid})
+                 SET f.title = $title, f.claim_text = $claim_text,
+                     f.source_confidence = $sc, f.claim_confidence = $cc,
+                     f.investigation_id = $iid",
+            )
+            .param("fid", op["finding_id"].as_str().unwrap_or(""))
+            .param("title", op["title"].as_str().unwrap_or(""))
+            .param("claim_text", op["claim_text"].as_str().unwrap_or(""))
+            .param("sc", op["source_confidence"].as_f64().unwrap_or(0.0))
+            .param("cc", op["claim_confidence"].as_f64().unwrap_or(0.0))
+            .param("iid", op["investigation_id"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
+        }
+        Some("create_contradiction") => {
+            // :Contradiction node + 2 :INVOLVES edges to the disputed claims.
+            // INVOLVES is interpolated after an inline whitelist check.
+            let q = neo4rs::query(
+                "MERGE (c:Contradiction {contradiction_id: $cid})
+                 SET c.claim_a = $a, c.claim_b = $b, c.reason = $reason
+                 WITH c
+                 MATCH (a:Claim {claim_id: $a}), (b:Claim {claim_id: $b})
+                 MERGE (a)-[:INVOLVES]->(c)
+                 MERGE (b)-[:INVOLVES]->(c)",
+            )
+            .param("cid", op["contradiction_id"].as_str().unwrap_or(""))
+            .param("a", op["claim_a"].as_str().unwrap_or(""))
+            .param("b", op["claim_b"].as_str().unwrap_or(""))
+            .param("reason", op["reason"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
+        }
+        Some("link_claim_evidence") => {
+            // Claim → Document via :SUPPORTS or :CONTRADICTS. The relation
+            // string is interpolated into Cypher ONLY after whitelist check
+            // (inline; not a general Entity↔Entity rel type).
+            let rel = match op["relation"].as_str().unwrap_or("") {
+                "contradicts" => "CONTRADICTS",
+                _ => "SUPPORTS",
+            };
+            let cypher = format!(
+                "MERGE (d:Document {{document_id: $did}})
+                 MERGE (c:Claim {{claim_id: $cid}})
+                 MERGE (c)-[r:{rel}]->(d)"
+            );
+            let q = neo4rs::query(&cypher)
+                .param("did", op["document_id"].as_str().unwrap_or(""))
+                .param("cid", op["claim_id"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
+        }
+        Some("link_finding_about_entity") => {
+            // Finding → Entity :ABOUT edge. v2 only — v1 doesn't write
+            // finding→entity links (finding_evidence is finding→doc only).
+            let q = neo4rs::query(
+                "MERGE (f:Finding {finding_id: $fid})
+                 WITH f
+                 MATCH (e:Entity {entity_id: $eid})
+                 MERGE (f)-[:ABOUT]->(e)",
+            )
+            .param("fid", op["finding_id"].as_str().unwrap_or(""))
+            .param("eid", op["entity_id"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
+        }
+        Some("link_finding_evidence") => {
+            // Finding → Document :SUPPORTS edge. Backfill source is PG
+            // finding_evidence; future writes go through v1's
+            // create_finding path (if it exists) or graph_v2's link
+            // evidence flow. v2 doesn't currently expose finding-evidence
+            // linking, so this op is mostly for backfill + extensibility.
+            let q = neo4rs::query(
+                "MERGE (f:Finding {finding_id: $fid})
+                 MERGE (d:Document {document_id: $did})
+                 MERGE (f)-[:SUPPORTS]->(d)",
+            )
+            .param("fid", op["finding_id"].as_str().unwrap_or(""))
+            .param("did", op["document_id"].as_str().unwrap_or(""));
+            state.neo4j.run(q).await?;
         }
         other => {
             return Err(HubError::bad_request(format!(
@@ -570,16 +665,28 @@ async fn mirror_change_log_once(state: &AppState) -> Result<()> {
         return Ok(());
     }
 
-    // 2. Pre-resolve kind/name for any relationship rows (after.subject /
-    //    after.object are entity uuids — change_log doesn't store names).
+    // 2. Pre-resolve kind/name for any row that produces an
+    //    Entity↔Entity relationship (so the worker can construct
+    //    v1 create_relationship ops without re-issuing per-op
+    //    SELECTs): current rows (subject/object/predicate), merge
+    //    rows (dropped + kept).
     let mut resolve_uuids: Vec<String> = Vec::new();
-    for (_, op, tk, _, after) in &rows {
+    for (_, op, tk, target_id, after) in &rows {
         if (op == "insert" || op == "update") && tk == "relationship" {
             if let Some(s) = after.get("subject").and_then(|v| v.as_str()) {
                 resolve_uuids.push(s.to_string());
             }
             if let Some(o) = after.get("object").and_then(|v| v.as_str()) {
                 resolve_uuids.push(o.to_string());
+            }
+        } else if op == "merge" && tk == "entity" {
+            if !target_id.is_empty() {
+                resolve_uuids.push(target_id.to_string());
+            }
+            if let Some(k) = after.get("merged_into").and_then(|v| v.as_str()) {
+                if !k.is_empty() {
+                    resolve_uuids.push(k.to_string());
+                }
             }
         }
     }
@@ -704,6 +811,98 @@ fn translate_change_log(
                 "from_kind": from_kind, "from_name": from_name,
                 "to_kind": to_kind, "to_name": to_name,
                 "rel_type": predicate,
+                "attributes": Value::Object(Default::default()),
+            }));
+        }
+        // 2026-09-14: claim evidence + finding-about + contradiction +
+        // entity-merge translations. The change_log op kind 'insert' with
+        // target_kind 'claim' has TWO sub-shapes — disambiguate by after
+        // JSON: {linked,relation} = link_evidence_to_claim;
+        // {entity_id,relation:"about"} = mark_finding_about_entity.
+        ("insert" | "update", "claim") => {
+            if let (Some(document_id), Some(relation)) = (
+                after.get("linked").and_then(|v| v.as_str()),
+                after.get("relation").and_then(|v| v.as_str()),
+            ) {
+                if !target_id.is_empty() && !document_id.is_empty() {
+                    out.push(json!({
+                        "type": "link_claim_evidence",
+                        "claim_id": target_id,
+                        "document_id": document_id,
+                        "relation": relation,
+                    }));
+                } else {
+                    tracing::warn!(target_id, "claim/link_evidence: empty uuid");
+                }
+            } else if let Some(entity_id) =
+                after.get("entity_id").and_then(|v| v.as_str())
+            {
+                // target_id here is the finding_id (the v2 compiler binds
+                // finding_id to the $1 column, not a claim_id).
+                if !target_id.is_empty() && !entity_id.is_empty() {
+                    out.push(json!({
+                        "type": "link_finding_about_entity",
+                        "finding_id": target_id,
+                        "entity_id": entity_id,
+                    }));
+                } else {
+                    tracing::warn!(target_id, "claim/finding_about: empty uuid");
+                }
+            } else {
+                tracing::warn!(target_id, "claim change_log row with unrecognized after shape");
+            }
+        }
+        ("contradict", "contradiction") => {
+            // PG claim_contradictions uses BIGINT; change_log binds
+            // contradiction_id::text so we keep the string form.
+            let claim_a = after.get("a").and_then(|v| v.as_str()).unwrap_or("");
+            let claim_b = after.get("b").and_then(|v| v.as_str()).unwrap_or("");
+            let reason = after.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            if target_id.is_empty() || claim_a.is_empty() || claim_b.is_empty() {
+                tracing::warn!(target_id, "contradict row missing ids");
+                return out;
+            }
+            out.push(json!({
+                "type": "create_contradiction",
+                "contradiction_id": target_id,
+                "claim_a": claim_a,
+                "claim_b": claim_b,
+                "reason": reason,
+            }));
+        }
+        ("merge", "entity") => {
+            // graph_v2 resolve::apply_merge: dropped entity gets
+            // merged_into=kept. Surface as :MERGED_INTO edge (audit trail
+            // — neither node is deleted, edges from dropped are kept for
+            // history; the canonical kept node is what new queries should
+            // follow).
+            let dropped = target_id;
+            let kept = after
+                .get("merged_into")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if dropped.is_empty() || kept.is_empty() {
+                tracing::warn!(dropped, "merge row missing merged_into");
+                return out;
+            }
+            let (from_kind, from_name) = name_map
+                .get(dropped)
+                .cloned()
+                .unwrap_or_default();
+            let (to_kind, to_name) = name_map
+                .get(kept)
+                .cloned()
+                .unwrap_or_default();
+            if from_kind.is_empty() || to_kind.is_empty() {
+                tracing::warn!(dropped, kept, "merge: endpoint not in PG entities");
+                return out;
+            }
+            out.push(json!({
+                "type": "create_relationship",
+                "from_id": dropped, "to_id": kept,
+                "from_kind": from_kind, "from_name": from_name,
+                "to_kind": to_kind, "to_name": to_name,
+                "rel_type": "MERGED_INTO",
                 "attributes": Value::Object(Default::default()),
             }));
         }

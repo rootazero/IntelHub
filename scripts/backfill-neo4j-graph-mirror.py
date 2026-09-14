@@ -101,7 +101,97 @@ def main():
         })
         n_rel += 1
     print(f"enqueued {n_rel} create_relationship ops")
-    print("queue drained by graphw::run_replay at 15s cadence; check after ~20s")
+
+    # 5. Documents — :Document nodes (lightweight: doc_id + url + title).
+    docs_raw = psql(
+        "SELECT json_agg(json_build_object("
+        "  'did', document_id::text,"
+        "  'url', url_canonical,"
+        "  'title', title,"
+        "  'sid', source_id::text"
+        ")) FROM documents"
+    )
+    docs = json.loads(docs_raw or "[]") or []
+    n_doc = 0
+    for d in docs:
+        enqueue_v1_op({
+            "type": "create_document",
+            "document_id": d["did"],
+            "url_canonical": d.get("url") or "",
+            "title": d.get("title") or "",
+            "source_id": d.get("sid") or "",
+        })
+        n_doc += 1
+    print(f"enqueued {n_doc} create_document ops")
+
+    # 6. Findings — :Finding nodes (metadata for canvas hover/panel).
+    findings_raw = psql(
+        "SELECT json_agg(json_build_object("
+        "  'fid', finding_id::text,"
+        "  'title', title,"
+        "  'claim_text', claim_text,"
+        "  'sc', source_confidence,"
+        "  'cc', claim_confidence,"
+        "  'iid', investigation_id::text"
+        ")) FROM findings"
+    )
+    findings = json.loads(findings_raw or "[]") or []
+    n_fnd = 0
+    for f in findings:
+        enqueue_v1_op({
+            "type": "create_finding",
+            "finding_id": f["fid"],
+            "title": f.get("title") or "",
+            "claim_text": f.get("claim_text") or "",
+            "source_confidence": f.get("sc"),
+            "claim_confidence": f.get("cc"),
+            "investigation_id": f.get("iid") or "",
+        })
+        n_fnd += 1
+    print(f"enqueued {n_fnd} create_finding ops")
+
+    # 7. claim_evidence — Claim → Document :SUPPORTS / :CONTRADICTS edges.
+    ce_raw = psql(
+        "SELECT json_agg(json_build_object("
+        "  'cid', claim_id::text,"
+        "  'did', document_id::text,"
+        "  'rel', relation"
+        ")) FROM claim_evidence"
+    )
+    ce = json.loads(ce_raw or "[]") or []
+    n_ce = 0
+    for e in ce:
+        enqueue_v1_op({
+            "type": "link_claim_evidence",
+            "claim_id": e["cid"],
+            "document_id": e["did"],
+            "relation": e["rel"],
+        })
+        n_ce += 1
+    print(f"enqueued {n_ce} link_claim_evidence ops")
+
+    # 8. finding_evidence — Finding → Document :SUPPORTS edges.
+    fe_raw = psql(
+        "SELECT json_agg(json_build_object("
+        "  'fid', finding_id::text,"
+        "  'did', document_id::text"
+        ")) FROM finding_evidence"
+    )
+    fe = json.loads(fe_raw or "[]") or []
+    n_fe = 0
+    for e in fe:
+        enqueue_v1_op({
+            "type": "link_finding_evidence",
+            "finding_id": e["fid"],
+            "document_id": e["did"],
+        })
+        n_fe += 1
+    print(f"enqueued {n_fe} link_finding_evidence ops")
+
+    print(
+        "queue drained by graphw::run_replay at 15s cadence; "
+        "~250-500 ops at a time, give it several minutes for 1k+ docs"
+    )
 
 
 if __name__ == "__main__":
