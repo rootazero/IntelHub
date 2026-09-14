@@ -9,6 +9,7 @@ Usage: accept-sp8.py <agent-api-key> [base-url]
 """
 import json
 import os
+import re
 import sys
 import urllib.request
 import urllib.error
@@ -192,17 +193,35 @@ for line in text.splitlines():
             pass
 check("MCP tools/list = 40 (28 + list_tools + tool_schema + investigate + 10 sp9)", len(tools) >= 38, f"count={len(tools)}")
 
+# 9b. Graph edge labels hidden by default, only shown on selected (UX: dense
+#     graphs drown in per-edge text). Source-level check — the bundle is
+#     minified and gets re-hashed on every build, so we assert against the
+#     TSX source that ships in scripts/.
+gc_src = vm("cat /home/zou/IntelHub/console/src/components/GraphCanvas.tsx 2>/dev/null")
+# Default edge labelText must return empty string (no per-edge text at rest).
+default_label_ok = bool(re.search(
+    r"labelText:\s*\(\)\s*=>\s*\"\"", gc_src))
+check("graph: default edge labelText returns empty string", default_label_ok,
+      "edge default must hide labels — see GraphCanvas.tsx edge.style.labelText")
+# Selected-state edge labelText must reveal rel_type.
+selected_label_ok = bool(re.search(
+    r"state:\s*\{[^}]*selected:[^}]*labelText:\s*\(d:\s*unknown\)\s*=>\s*\(d\s+as\s+G6EdgeData\)\.rel_type",
+    gc_src, re.DOTALL))
+check("graph: selected-state edge labelText reveals rel_type", selected_label_ok,
+      "edge state.selected must show rel_type — see GraphCanvas.tsx edge.state.selected")
+
 # 10. Reset-key infrastructure (idempotent: validates tooling + format +
 #     agent_id consistency, never rotates live keys). The actual rotation
 #     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.
-import re
 IHK_RE = re.compile(r"^ihk_[a-f0-9]{64}$")
 KEYS_FILE = "$HOME_DIR/core/agent-keys.txt".replace("$HOME_DIR", "/home/zou/IntelHub")
 keys_txt = vm(f"cat {KEYS_FILE} 2>/dev/null")
 def extract(name, blob):
     # Walk to the `=== name ===` header that is followed by `name: <name>`
     # (proves it's the correct block — tolerates stray duplicate headers from
-    # past edits). Then read agent_id + api_key from the next 5 lines.
+    # past edits). Then read agent_id + api_key from the next few lines,
+    # STOPPING at the next `=== ` block delimiter so a sibling block's
+    # agent_id can't overwrite ours.
     aid = key = None
     lines = blob.splitlines()
     for i, line in enumerate(lines):
@@ -214,6 +233,9 @@ def extract(name, blob):
             if lines[j].strip().startswith("name:"):
                 if lines[j].split(":", 1)[1].strip() == name:
                     for k in range(i + 1, min(i + 8, len(lines))):
+                        # Hard boundary: stop at the next block delimiter.
+                        if lines[k].startswith("=== "):
+                            return (aid, key)
                         if lines[k].startswith("agent_id:"):
                             aid = lines[k].split(":", 1)[1].strip()
                         elif lines[k].startswith("api_key:"):
