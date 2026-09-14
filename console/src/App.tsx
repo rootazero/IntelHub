@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
 import { I18nProvider, LANGS, useT } from "./i18n";
+import { MapViewProvider } from "./useMapView";
 import Overview from "./pages/Overview";
 import Monitor from "./pages/Monitor";
 import Radar from "./pages/Radar";
@@ -117,7 +118,9 @@ function KeyGate({ onDone }: { onDone: () => void }) {
 export default function App() {
   return (
     <I18nProvider>
-      <Shell />
+      <MapViewProvider>
+        <Shell />
+      </MapViewProvider>
     </I18nProvider>
   );
 }
