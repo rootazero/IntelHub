@@ -39,11 +39,16 @@ const SEV_COLOR: Record<string, string> = {
   info: "#38bdf8",
 };
 
-type TileProvider = "carto" | "esri";
+type TileProvider = "stadia" | "carto" | "esri";
 type TilesMode = TileProvider | "offline";
 
+const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
 const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
 const PROVIDERS = {
+  stadia: {
+    url: `https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${STADIA_KEY}`,
+    options: { attribution: "&copy; Stadia Maps &copy; OSM", subdomains: "abcd", maxZoom: 20 },
+  },
   carto: {
     url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
     options: { attribution: "&copy; OSM &copy; CARTO", subdomains: "abcd", maxZoom: 20 },
@@ -53,7 +58,10 @@ const PROVIDERS = {
     options: { attribution: "&copy; Esri", maxZoom: 16 },
   },
 } as const;
-const CHAIN: TileProvider[] = CARTO_KEY ? ["carto", "esri"] : ["esri"];
+const CHAIN: TileProvider[] =
+  STADIA_KEY ? ["stadia", "esri"]
+  : CARTO_KEY ? ["carto", "esri"]
+  : ["esri"];
 const PRIMARY = CHAIN[0];
 
 // Frame↔map contract: the map always shows the INHABITED world fitted exactly

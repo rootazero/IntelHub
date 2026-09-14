@@ -315,11 +315,19 @@ step_keys() {
     fi
   fi
 
-  # CARTO basemap key → console build-time input (never into the repo tree)
+  # Dark basemap keys (optional) → console build-time inputs.
+  # Order: Stadia (preferred, designed for OSINT data overlay, true
+  # black) first; CARTO legacy primary second. Either or both may be
+  # provided — the rendered chain picks Stadia if keyed, else CARTO if
+  # keyed, else Esri fallback (grey not black).
   local benv="$HOME_DIR/core/console-build.env"
   [[ -f "$benv" ]] || { echo "# console build-time inputs (0600)" > "$benv"; chmod 600 "$benv"; }
+  if [[ -z "$(get_env "$benv" VITE_STADIA_KEY)" ]]; then
+    v=$(prompt_key "STADIA_API_KEY" "Stadia Maps dark basemap key（stadiamaps.com 免费注册，非商业可用）" "雷达自动回退 Esri 灰色底图")
+    [[ -n "$v" ]] && upsert_env "$benv" VITE_STADIA_KEY "$v"
+  fi
   if [[ -z "$(get_env "$benv" VITE_CARTO_KEY)" ]]; then
-    v=$(prompt_key "CARTO_BASEMAP_KEY" "CARTO 底图 key（carto.com/basemaps/apikey 免费注册）" "雷达自动使用 Esri 兜底底图（美观度略降）")
+    v=$(prompt_key "CARTO_BASEMAP_KEY" "CARTO 底图 key（carto.com/basemaps/apikey 免费注册）" "雷达自动回退 Esri 灰色底图")
     [[ -n "$v" ]] && upsert_env "$benv" VITE_CARTO_KEY "$v"
   fi
 }

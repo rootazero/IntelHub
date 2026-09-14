@@ -69,6 +69,22 @@ def req(path, key=KEY, timeout=30, method="GET", body=None, raw=False):
 
 
 def ssh(cmd, timeout=90):
+    """Run a command on the target VM.
+
+    Two modes:
+      - Remote (default): ssh into SSH_HOST (IntelHub or IntelHub-test).
+        Used when the script is invoked from a Mac or another host.
+      - Local: if SSH_HOST == 'localhost' (or INTELHUB_LOCAL=1 is set),
+        run the command directly via subprocess. Required because VM 410
+        has no private key for ssh-ing back to itself — the script can
+        only run docker exec commands directly when it lives on the VM.
+
+    Detects the mode once at startup so per-call cost is minimal.
+    """
+    if SSH_HOST in ("localhost", "127.0.0.1") or os.environ.get("INTELHUB_LOCAL") == "1":
+        return subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+        ).stdout.strip()
     return subprocess.run(
         ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
         capture_output=True, text=True, timeout=timeout,
@@ -547,7 +563,12 @@ def check_11_baseline_regressions():
     failures = []
     notes = []
     for s in scripts:
-        argv = [sys.executable, f"scripts/accept-{s}.py", KEY]
+        # Use absolute script paths because cwd at run time may not be
+        # the scripts dir (commonly the user's home). Without this,
+        # child scripts silently crash with rc=2 and "tail: " empty.
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   f"accept-{s}.py")
+        argv = [sys.executable, script_path, KEY]
         if s == "sp2b":
             if not admin_token:
                 # sp2b requires an admin token; without one we report SKIPPED
@@ -563,6 +584,11 @@ def check_11_baseline_regressions():
         child_env = dict(os.environ)
         child_env.setdefault("INTELHUB_SSH", SSH_HOST)
         child_env.setdefault("INTELHUB_HUB", BASE)
+        # Forward INTELHUB_LOCAL so nested scripts know to skip ssh
+        # when running directly on the target VM. Parent has it set;
+        # children need it propagated to reach the same VMs as the
+        # parent (e.g. accept-sp10 also relies on docker exec, not ssh).
+        child_env.setdefault("INTELHUB_LOCAL", os.environ.get("INTELHUB_LOCAL", "0"))
         try:
             proc = subprocess.run(argv, capture_output=True, text=True, timeout=180, env=child_env)
         except subprocess.TimeoutExpired:
@@ -678,6 +704,107 @@ def check_15_entity_search_rest():
     )
 
 
+def check_16_mcp_v2_extract_claims():
+    """MCP exposes v2_extract_claims — the first real caller of the v2
+    audit helper (graph_v2::audit::emit_claim_audit, phase 5/6). This
+    is the SP9-side mirror of accept-sp10.check_39, kept here so the
+    KG-memory-layer acceptance covers the new write-side path.
+
+    Verifies:
+      1. MCP tools/list includes v2_extract_claims
+      2. Calling it via MCP inserts a claim + audit row
+      3. The audit row drains via graph_change_log mirror to Neo4j
+      4. :Claim + :ABOUT edge exist in Neo4j within the timeout
+    Cleans up in finally so re-runs are idempotent.
+    """
+    global sid
+    sid_local = sid
+    try:
+        try:
+            names = tools_list(sid_local)
+        except urllib.error.HTTPError:
+            sid_local = mcp_initialize()
+            names = tools_list(sid_local)
+        if "v2_extract_claims" not in names:
+            return False, f"v2_extract_claims missing from MCP tool list ({len(names)} tools total)"
+
+        # Insert test claim via MCP
+        suffix = str(int(time.time()))
+        text = f"phase7-accept-sp9 check_16 marker {suffix}"
+        ent_name = f"Phase7AcceptSp9_{suffix}"
+        resp = tool(sid_local, "v2_extract_claims", {
+            "claims": [{
+                "text": text,
+                "entity_refs": [{"kind": "org", "name": ent_name, "role": "subject"}],
+            }],
+        }, rid=900)
+        payload = tool_json(resp)
+        if isinstance(payload, dict) and payload.get("_text"):
+            return False, f"MCP call returned non-JSON payload: {payload['_text'][:200]}"
+        if isinstance(payload, dict) and payload.get("http_error"):
+            return False, f"MCP HTTP {payload['http_error']}: {payload.get('body','')[:200]}"
+        err = tool_error(resp)
+        if err:
+            return False, f"MCP error: {err}"
+        cid = None
+        if isinstance(payload, dict):
+            cid = payload.get("claim_ids", [None])[0]
+        if not cid:
+            return False, f"v2_extract_claims did not return a claim_id (got {str(payload)[:200]})"
+
+        # Wait for audit row mirror (mirror worker 15s + replay worker 15s
+        # + Neo4j commit propagation). Worst case is ~40s; give 90s budget
+        # so the test survives VM load without flaking.
+        deadline = time.time() + 90
+        mirrored = False
+        while time.time() < deadline:
+            n = sql(f"SELECT count(*) FROM graph_change_log WHERE target_kind='claim' "
+                    f"AND target_id='{cid}' AND mirrored_at IS NOT NULL")
+            if n.isdigit() and int(n) >= 1:
+                mirrored = True
+                break
+            time.sleep(3)
+        if not mirrored:
+            return False, f"MCP-created claim {cid[:8]} audit row not mirrored in 90s"
+
+        # Audit mirror enqueued a graph_sync_queue op; wait for the
+        # replay worker to drain it (status='DONE') before checking
+        # Neo4j. The two workers are independent 15s ticks so the
+        # replay tick can lag the mirror tick by up to 15s.
+        deadline = time.time() + 30
+        replayed = False
+        while time.time() < deadline:
+            n = sql(f"SELECT count(*) FROM graph_sync_queue WHERE op->>'type'='create_claim' "
+                    f"AND op->>'claim_id'='{cid}' AND status='DONE'")
+            if n.isdigit() and int(n) >= 1:
+                replayed = True
+                break
+            time.sleep(3)
+        if not replayed:
+            return False, f"MCP-created claim {cid[:8]} replay op not DONE in 90s+30s"
+
+        # Verify Neo4j has :Claim + :Entity + :ABOUT edge. cypher() uses
+        # string interpolation (not parameterized); UUID is safe to embed.
+        rows = cypher(
+            f"MATCH (c:Claim {{claim_id:'{cid}'}})-[:ABOUT]->(e:Entity) "
+            f"WHERE e.kind='org' AND e.name='{ent_name}' "
+            f"RETURN c.text, e.name"
+        )
+        found = any(text in line for line in rows) and any(ent_name in line for line in rows)
+        if not found:
+            return False, f"Neo4j missing :ABOUT edge for MCP claim {cid[:8]} (rows={rows[:3]})"
+
+        return True, (
+            f"MCP v2_extract_claims → claim {cid[:8]} → audit row → mirror → "
+            f"replay → :Claim + :ABOUT edge"
+        )
+    finally:
+        try:
+            cleanup_check_16_test_data()
+        except Exception:
+            pass
+
+
 def check_14_neo4j_mirror_lag():
     """40 v1-shape write ops drain via graph_sync_queue in < 30s."""
     _prune_unsupported_queue_ops()
@@ -735,6 +862,23 @@ def _prune_unsupported_queue_ops():
 
 # ----- runner ----------------------------------------------------------
 
+def cleanup_check_16_test_data():
+    """Best-effort cleanup of check_16 test data so re-runs are idempotent.
+    Matches sp10.check_39's cleanup pattern. PG first (foreign keys),
+    then Neo4j DETACH DELETE."""
+    sql("DELETE FROM claim_entities WHERE entity_id IN "
+        "(SELECT entity_id FROM entities WHERE name LIKE 'Phase7AcceptSp9_%')")
+    sql("DELETE FROM entities WHERE name LIKE 'Phase7AcceptSp9_%'")
+    sql("DELETE FROM claims WHERE text LIKE 'phase7-accept-sp9%'")
+    sql("DELETE FROM graph_change_log WHERE target_id IN "
+        "(SELECT claim_id::text FROM claims WHERE text LIKE 'phase7-accept-sp9%')")
+    sql("DELETE FROM graph_sync_queue WHERE op::text LIKE '%Phase7AcceptSp9%'")
+    try:
+        cypher("MATCH (e:Entity) WHERE e.name STARTS WITH 'Phase7AcceptSp9' DETACH DELETE e")
+        cypher("MATCH (c:Claim) WHERE c.text STARTS WITH 'phase7-accept-sp9' DETACH DELETE c")
+    except Exception:
+        pass
+
 CHECKS = [
     ("01 migration 0008 applied", check_01_migration_0008),
     ("02 Neo4j 4 constraints + 5 indexes", check_02_neo4j_constraints),
@@ -751,6 +895,7 @@ CHECKS = [
     ("13 MCP tool count (28 + 10 = 38+)", check_13_mcp_tool_count),
     ("14 Neo4j mirror lag < 30s smoke", check_14_neo4j_mirror_lag),
     ("15 /api/v1/graph/entities/search (entity picker REST)", check_15_entity_search_rest),
+    ("16 MCP exposes v2_extract_claims (KG write-side, mirrors sp10.check_39)", check_16_mcp_v2_extract_claims),
 ]
 
 try:

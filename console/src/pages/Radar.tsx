@@ -29,17 +29,32 @@ const SEV_COLOR: Record<string, string> = {
 
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 168, "30d": 720 };
 
-type TilesMode = "carto" | "esri" | "offline";
-type TileProvider = "carto" | "esri";
+type TilesMode = "stadia" | "carto" | "esri" | "offline";
+type TileProvider = "stadia" | "carto" | "esri";
 
-// Basemap chain. CARTO dark_all is primary ONLY when a key is baked in at
-// build time (VITE_CARTO_KEY, set by scripts/install.sh or build-console.sh);
-// without a key the chain starts at Esri (CARTO would answer 200+watermark,
-// which emits no tileerror and could never fail over). A burst of ≥4 tile
-// errors (or no successful tile in the first 5s) advances one tier; the last
-// tier is the bundled offline GeoJSON.
+// Basemap chain. Two optional providers both supported:
+//   - Stadia Maps (alidade_smooth_dark): primary choice when a key is
+//     available. Designed as a data-overlay canvas (true black,
+//     designed for OSINT use). Free tier: 200K credits/month,
+//     non-commercial use permitted (stadiamaps.com/sign-up).
+//   - CARTO dark_all: legacy primary. 5M tiles/month free for
+//     non-commercial, requires key at carto.com/fascap/apikey.
+// Without either key the chain starts at Esri (which is grey, not true
+// black, but always available without auth).
+// A burst of ≥4 tile errors (or no successful tile in the first 5s)
+// advances one tier; the last tier is the bundled offline GeoJSON.
+const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
 const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
 const PROVIDERS = {
+  stadia: {
+    url: `https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${STADIA_KEY}`,
+    options: {
+      attribution:
+        '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+      subdomains: "abcd",
+      maxZoom: 20,
+    },
+  },
   carto: {
     url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
     options: {
@@ -57,7 +72,11 @@ const PROVIDERS = {
     },
   },
 } as const;
-const CHAIN: TileProvider[] = CARTO_KEY ? ["carto", "esri"] : ["esri"];
+// Order: stadia if keyed, else carto if keyed, else esri.
+const CHAIN: TileProvider[] =
+  STADIA_KEY ? ["stadia", "esri"]
+  : CARTO_KEY ? ["carto", "esri"]
+  : ["esri"];
 const PRIMARY = CHAIN[0];
 
 export default function Radar() {
@@ -270,12 +289,12 @@ export default function Radar() {
         </select>
         <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
         <span className="ml-auto flex items-center gap-2">
-          {!CARTO_KEY && (
+          {!STADIA_KEY && !CARTO_KEY && (
             <span
               className="rounded bg-rose-500/15 px-1.5 py-0.5 mono text-[10px] text-rose-400"
-              title="CARTO basemap key missing from build — chain starts at Esri fallback. Sign up at carto.com/basemaps/apikey (free) and rebuild the console with VITE_CARTO_KEY set."
+              title="Dark basemap key missing from build — chain starts at Esri fallback (grey not black). Sign up for free at stadiamaps.com (preferred, non-commercial OSINT use) or carto.com/basemaps/apikey (5M tiles/mo), then rebuild the console with VITE_STADIA_KEY or VITE_CARTO_KEY set."
             >
-              CARTO KEY MISSING
+              DARK MAP KEY MISSING
             </span>
           )}
           <span
