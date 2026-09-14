@@ -210,6 +210,29 @@ selected_label_ok = bool(re.search(
 check("graph: selected-state edge labelText reveals rel_type", selected_label_ok,
       "edge state.selected must show rel_type — see GraphCanvas.tsx edge.state.selected")
 
+# 9c. Basemap chain order (SP10): CARTO is primary, Esri is the always-on
+#     tier-2 fallback, Stadia is the last-resort tier-3 fallback. Source-
+#     level assertion — the bundle is minified so we check Radar.tsx for
+#     the CHAIN literal, which is what determines PRIMARY at runtime.
+radar_src = vm("cat /home/zou/IntelHub/console/src/pages/Radar.tsx 2>/dev/null")
+chain_section = re.search(r"const CHAIN:\s*TileProvider\[\]\s*=\s*\[(.*?)\];", radar_src, re.DOTALL)
+if chain_section:
+    section = chain_section.group(1)
+    carto_pos = section.find('"carto"')
+    stadia_pos = section.find('"stadia"')
+    esri_pos = section.find('"esri"')
+    # All three literals must appear; carto before stadia; esri between
+    # them (so chain has a tier-2 anchor that can't be skipped).
+    chain_ok = (
+        carto_pos != -1 and esri_pos != -1 and stadia_pos != -1
+        and carto_pos < esri_pos < stadia_pos
+    )
+    check("radar: basemap chain order is carto → esri → stadia", chain_ok,
+          f"carto@{carto_pos} esri@{esri_pos} stadia@{stadia_pos}")
+else:
+    check("radar: basemap chain order is carto → esri → stadia", False,
+          "could not locate CHAIN definition in Radar.tsx")
+
 # 10. Reset-key infrastructure (idempotent: validates tooling + format +
 #     agent_id consistency, never rotates live keys). The actual rotation
 #     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.
