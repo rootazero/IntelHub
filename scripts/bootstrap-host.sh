@@ -103,32 +103,44 @@ echo "    nftables ruleset applied"
 
 # ============================================================ 3/8 Docker
 echo "==> [3/8] Docker official repository + engine"
-if ! command -v docker >/dev/null 2>&1; then
+# Two-stage detection per docker.com docs:
+#   1) `command -v docker` checks the binary
+#   2) `docker info` checks the daemon is actually up
+# Some setups (WSL, containerized VMs, partial installs) have the binary
+# but no daemon — we need to install/repair in that case too.
+need_install=1
+if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+  need_install=0
+  echo "    docker already installed: $(docker --version)"
+fi
+
+if [[ "$need_install" == "1" ]]; then
   if [[ "$OS_FAMILY" == "deb" ]]; then
     sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo tee "$DOCKER_GPG_PATH" >/dev/null
+    curl -fsSL "$DOCKER_GPG_URL" | sudo gpg --dearmor --yes -o "$DOCKER_GPG_PATH" 2>/dev/null \
+      || curl -fsSL "$DOCKER_GPG_URL" | sudo tee "$DOCKER_GPG_PATH" >/dev/null
     sudo chmod a+r "$DOCKER_GPG_PATH"
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=$DOCKER_GPG_PATH] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+    echo "deb [arch=$DOCKER_REPO_ARCH signed-by=$DOCKER_GPG_PATH] ${DOCKER_REPO_URL} ${DOCKER_REPO_DIST} stable" \
       | sudo tee "$DOCKER_REPO_FILE" >/dev/null
-    sudo -E $PKG_UPDATE
-    sudo -E $PKG_INSTALL docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   else
-    # rpm family: docker.com's repo file keyed on $releasever.
-    curl -fsSL https://download.docker.com/linux/centos/gpg | sudo tee "$DOCKER_GPG_PATH" >/dev/null
+    # rpm family: docker.com's per-distro repo file. All RHEL-compatible
+    # distros (rhel, centos, rocky, almalinux, ol, amazon) use
+    # /linux/rhel/$VERSION/; fedora uses /linux/fedora/$VERSION/.
+    sudo mkdir -p "$(dirname "$DOCKER_GPG_PATH")"
+    curl -fsSL "$DOCKER_GPG_URL" | sudo gpg --dearmor --yes -o "$DOCKER_GPG_PATH" 2>/dev/null \
+      || curl -fsSL "$DOCKER_GPG_URL" | sudo tee "$DOCKER_GPG_PATH" >/dev/null
     sudo chmod a+r "$DOCKER_GPG_PATH"
     cat <<EOF | sudo tee "$DOCKER_REPO_FILE" >/dev/null
 [docker-ce-stable]
 name=Docker CE Stable - \$basearch
-baseurl=https://download.docker.com/linux/centos/\$releasever/\$basearch/stable
+baseurl=${DOCKER_REPO_URL}/${DOCKER_REPO_DIST}/\$basearch/stable
 enabled=1
 gpgcheck=1
 gpgkey=$DOCKER_GPG_PATH
 EOF
-    sudo -E $PKG_UPDATE
-    sudo -E $PKG_INSTALL docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   fi
-else
-  echo "    docker already installed: $(docker --version)"
+  sudo -E $PKG_UPDATE
+  sudo -E $PKG_INSTALL docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
 sudo tee /etc/docker/daemon.json >/dev/null <<JSON
@@ -141,7 +153,26 @@ sudo tee /etc/docker/daemon.json >/dev/null <<JSON
 JSON
 sudo systemctl restart docker
 sudo systemctl enable docker containerd
+
+# Two-stage verification per docker.com post-install guidance:
+# daemon is up AND user can talk to it without sudo. If the user-side
+# check fails, we know `usermod -aG docker` hasn't taken effect for the
+# current shell session (needs re-login) — print a clear warning.
+sudo docker info >/dev/null 2>&1 || {
+  echo "    !! docker daemon not responding after restart — check 'journalctl -xeu docker'" >&2
+  exit 1
+}
 sudo usermod -aG docker "$RUN_USER"
+if id -nG "$RUN_USER" 2>/dev/null | grep -qw docker; then
+  echo "    docker group membership verified for user '$RUN_USER'"
+else
+  echo "    !! user '$RUN_USER' not in docker group (usermod failed?)" >&2
+  exit 1
+fi
+docker compose version >/dev/null 2>&1 || {
+  echo "    !! 'docker compose' plugin not available — install docker-compose-plugin" >&2
+  exit 1
+}
 
 # ============================================================ 4/8 sshd
 echo "==> [4/8] sshd hardening"
