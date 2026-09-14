@@ -1,0 +1,22 @@
+{
+  "name": "run_component_action",
+  "description": "LEVEL 3 (requires X-Admin-Token, default DENY per §61): run a whitelisted lifecycle action on a component — upgrade|rollback|backup via the pinned VM scripts.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "action": {
+        "description": "upgrade|rollback|backup",
+        "type": "string"
+      },
+      "component": {
+        "description": "postgres|redis|neo4j|qdrant|searxng|crawl4ai|spiderfoot|huginn",
+        "type": "string"
+      }
+    },
+    "required": [
+      "component",
+      "action"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,7 @@
+data: 
+id: 0/44
+retry: 3000
+
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\n  \"limits\": {\n    \"crawl_pages\": 300.0,\n    \"embed_tokens\": 1000000.0,\n    \"global_crawl_pages\": 1000.0,\n    \"global_embed_tokens\": 5000000.0,\n    \"tool_calls\": 2000.0\n  },\n  \"ratio\": 0.011,\n  \"state\": \"GREEN\",\n  \"usage\": {\n    \"crawl_pages\": 1.0,\n    \"embed_tokens\": 0.0,\n    \"global_crawl_pages\": 1.0,\n    \"global_embed_tokens\": 0.0,\n    \"tool_calls\": 22.0\n  }\n}"}],"isError":false}}
+id: 1/44
+

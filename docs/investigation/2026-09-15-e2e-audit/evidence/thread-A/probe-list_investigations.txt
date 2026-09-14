@@ -1,0 +1,7 @@
+data: 
+id: 0/46
+retry: 3000
+
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\n  \"count\": 3,\n  \"items\": [\n    {\n      \"created_at\": \"2026-09-14T06:53:08.671614Z\",\n      \"created_by\": \"agent:agent\",\n      \"investigation_id\": \"1513e6eb-c1f0-4a46-b78e-9b7741e833f5\",\n      \"status\": \"open\",\n      \"title\": \"SP3 SSE acceptance probe\",\n      \"updated_at\": \"2026-09-14T06:53:08.671614Z\"\n    },\n    {\n      \"created_at\": \"2026-09-14T06:42:43.189332Z\",\n      \"created_by\": \"agent:agent\",\n      \"investigation_id\": \"de811243-b047-4bbe-96ff-a8598c6df937\",\n      \"status\": \"open\",\n      \"title\": \"SP3 SSE acceptance probe\",\n      \"updated_at\": \"2026-09-14T06:42:43.189332Z\"\n    },\n    {\n      \"created_at\": \"2026-09-14T06:41:07.031203Z\",\n      \"created_by\": \"agent:agent\",\n      \"investigation_id\": \"0279645d-28c9-47c0-81ff-2276624b14f6\",\n      \"status\": \"open\",\n      \"title\": \"SP3 SSE acceptance probe\",\n      \"updated_at\": \"2026-09-14T06:41:07.031203Z\"\n    }\n  ]\n}"}],"isError":false}}
+id: 1/46
+

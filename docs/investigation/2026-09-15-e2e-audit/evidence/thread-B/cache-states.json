@@ -1,0 +1,20 @@
+[
+  {
+    "query": "cache-test-zz-1",
+    "cache": "miss",
+    "count": 0,
+    "rerank": "disabled"
+  },
+  {
+    "query": "cache-test-zz-2",
+    "cache": "miss",
+    "count": 0,
+    "rerank": "disabled"
+  },
+  {
+    "query": "cache-test-zz-1",
+    "cache": "hit",
+    "count": 0,
+    "rerank": "disabled"
+  }
+]

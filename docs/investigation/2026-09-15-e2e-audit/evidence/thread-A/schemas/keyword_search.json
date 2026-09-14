@@ -1,0 +1,32 @@
+{
+  "name": "keyword_search",
+  "description": "Keyword full-text search over stored evidence documents.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 10, max 50)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "query": {
+        "description": "Keyword query over stored evidence",
+        "type": "string"
+      },
+      "url_contains": {
+        "description": "Optional: only documents whose canonical URL contains this string",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  }
+}

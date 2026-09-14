@@ -1,0 +1,38 @@
+{
+  "name": "watchlist_manage",
+  "description": "Manage the monitor market watchlist (add/remove/toggle/list). The markets collector quotes enabled symbols every 6h; finintel tracks their news/insiders/sentiment hourly. Level 2 governed.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "action": {
+        "description": "add|remove|toggle|list",
+        "type": "string"
+      },
+      "asset_class": {
+        "description": "us_stock|etf|index|crypto (add only, default us_stock)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "label": {
+        "description": "Human label (add only)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "symbol": {
+        "description": "Symbol (required for add/remove/toggle), e.g. AAPL, BTCUSD",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "type": "object"
+  }
+}

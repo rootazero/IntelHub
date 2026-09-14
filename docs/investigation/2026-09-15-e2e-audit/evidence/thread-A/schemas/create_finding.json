@@ -1,0 +1,63 @@
+{
+  "name": "create_finding",
+  "description": "Create an agent finding bound to evidence (directive §28/§29: claims must cite supporting/contradicting evidence; findings are agent inference, never presented as verified fact).",
+  "input_schema": {
+    "$defs": {
+      "EvidenceLink": {
+        "properties": {
+          "document_id": {
+            "description": "Document UUID supporting/contradicting the finding",
+            "type": "string"
+          },
+          "relation": {
+            "description": "\"supports\" (default) or \"contradicts\"",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "document_id"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "claim_text": {
+        "description": "The claim text (agent inference — NOT verified fact, directive §29)",
+        "type": "string"
+      },
+      "evidence": {
+        "description": "Evidence links — at least one required",
+        "items": {
+          "$ref": "#/$defs/EvidenceLink"
+        },
+        "type": "array"
+      },
+      "investigation_id": {
+        "description": "Investigation UUID this finding belongs to",
+        "type": "string"
+      },
+      "task_id": {
+        "description": "Optional task UUID to attribute",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "title": {
+        "description": "Short finding title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "investigation_id",
+      "title",
+      "claim_text",
+      "evidence"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "args": {
+    "query": "BRICS",
+    "limit": 3
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "cache": "hit",
+    "count": 0,
+    "items": [],
+    "mode": "keyword (vector channel unavailable or empty)",
+    "query": "BRICS",
+    "rerank": "disabled",
+    "trace_id": "1958a1d3-2ceb-4143-b06b-c80814127183"
+  },
+  "raw_first_500": "data: \nid: 0/19\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"cache\\\": \\\"hit\\\",\\n  \\\"count\\\": 0,\\n  \\\"items\\\": [],\\n  \\\"mode\\\": \\\"keyword (vector channel unavailable or empty)\\\",\\n  \\\"query\\\": \\\"BRICS\\\",\\n  \\\"rerank\\\": \\\"disabled\\\",\\n  \\\"trace_id\\\": \\\"1958a1d3-2ceb-4143-b06b-c80814127183\\\"\\n}\"}],\"isError\":false}}\nid: 1/19\n\n"
+}

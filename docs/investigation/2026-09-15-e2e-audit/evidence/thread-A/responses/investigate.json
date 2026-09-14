@@ -1,0 +1,39 @@
+{
+  "args": {
+    "question": "BRICS de-dollarization"
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "evidence": [],
+    "evidence_count": 0,
+    "investigation_id": "e53f39de-dc92-4fc6-9ef9-d9186d093c58",
+    "planner": "rule",
+    "question": "BRICS de-dollarization",
+    "steps": [
+      {
+        "description": "step 1: hybrid_search: BRICS de-dollarization",
+        "error": null,
+        "evidence_count": 0,
+        "trace_id": "9d3d658c-f500-4ba8-8a3a-92fe115dfebe"
+      },
+      {
+        "description": "step 2: query_entity: BRICS New Development Bank (org)",
+        "error": null,
+        "evidence_count": 0,
+        "trace_id": "1173c994-83cd-47b7-bfe1-33c6ba7f716c"
+      },
+      {
+        "description": "step 3: list_findings (existing claims)",
+        "error": null,
+        "evidence_count": 0,
+        "trace_id": "fd2a52cd-fdbe-4f0c-a6b4-bdb37c5dd57c"
+      }
+    ],
+    "successful_steps": 3,
+    "synthesis": "Investigation ran 3 step(s); 0 evidence item(s) collected.\n  \u2713 step 1: hybrid_search: BRICS de-dollarization: 0 item(s)\n  \u2713 step 2: query_entity: BRICS New Development Bank (org): 0 item(s)\n  \u2713 step 3: list_findings (existing claims): 0 item(s)\n\nNo evidence found. Consider widening query or providing a specific entity name.\n",
+    "total_steps": 3,
+    "trace_id": "2ef5bb8e-e366-4ea4-b874-089d68ba09dd"
+  },
+  "raw_first_500": "data: \nid: 0/20\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"evidence\\\": [],\\n  \\\"evidence_count\\\": 0,\\n  \\\"investigation_id\\\": \\\"e53f39de-dc92-4fc6-9ef9-d9186d093c58\\\",\\n  \\\"planner\\\": \\\"rule\\\",\\n  \\\"question\\\": \\\"BRICS de-dollarization\\\",\\n  \\\"steps\\\": [\\n    {\\n      \\\"description\\\": \\\"step 1: hybrid_search: BRICS de-dollarization\\\",\\n      \\\"error\\\": null,\\n      \\\"evidence_count\\\": 0,\\n      \\\"trace_id\\\": \\\"9d3d658c-f500-4ba8-8a3a-92fe115dfeb"
+}

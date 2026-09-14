@@ -1,0 +1,123 @@
+{
+  "args": {},
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "components": {
+      "crawl4ai": {
+        "latency_ms": 2,
+        "status": "up"
+      },
+      "grafana": {
+        "latency_ms": 4,
+        "status": "up"
+      },
+      "monitor": {
+        "latency_ms": 0,
+        "status": "up"
+      },
+      "neo4j": {
+        "latency_ms": 1,
+        "status": "up"
+      },
+      "postgres": {
+        "latency_ms": 0,
+        "status": "up"
+      },
+      "prometheus": {
+        "latency_ms": 3,
+        "status": "up"
+      },
+      "qdrant": {
+        "latency_ms": 0,
+        "status": "up"
+      },
+      "redis": {
+        "latency_ms": 0,
+        "status": "up"
+      },
+      "searxng": {
+        "latency_ms": 2,
+        "status": "up"
+      }
+    },
+    "containers": [
+      {
+        "Image": "5474efe427ca",
+        "Names": "intelhub-huginn",
+        "State": "running",
+        "Status": "Up 21 hours (unhealthy)"
+      },
+      {
+        "Image": "grafana/grafana:13.2.1",
+        "Names": "intelhub-grafana",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "unclecode/crawl4ai:0.9.3",
+        "Names": "intelhub-crawl4ai",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "intelhub/spiderfoot:0f815a203afe",
+        "Names": "intelhub-spiderfoot",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "searxng/searxng:2026.9.13-e61d09756",
+        "Names": "intelhub-searxng",
+        "State": "running",
+        "Status": "Up 8 hours (healthy)"
+      },
+      {
+        "Image": "prom/prometheus:v3.14.0",
+        "Names": "intelhub-prometheus",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "postgres:17.11-trixie",
+        "Names": "intelhub-postgres",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "prom/node-exporter:v1.12.1",
+        "Names": "intelhub-node-exporter",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "gcr.io/cadvisor/cadvisor:v0.55.1",
+        "Names": "intelhub-cadvisor",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "redis:7.4.11-alpine",
+        "Names": "intelhub-redis",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "qdrant/qdrant:v1.19.1",
+        "Names": "intelhub-qdrant",
+        "State": "running",
+        "Status": "Up 21 hours (healthy)"
+      },
+      {
+        "Image": "neo4j:5.26.30-community",
+        "Names": "intelhub-neo4j",
+        "State": "running",
+        "Status": "Up 8 hours (healthy)"
+      }
+    ],
+    "service": "intelhub-core",
+    "ts": "2026-09-14T14:26:41.056104941Z",
+    "version": "0.1.0"
+  },
+  "raw_first_500": "data: \nid: 0/17\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"components\\\": {\\n    \\\"crawl4ai\\\": {\\n      \\\"latency_ms\\\": 2,\\n      \\\"status\\\": \\\"up\\\"\\n    },\\n    \\\"grafana\\\": {\\n      \\\"latency_ms\\\": 4,\\n      \\\"status\\\": \\\"up\\\"\\n    },\\n    \\\"monitor\\\": {\\n      \\\"latency_ms\\\": 0,\\n      \\\"status\\\": \\\"up\\\"\\n    },\\n    \\\"neo4j\\\": {\\n      \\\"latency_ms\\\": 1,\\n      \\\"status\\\": \\\"up\\\"\\n    },\\n    \\\"postgres\\\": {\\n      \\\"latency_ms\\\": 0,\\n      \\"
+}

@@ -1,0 +1,9 @@
+{
+  "args": {
+    "alert_id": "aebb0997-8db2-4e62-8c18-33b2cd83aa65"
+  },
+  "kind": "soft-mutate",
+  "is_error": false,
+  "parsed_content": null,
+  "raw_first_500": "data: \nid: 0/26\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"alert not found or not open\"}}\nid: 1/26\n\n"
+}

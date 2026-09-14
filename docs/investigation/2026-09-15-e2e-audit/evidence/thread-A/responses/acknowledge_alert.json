@@ -1,0 +1,12 @@
+{
+  "args": {
+    "alert_id": "aebb0997-8db2-4e62-8c18-33b2cd83aa65"
+  },
+  "kind": "soft-mutate",
+  "is_error": false,
+  "parsed_content": {
+    "alert_id": "aebb0997-8db2-4e62-8c18-33b2cd83aa65",
+    "status": "ack"
+  },
+  "raw_first_500": "data: \nid: 0/5\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"alert_id\\\": \\\"aebb0997-8db2-4e62-8c18-33b2cd83aa65\\\",\\n  \\\"status\\\": \\\"ack\\\"\\n}\"}],\"isError\":false}}\nid: 1/5\n\n"
+}

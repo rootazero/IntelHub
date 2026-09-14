@@ -1,0 +1,25 @@
+{
+  "name": "find_supporting_claims",
+  "description": "Claims that cite this entity, joined with documents that support them (supports-only by design; use find_contradicting_claims for the opposing half).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "entity_id": {
+        "description": "Entity UUID",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Max results (default 50, max 100)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "entity_id"
+    ],
+    "type": "object"
+  }
+}

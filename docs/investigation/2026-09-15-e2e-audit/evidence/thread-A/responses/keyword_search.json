@@ -1,0 +1,16 @@
+{
+  "args": {
+    "query": "BRICS",
+    "limit": 3
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "cache": "hit",
+    "count": 0,
+    "items": [],
+    "mode": "keyword",
+    "trace_id": "d2581f7a-2037-49a1-88f8-ba13d7eaaa5b"
+  },
+  "raw_first_500": "data: \nid: 0/21\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"cache\\\": \\\"hit\\\",\\n  \\\"count\\\": 0,\\n  \\\"items\\\": [],\\n  \\\"mode\\\": \\\"keyword\\\",\\n  \\\"trace_id\\\": \\\"d2581f7a-2037-49a1-88f8-ba13d7eaaa5b\\\"\\n}\"}],\"isError\":false}}\nid: 1/21\n\n"
+}

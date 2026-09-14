@@ -1,0 +1,25 @@
+{
+  "name": "list_investigations",
+  "description": "List investigations, optionally filtered by status.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 20, max 100)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "status": {
+        "description": "Filter by status (open|paused|closed); omit for all",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

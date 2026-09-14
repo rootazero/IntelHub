@@ -1,0 +1,17 @@
+{
+  "name": "query_investigation_graph",
+  "description": "Findings + entities + claims for an investigation (joins via claim_entities + findings.investigation_id).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "investigation_id": {
+        "description": "Investigation UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "investigation_id"
+    ],
+    "type": "object"
+  }
+}

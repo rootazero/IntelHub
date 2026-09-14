@@ -1,0 +1,48 @@
+{
+  "name": "update_investigation",
+  "description": "Update an investigation's fields (title/question/target/hypothesis/status).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "hypothesis": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "investigation_id": {
+        "description": "Investigation UUID",
+        "type": "string"
+      },
+      "question": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "status": {
+        "description": "open|paused|closed",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "title": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "investigation_id"
+    ],
+    "type": "object"
+  }
+}
