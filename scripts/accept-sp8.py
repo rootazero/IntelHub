@@ -211,11 +211,12 @@ check("graph: selected-state edge labelText reveals rel_type", selected_label_ok
       "edge state.selected must show rel_type — see GraphCanvas.tsx edge.state.selected")
 
 # 9c. Basemap chain order (SP10): CARTO is primary, Esri is the always-on
-#     tier-2 fallback, Stadia is the last-resort tier-3 fallback. Source-
-#     level assertion — the bundle is minified so we check Radar.tsx for
-#     the CHAIN literal, which is what determines PRIMARY at runtime.
-radar_src = vm("cat /home/zou/IntelHub/console/src/pages/Radar.tsx 2>/dev/null")
-chain_section = re.search(r"const CHAIN:\s*TileProvider\[\]\s*=\s*\[(.*?)\];", radar_src, re.DOTALL)
+#     tier-2 fallback, Stadia is the last-resort tier-3 fallback. Single
+#     source of truth — both Radar and the command-deck MonitorMap import
+#     from console/src/basemap, so we check that one file for the CHAIN
+#     literal. The bundle is minified, hence source-level.
+basemap_src = vm("cat /home/zou/IntelHub/console/src/basemap.ts 2>/dev/null")
+chain_section = re.search(r"export const CHAIN:\s*TileProvider\[\]\s*=\s*\[(.*?)\];", basemap_src, re.DOTALL)
 if chain_section:
     section = chain_section.group(1)
     carto_pos = section.find('"carto"')
@@ -227,11 +228,26 @@ if chain_section:
         carto_pos != -1 and esri_pos != -1 and stadia_pos != -1
         and carto_pos < esri_pos < stadia_pos
     )
-    check("radar: basemap chain order is carto → esri → stadia", chain_ok,
+    check("radar: basemap chain order is carto → esri → stadia (basemap.ts)", chain_ok,
           f"carto@{carto_pos} esri@{esri_pos} stadia@{stadia_pos}")
 else:
-    check("radar: basemap chain order is carto → esri → stadia", False,
-          "could not locate CHAIN definition in Radar.tsx")
+    check("radar: basemap chain order is carto → esri → stadia (basemap.ts)", False,
+          "could not locate CHAIN definition in console/src/basemap.ts")
+
+# 9d. Single source of truth: both Radar and the command-deck MonitorMap
+#     must import from ../basemap (or ../../basemap) — no local redefinitions.
+#     This catches the regression where someone copy-pastes PROVIDERS / CHAIN
+#     back into a page file, which would silently desync the two maps again.
+for page, import_path in [
+    ("console/src/pages/Radar.tsx", r"from\s+[\"']\.\./basemap[\"']"),
+    ("console/src/components/hud/MonitorMap.tsx", r"from\s+[\"']\.\./\.\./basemap[\"']"),
+]:
+    page_src = vm(f"cat /home/zou/IntelHub/{page} 2>/dev/null")
+    imports_ok = bool(re.search(import_path, page_src)) and "from.meta.env" not in page_src
+    # `from.meta.env` would catch an accidental local const that re-reads
+    # import.meta.env directly instead of going through basemap.ts.
+    check(f"basemap: {page} imports from shared basemap module", imports_ok,
+          "must use 'from \"../basemap\"' / 'from \"../../basemap\"' — no local PROVIDERS/CHAIN/PRIMARY/STADIA_KEY/CARTO_KEY")
 
 # 10. Reset-key infrastructure (idempotent: validates tooling + format +
 #     agent_id consistency, never rotates live keys). The actual rotation
