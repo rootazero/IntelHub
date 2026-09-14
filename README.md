@@ -88,7 +88,7 @@ deployment topology — lives in [`OSINTIntelligenceHub.md`](OSINTIntelligenceHu
 
 ---
 
-## One-line install (Debian/Ubuntu, e.g. a fresh Proxmox VM)
+## One-line install (Debian or RHEL family, e.g. a fresh Proxmox VM)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/install.sh | bash
@@ -221,8 +221,20 @@ exists in `core/agent-keys.txt`, the step skips. Re-running `install.sh` or
 
 ## System requirements
 
-- **OS**: Debian 13 (trixie) or Ubuntu 22.04+ — the install script
-  preflight-checks and aborts on anything else.
+- **OS**: any Linux on x86_64 — both major families:
+  - **Debian family**: Debian 12+ (bookworm/trixie), Ubuntu 22.04+, Linux Mint,
+    Pop!_OS, Elementary, Kali, Raspbian, and any other distro whose `ID_LIKE`
+    contains `debian`.
+  - **RHEL family**: RHEL 8+/9, CentOS Stream 8+/9, Rocky Linux 8+/9, AlmaLinux
+    8+/9, Fedora 36+, Amazon Linux 2023+, Oracle Linux, and any other distro
+    whose `ID_LIKE` contains `rhel` or `fedora`.
+
+  The install script auto-detects via `/etc/os-release` and adapts the
+  package manager (`apt-get` vs `dnf`/`yum`), Docker repo paths, and
+  unattended-upgrade mechanism (`unattended-upgrades` vs `dnf-automatic`).
+  Both families produce the same end state — a working `hub-core` + Docker
+  stack on a fixed LAN IP. Use `INTELHUB_FORCE_OS=1` to bypass detection
+  (unsupported distros / future families).
 - **Hardware**: 4 vCPU / 8 GB RAM minimum (a Proxmox VM is the reference
   shape). Plan for 16 GB if you'll be running heavy embedding / crawl jobs.
 - **Disk**: ~20 GB for the OS + docker stack + raw data + manifests.

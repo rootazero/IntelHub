@@ -249,6 +249,43 @@ for page, import_path in [
     check(f"basemap: {page} imports from shared basemap module", imports_ok,
           "must use 'from \"../basemap\"' / 'from \"../../basemap\"' — no local PROVIDERS/CHAIN/PRIMARY/STADIA_KEY/CARTO_KEY")
 
+# 9e. RPM support: scripts/os-detect.sh is the single source of truth for
+#     OS detection and pkg manager selection. install.sh + bootstrap-host.sh
+#     must source it (not re-implement /etc/os-release parsing). Neither
+#     script may hardcode 'apt-get install' in its body (must use the
+#     $PKG_INSTALL variable exported by os-detect).
+os_detect_src = vm("cat /home/zou/IntelHub/scripts/os-detect.sh 2>/dev/null")
+check("rpm: scripts/os-detect.sh exposes OS_FAMILY variable",
+      "OS_FAMILY" in os_detect_src,
+      "must export OS_FAMILY=deb|rpm")
+check("rpm: scripts/os-detect.sh sets PKG_INSTALL for deb",
+      bool(re.search(r'PKG_INSTALL=\"apt-get install', os_detect_src)),
+      "deb-family PKG_INSTALL must be 'apt-get install -y -qq'")
+check("rpm: scripts/os-detect.sh sets PKG_INSTALL for rpm (dnf or yum)",
+      bool(re.search(r'PKG_INSTALL=\"(?:dnf|yum) install', os_detect_src)),
+      "rpm-family PKG_INSTALL must be 'dnf install -y -q' or 'yum install -y -q'")
+
+install_src = vm("cat /home/zou/IntelHub/scripts/install.sh 2>/dev/null")
+check("rpm: install.sh sources os-detect.sh",
+      bool(re.search(r'os-detect\.sh', install_src)),
+      "install.sh must source scripts/os-detect.sh for shared OS detection")
+
+bootstrap_src = vm("cat /home/zou/IntelHub/scripts/bootstrap-host.sh 2>/dev/null")
+check("rpm: bootstrap-host.sh sources os-detect.sh",
+      bool(re.search(r'os-detect\.sh', bootstrap_src)),
+      "bootstrap-host.sh must source scripts/os-detect.sh")
+# Reject raw apt-get in the body (must go through $PKG_INSTALL).
+# Allow it inside the comments / os-detect.sh sourced content though.
+body_lines = [
+    l for l in bootstrap_src.splitlines()
+    if l.strip() and not l.lstrip().startswith("#")
+]
+body = "\n".join(body_lines)
+hardcoded_apt = bool(re.search(r'\bsudo\b[^\n]*\bapt-get install\b', body))
+check("rpm: bootstrap-host.sh body uses $PKG_INSTALL, no hardcoded apt-get install",
+      not hardcoded_apt,
+      "body must use $PKG_INSTALL — found raw 'sudo apt-get install' outside comments")
+
 # 10. Reset-key infrastructure (idempotent: validates tooling + format +
 #     agent_id consistency, never rotates live keys). The actual rotation
 #     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.

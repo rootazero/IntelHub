@@ -77,7 +77,7 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 
 ---
 
-## 一键安装（Debian/Ubuntu，例如全新的 Proxmox VM）
+## 一键安装（Debian 或 RHEL 系，例如全新的 Proxmox VM）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/install.sh | bash
@@ -198,8 +198,18 @@ bash scripts/reset-key.sh all        # 同时重置两个
 
 ## 系统要求
 
-- **操作系统**：Debian 13（trixie）或 Ubuntu 22.04+ —— 安装脚本的 preflight 会检查并
-  在其他系统上中止。
+- **操作系统**：x86_64 上的任意 Linux —— 两大主流发行版族都支持：
+  - **Debian 系**：Debian 12+（bookworm/trixie）、Ubuntu 22.04+、Linux Mint、Pop!_OS、
+    Elementary、Kali、Raspbian，以及任何 `ID_LIKE` 包含 `debian` 的发行版。
+  - **RHEL 系**：RHEL 8+/9、CentOS Stream 8+/9、Rocky Linux 8+/9、AlmaLinux 8+/9、
+    Fedora 36+、Amazon Linux 2023+、Oracle Linux，以及任何 `ID_LIKE` 包含 `rhel`
+    或 `fedora` 的发行版。
+
+  安装脚本通过 `/etc/os-release` 自动检测并适配包管理器（`apt-get` 还是
+  `dnf`/`yum`）、Docker 仓库路径、自动更新机制（`unattended-upgrades` 还是
+  `dnf-automatic`）。两个家族最终产出完全一样的端点状态 —— 一个能在固定 LAN IP 上
+  工作的 `hub-core` + Docker 栈。用 `INTELHUB_FORCE_OS=1` 可绕过检测（用于其他未官方
+  支持的发行版 / 未来家族）。
 - **硬件**：最少 4 vCPU / 8 GB 内存（Proxmox VM 是参考配置）。如果跑重型 embedding /
   crawl 任务，建议 16 GB。
 - **磁盘**：系统 + docker 栈 + 原始数据 + manifests 共需约 20 GB。爬取的 HTML 和快照增长
