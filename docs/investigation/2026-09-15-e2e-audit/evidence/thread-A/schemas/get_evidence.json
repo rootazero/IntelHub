@@ -1,0 +1,17 @@
+{
+  "name": "get_evidence",
+  "description": "Get a stored evidence document including provenance chain (source, retrieval time, content hash) and the findings that reference it.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "document_id": {
+        "description": "Document UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "document_id"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "args": {
+    "entity_id": "3846325c-093f-4ac7-85e4-4ab4daa50468"
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": [],
+  "raw_first_500": "data: \nid: 0/10\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}],\"isError\":false}}\nid: 1/10\n\n"
+}

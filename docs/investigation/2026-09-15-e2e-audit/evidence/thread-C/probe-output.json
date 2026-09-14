@@ -1,0 +1,166 @@
+{
+  "summary": {
+    "routes_tested": 17,
+    "routes_with_pageerrors": 0,
+    "routes_with_consoleerrors": 0,
+    "routes_with_empty_root": 0,
+    "routes_5xx": 0,
+    "routes_nav_failed": 0
+  },
+  "results": [
+    {
+      "route": "/",
+      "url": "http://10.10.10.45:8800/",
+      "rootLen": 128956,
+      "screenshot": "./screenshots/_root.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/radar",
+      "url": "http://10.10.10.45:8800/radar",
+      "rootLen": 70744,
+      "screenshot": "./screenshots/_radar.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/signals",
+      "url": "http://10.10.10.45:8800/signals",
+      "rootLen": 11856,
+      "screenshot": "./screenshots/_signals.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/alerts",
+      "url": "http://10.10.10.45:8800/alerts",
+      "rootLen": 76435,
+      "screenshot": "./screenshots/_alerts.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/investigations",
+      "url": "http://10.10.10.45:8800/investigations",
+      "rootLen": 6948,
+      "screenshot": "./screenshots/_investigations.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/investigations/1513e6eb-c1f0-4a46-b78e-9b7741e833f5",
+      "url": "http://10.10.10.45:8800/investigations/1513e6eb-c1f0-4a46-b78e-9b7741e833f5",
+      "rootLen": 4894,
+      "screenshot": "./screenshots/_investigations_1513e6eb-c1f0-4a46-b78e-9b7741e833f5.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/entities/3846325c-093f-4ac7-85e4-4ab4daa50468",
+      "url": "http://10.10.10.45:8800/entities/3846325c-093f-4ac7-85e4-4ab4daa50468",
+      "rootLen": 3954,
+      "screenshot": "./screenshots/_entities_3846325c-093f-4ac7-85e4-4ab4daa50468.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/evidence",
+      "url": "http://10.10.10.45:8800/evidence",
+      "rootLen": 4254,
+      "screenshot": "./screenshots/_evidence.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/agents",
+      "url": "http://10.10.10.45:8800/agents",
+      "rootLen": 9604,
+      "screenshot": "./screenshots/_agents.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/audit",
+      "url": "http://10.10.10.45:8800/audit",
+      "rootLen": 6101,
+      "screenshot": "./screenshots/_audit.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/graph",
+      "url": "http://10.10.10.45:8800/graph",
+      "rootLen": 13814,
+      "screenshot": "./screenshots/_graph.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/search",
+      "url": "http://10.10.10.45:8800/search",
+      "rootLen": 2463,
+      "screenshot": "./screenshots/_search.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/overview",
+      "url": "http://10.10.10.45:8800/overview",
+      "rootLen": 12428,
+      "screenshot": "./screenshots/_overview.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/system",
+      "url": "http://10.10.10.45:8800/system",
+      "rootLen": 18153,
+      "screenshot": "./screenshots/_system.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/documents/96fe276b-4ea5-423d-9064-7943c0932ce1",
+      "url": "http://10.10.10.45:8800/documents/96fe276b-4ea5-423d-9064-7943c0932ce1",
+      "rootLen": 2024,
+      "screenshot": "./screenshots/_documents_96fe276b-4ea5-423d-9064-7943c0932ce1.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/investigations/00000000-0000-0000-0000-000000000000",
+      "url": "http://10.10.10.45:8800/investigations/00000000-0000-0000-0000-000000000000",
+      "rootLen": 2230,
+      "screenshot": "./screenshots/_investigations_00000000-0000-0000-0000-000000000000.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    },
+    {
+      "route": "/entities/00000000-0000-0000-0000-000000000000",
+      "url": "http://10.10.10.45:8800/entities/00000000-0000-0000-0000-000000000000",
+      "rootLen": 2177,
+      "screenshot": "./screenshots/_entities_00000000-0000-0000-0000-000000000000.png",
+      "pageErrors": [],
+      "consoleErrors": [],
+      "requestFailures": []
+    }
+  ],
+  "pageErrors": []
+}

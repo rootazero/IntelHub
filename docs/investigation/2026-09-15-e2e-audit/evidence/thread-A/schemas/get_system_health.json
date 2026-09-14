@@ -1,0 +1,8 @@
+{
+  "name": "get_system_health",
+  "description": "Aggregate system health: Postgres, Redis, Neo4j, Qdrant, SearXNG, Crawl4AI latencies + docker container states.",
+  "input_schema": {
+    "properties": {},
+    "type": "object"
+  }
+}

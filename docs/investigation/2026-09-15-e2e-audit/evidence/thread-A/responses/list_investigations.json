@@ -1,0 +1,67 @@
+{
+  "args": {},
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "count": 7,
+    "items": [
+      {
+        "created_at": "2026-09-14T14:26:41.140606Z",
+        "created_by": "agent:agent",
+        "investigation_id": "e53f39de-dc92-4fc6-9ef9-d9186d093c58",
+        "status": "open",
+        "title": "investigate: BRICS de-dollarization",
+        "updated_at": "2026-09-14T14:26:41.140606Z"
+      },
+      {
+        "created_at": "2026-09-14T14:24:54.701649Z",
+        "created_by": "agent:agent",
+        "investigation_id": "877f95ce-50b2-428b-bcbe-1367e5941e45",
+        "status": "open",
+        "title": "[PROBE] do not use",
+        "updated_at": "2026-09-14T14:26:17.828299Z"
+      },
+      {
+        "created_at": "2026-09-14T14:26:15.414779Z",
+        "created_by": "agent:agent",
+        "investigation_id": "9cf1d6fa-7942-46ba-9ca7-bad43a8b76a9",
+        "status": "open",
+        "title": "investigate: BRICS de-dollarization",
+        "updated_at": "2026-09-14T14:26:15.414779Z"
+      },
+      {
+        "created_at": "2026-09-14T14:25:52.598613Z",
+        "created_by": "agent:agent",
+        "investigation_id": "0b16c2ca-a74a-4a06-abe7-376ff40659b8",
+        "status": "open",
+        "title": "investigate: BRICS de-dollarization",
+        "updated_at": "2026-09-14T14:25:52.598613Z"
+      },
+      {
+        "created_at": "2026-09-14T06:53:08.671614Z",
+        "created_by": "agent:agent",
+        "investigation_id": "1513e6eb-c1f0-4a46-b78e-9b7741e833f5",
+        "status": "open",
+        "title": "SP3 SSE acceptance probe",
+        "updated_at": "2026-09-14T06:53:08.671614Z"
+      },
+      {
+        "created_at": "2026-09-14T06:42:43.189332Z",
+        "created_by": "agent:agent",
+        "investigation_id": "de811243-b047-4bbe-96ff-a8598c6df937",
+        "status": "open",
+        "title": "SP3 SSE acceptance probe",
+        "updated_at": "2026-09-14T06:42:43.189332Z"
+      },
+      {
+        "created_at": "2026-09-14T06:41:07.031203Z",
+        "created_by": "agent:agent",
+        "investigation_id": "0279645d-28c9-47c0-81ff-2276624b14f6",
+        "status": "open",
+        "title": "SP3 SSE acceptance probe",
+        "updated_at": "2026-09-14T06:41:07.031203Z"
+      }
+    ]
+  },
+  "raw_first_500": "data: \nid: 0/24\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"count\\\": 7,\\n  \\\"items\\\": [\\n    {\\n      \\\"created_at\\\": \\\"2026-09-14T14:26:41.140606Z\\\",\\n      \\\"created_by\\\": \\\"agent:agent\\\",\\n      \\\"investigation_id\\\": \\\"e53f39de-dc92-4fc6-9ef9-d9186d093c58\\\",\\n      \\\"status\\\": \\\"open\\\",\\n      \\\"title\\\": \\\"investigate: BRICS de-dollarization\\\",\\n      \\\"updated_at\\\": \\\"2026-09-14T14:26:41.140606Z\\\"\\n    },\\n    {\\n      \\\"created_at\\\": \\\"2026-"
+}

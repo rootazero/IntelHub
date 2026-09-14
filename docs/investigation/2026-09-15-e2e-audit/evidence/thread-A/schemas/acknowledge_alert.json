@@ -1,0 +1,17 @@
+{
+  "name": "acknowledge_alert",
+  "description": "Acknowledge an open alert.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "alert_id": {
+        "description": "Alert UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "alert_id"
+    ],
+    "type": "object"
+  }
+}

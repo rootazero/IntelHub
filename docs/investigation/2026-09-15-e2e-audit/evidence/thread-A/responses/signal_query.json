@@ -1,0 +1,15 @@
+{
+  "args": {
+    "series": "fred:VIXCLS",
+    "limit": 3
+  },
+  "kind": "expected empty",
+  "is_error": false,
+  "parsed_content": {
+    "count": 0,
+    "observations": [],
+    "series_pattern": "fred:VIXCLS",
+    "series_seen": false
+  },
+  "raw_first_500": "data: \nid: 0/34\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"count\\\": 0,\\n  \\\"observations\\\": [],\\n  \\\"series_pattern\\\": \\\"fred:VIXCLS\\\",\\n  \\\"series_seen\\\": false\\n}\"}],\"isError\":false}}\nid: 1/34\n\n"
+}

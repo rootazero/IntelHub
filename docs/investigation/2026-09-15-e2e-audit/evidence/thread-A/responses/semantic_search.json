@@ -1,0 +1,10 @@
+{
+  "args": {
+    "query": "BRICS",
+    "limit": 3
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": null,
+  "raw_first_500": "data: \nid: 0/33\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32603,\"message\":\"upstream sensor error: embedding API 401 Unauthorized: {\\\"error\\\":{\\\"code\\\":\\\"invalid_request\\\",\\\"message\\\":\\\"\u4ee4\u724c\u4e0d\u5408\u6cd5 (request id: EMaster202609141426432401672938268d9d6nuJRrwXj)\\\",\\\"type\\\":\\\"new_api_error\\\"}}\"}}\nid: 1/33\n\n"
+}

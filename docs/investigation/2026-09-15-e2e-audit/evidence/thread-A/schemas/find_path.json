@@ -1,0 +1,39 @@
+{
+  "name": "find_path",
+  "description": "Find the shortest path between two entities in the knowledge graph. v2: temporal-aware, weighted by 1-confidence. Replaces v1 (no back-compat: v1 was unused in production).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "from": {
+        "description": "Start entity name (case-insensitive exact match)",
+        "type": "string"
+      },
+      "max_hops": {
+        "description": "Maximum hops to expand (default 5, clamped 1..=8)",
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "to": {
+        "description": "Target entity name (case-insensitive exact match)",
+        "type": "string"
+      },
+      "weighted": {
+        "description": "Weight edges by 1 - confidence (sum), default true. false = raw hop count.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "from",
+      "to"
+    ],
+    "type": "object"
+  }
+}

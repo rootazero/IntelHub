@@ -1,0 +1,8 @@
+{
+  "name": "list_tools",
+  "description": "List all available MCP tools (name + one-line description). Use this first when an error says 'missing field X' to discover the canonical argument name. Read-only, no budget cost, not audited.",
+  "input_schema": {
+    "properties": {},
+    "type": "object"
+  }
+}

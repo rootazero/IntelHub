@@ -1,0 +1,25 @@
+{
+  "name": "query_relationship",
+  "description": "List relationships of an entity in the graph (read-only, parameterized).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 50, max 200)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "name": {
+        "description": "Entity name (exact, case-insensitive)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  }
+}

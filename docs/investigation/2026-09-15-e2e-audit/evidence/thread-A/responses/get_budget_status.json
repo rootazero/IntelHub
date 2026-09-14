@@ -1,0 +1,24 @@
+{
+  "args": {},
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "limits": {
+      "crawl_pages": 300.0,
+      "embed_tokens": 1000000.0,
+      "global_crawl_pages": 1000.0,
+      "global_embed_tokens": 5000000.0,
+      "tool_calls": 2000.0
+    },
+    "ratio": 0.049,
+    "state": "GREEN",
+    "usage": {
+      "crawl_pages": 1.0,
+      "embed_tokens": 0.0,
+      "global_crawl_pages": 1.0,
+      "global_embed_tokens": 0.0,
+      "tool_calls": 98.0
+    }
+  },
+  "raw_first_500": "data: \nid: 0/11\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"limits\\\": {\\n    \\\"crawl_pages\\\": 300.0,\\n    \\\"embed_tokens\\\": 1000000.0,\\n    \\\"global_crawl_pages\\\": 1000.0,\\n    \\\"global_embed_tokens\\\": 5000000.0,\\n    \\\"tool_calls\\\": 2000.0\\n  },\\n  \\\"ratio\\\": 0.049,\\n  \\\"state\\\": \\\"GREEN\\\",\\n  \\\"usage\\\": {\\n    \\\"crawl_pages\\\": 1.0,\\n    \\\"embed_tokens\\\": 0.0,\\n    \\\"global_crawl_pages\\\": 1.0,\\n    \\\"global_embed_tokens\\\": 0.0,\\n    \\\"tool_calls"
+}

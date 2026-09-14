@@ -1,0 +1,9 @@
+{
+  "args": {
+    "id": "96fe276b-4ea5-423d-9064-7943c0932ce1"
+  },
+  "kind": "readonly",
+  "is_error": true,
+  "parsed_content": "failed to deserialize parameters: missing field `document_id`",
+  "raw_first_500": "data: \nid: 0/15\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"failed to deserialize parameters: missing field `document_id`\"}],\"isError\":true}}\nid: 1/15\n\n"
+}
