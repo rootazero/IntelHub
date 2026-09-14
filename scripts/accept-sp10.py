@@ -4,12 +4,10 @@
 Covers spec 2026-09-13-intelhub-sp10-graph-canvas-design.md §4.
 
 USAGE: this script runs INSIDE the target VM (ssh zou@host 'python3 ...' or
-locally on VM 410). It does NOT shell out to ssh because VM 410 has no
-private key for outbound ssh — but it has full local file + docker access.
-All remote ops use:
+locally on VM 410). All remote ops use:
   - urllib for hub REST API + SPA HTML + bundle
-  - docker exec for postgres / neo4j CLI
-  - open() for filesystem reads
+  - shared _remote helpers for docker exec / psql / cypher
+  - open() for filesystem reads (read_local)
 
 Usage: accept-sp10.py <agent-api-key> [base-url]
 """
@@ -27,6 +25,13 @@ KEY = sys.argv[1]
 # Where the IntelHub checkout lives on this VM (script runs on the VM itself).
 HOME_DIR = os.environ.get("INTELHUB_HOME", "/home/zou/IntelHub")
 PASSED = FAILED = 0
+
+# Shared ssh-or-local helpers. On the hub VM (sentinel core/hub present)
+# everything runs via docker exec / subprocess; on a remote Mac, sh()/
+# cypher() route through ssh. sp10's checks all run on the VM but the
+# imports are safe either way.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import docker_exec, cypher, pg, pg_params  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -69,31 +74,16 @@ def url_fetch(path, timeout=30):
         return resp.status, resp.read().decode("utf-8", "replace"), dict(resp.headers)
 
 
-def docker_exec(container, *args, timeout=30):
-    """Run a command inside a container. Returns stdout (stripped)."""
-    return subprocess.run(
-        ["docker", "exec", container, *args],
-        capture_output=True, text=True, timeout=timeout,
-    ).stdout.strip()
-
-
-def _pg_scalar(sql, *params):
-    """Run a psql query that returns a single scalar (or single row, single col)."""
-    if params:
-        # Substitute $1, $2, ... placeholders inline as quoted literals.
-        # SQL identifiers can't be parameterized cleanly via psql -c, so we
-        # only support string params (UUIDs are strings here).
-        for i, p in enumerate(params, 1):
-            sql = sql.replace(f"${i}", f"'{p}'")
-    return docker_exec(
-        "intelhub-postgres", "psql", "-U", "intelhub",
-        "-d", "intelhub", "-tA", "-c", sql,
-    )
+# docker_exec, cypher, pg, pg_params are imported from _remote above.
 
 
 def _pg_rows(sql, *params):
-    """Run a psql query and return non-empty lines (stripped)."""
-    out = _pg_scalar(sql, *params)
+    """Run a psql query and return non-empty lines (stripped).
+
+    Wraps :func:`_remote.pg_params` to keep sp10's existing call sites
+    unchanged (they pass ``*params`` for ``$1``/``$2`` substitution).
+    """
+    out = pg_params(sql, *params)
     return [line for line in out.splitlines() if line.strip()]
 
 
@@ -109,39 +99,20 @@ def read_local(rel_path):
 
 # ----- seed entity lookup ----------------------------------------------------
 # SP9 acceptance seeded two entities (Alpha/Beta) that exist in Neo4j with
-# non-null entity_id. Pick whichever the DB has.
-#
-# NEO4J_AUTH lives in the neo4j container's env as `neo4j/<password>`, NOT in
-# compose/.env. Extract it via docker inspect.
-_neo4j_auth = subprocess.run(
-    ["docker", "inspect", "intelhub-neo4j",
-     "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
-    capture_output=True, text=True, timeout=15,
-).stdout
-_n4j_pw = ""
-for line in _neo4j_auth.splitlines():
-    if line.startswith("NEO4J_AUTH=neo4j/"):
-        _n4j_pw = line.split("=", 1)[1].split("/", 1)[1]
-        break
-
-if _n4j_pw:
-    _cypher_out = docker_exec(
-        "intelhub-neo4j", "bash", "-c",
-        f'cypher-shell -u neo4j -p "{_n4j_pw}" --format plain '
-        '\'MATCH (e:Entity)-[r]-() WHERE e.entity_id IS NOT NULL '
-        'RETURN e.entity_id AS eid LIMIT 1\'',
-        timeout=30,
-    )
-    # cypher-shell --format plain emits the column header as line 1, the
-    # value as line 2. Skip blanks; the data row is whichever line
-    # doesn't match the header word.
-    _seed_lines = [ln for ln in _cypher_out.splitlines() if ln.strip() and ln.strip() != "eid"]
-    SEED_ENTITY_ID = _seed_lines[0] if _seed_lines else None
-    # Strip wrapping quotes that cypher-shell adds around string values.
-    if SEED_ENTITY_ID:
-        SEED_ENTITY_ID = SEED_ENTITY_ID.strip('"').strip("'")
-else:
-    SEED_ENTITY_ID = None
+# non-null entity_id. Pick whichever the DB has. The cypher() helper from
+# _remote handles password extraction + escaping.
+_cypher_out = cypher(
+    "MATCH (e:Entity)-[r]-() WHERE e.entity_id IS NOT NULL "
+    "RETURN e.entity_id AS eid LIMIT 1"
+)
+# cypher-shell --format plain emits the column header as line 1, the
+# value as line 2. Skip blanks; the data row is whichever line
+# doesn't match the header word.
+_seed_lines = [ln for ln in _cypher_out.splitlines() if ln.strip() and ln.strip() != "eid"]
+SEED_ENTITY_ID = _seed_lines[0] if _seed_lines else None
+# Strip wrapping quotes that cypher-shell adds around string values.
+if SEED_ENTITY_ID:
+    SEED_ENTITY_ID = SEED_ENTITY_ID.strip('"').strip("'")
 SEED_ENTITY_NAME = None
 if SEED_ENTITY_ID:
     code, rows = req(f"/api/v1/graph/entities/search?q={SEED_ENTITY_ID}&limit=5")
@@ -154,10 +125,7 @@ if SEED_ENTITY_ID:
 if not SEED_ENTITY_ID:
     print("FATAL: no entity found in Neo4j mirror with edges — skipping API tests")
     SEED_ENTITY_ID = "00000000-0000-0000-0000-000000000000"
-if not _n4j_pw:
-    print("WARN: could not extract NEO4J password from docker inspect")
 print(f"# seed entity: {SEED_ENTITY_NAME} ({SEED_ENTITY_ID})")
-print(f"# neo4j_pw extracted: {bool(_n4j_pw)} (len={len(_n4j_pw)})")
 
 
 # ----- bundle fetch (one HTTP request, used by checks 09-21) -----------------
@@ -444,8 +412,13 @@ def check_30_neo4j_entity_ids_backfilled():
         if not pw:
             return False, "NEO4J_AUTH not found"
         # Neo4j publishes no host ports — exec wget inside the container.
+        # Exclude Accept9Smoke* test fixtures created by sp9.check_14
+        # (Neo4j mirror lag smoke test) which intentionally bypass PG
+        # and thus have no entity_id by design.
         body = json.dumps({"statements": [{
-            "statement": "MATCH (e:Entity) WHERE e.entity_id IS NULL RETURN count(e)"}]})
+            "statement": "MATCH (e:Entity) WHERE e.entity_id IS NULL "
+                         "AND NOT e.name STARTS WITH 'Accept9Smoke' "
+                         "RETURN count(e)"}]})
         r = subprocess.run(
             ["docker", "exec", "intelhub-neo4j",
              "wget", "-qO-",
@@ -660,13 +633,13 @@ def check_34_document_nodes_mirrored():
 def check_35_finding_entities_table():
     """finding_entities table exists and mark_finding dual-writes work."""
     try:
-        exists = _pg_scalar(
+        exists = pg_params(
             "SELECT count(*) FROM information_schema.tables "
             "WHERE table_name='finding_entities'"
         )
         if int(exists or 0) != 1:
             return False, "finding_entities table missing — apply migration 0013"
-        cols = _pg_scalar(
+        cols = pg_params(
             "SELECT count(*) FROM information_schema.columns "
             "WHERE table_name='finding_entities'"
         )
@@ -774,20 +747,20 @@ def check_38_create_claim_audit_mirrors():
         # NULL and tripping check_30 within the 15-min reconcile
         # cleanup window). Best-effort — failure here doesn't fail
         # the test (the create_claim path still mirrors correctly).
-        _pg_scalar(
+        pg_params(
             "INSERT INTO graph_change_log "
             "(op, target_kind, target_id, before, after, changed_by) "
             "VALUES ('insert','entity',$1, NULL, "
             "jsonb_build_object('kind','org','name',$2::text), 'accept-sp10-phase3')",
             eid, ent_name,
         )
-        _pg_scalar(
+        pg_params(
             "INSERT INTO claim_entities (claim_id, entity_id, role) "
             "VALUES ($1, $2, 'subject') ON CONFLICT DO NOTHING",
             cid, eid,
         )
         # Emit audit row shaped like graph_v2 create_claim would produce.
-        _pg_scalar(
+        pg_params(
             "INSERT INTO graph_change_log "
             "(op, target_kind, target_id, before, after, changed_by) "
             "VALUES ('insert','claim',$1, NULL, "
@@ -801,7 +774,7 @@ def check_38_create_claim_audit_mirrors():
         deadline = time.time() + 60
         mirrored = False
         while time.time() < deadline:
-            audit = _pg_scalar(
+            audit = pg_params(
                 "SELECT count(*) FROM graph_change_log "
                 "WHERE target_kind='claim' AND target_id=$1 AND after ? 'text' "
                 "AND mirrored_at IS NOT NULL",
@@ -839,11 +812,11 @@ def check_38_create_claim_audit_mirrors():
         # Always clean up test data so re-runs are idempotent and check_31
         # (PG vs Neo4j entity diff) doesn't fail from leftover Phase3 rows.
         if cid:
-            _pg_scalar("DELETE FROM claim_entities WHERE claim_id = $1", cid)
-            _pg_scalar("DELETE FROM claims WHERE claim_id = $1", cid)
-            _pg_scalar("DELETE FROM graph_change_log WHERE target_id = $1", cid)
+            pg_params("DELETE FROM claim_entities WHERE claim_id = $1", cid)
+            pg_params("DELETE FROM claims WHERE claim_id = $1", cid)
+            pg_params("DELETE FROM graph_change_log WHERE target_id = $1", cid)
         if eid:
-            _pg_scalar("DELETE FROM entities WHERE entity_id = $1", eid)
+            pg_params("DELETE FROM entities WHERE entity_id = $1", eid)
         # Also wipe the Neo4j mirror (the entity was created via the
         # audit→mirror path which doesn't carry entity_id, leaving a
         # :Entity node with NULL entity_id that check_30 would flag
@@ -975,7 +948,7 @@ def check_39_mcp_v2_extract_claims():
         deadline = time.time() + 60
         mirrored = False
         while time.time() < deadline:
-            n = _pg_scalar(
+            n = pg_params(
                 "SELECT count(*) FROM graph_change_log "
                 "WHERE target_kind='claim' AND target_id=$1 "
                 "AND mirrored_at IS NOT NULL",
@@ -1011,13 +984,13 @@ def check_39_mcp_v2_extract_claims():
     finally:
         # Best-effort cleanup (don't fail the check if cleanup hits an edge)
         try:
-            _pg_scalar(
+            pg_params(
                 "DELETE FROM claim_entities WHERE entity_id IN "
                 "(SELECT entity_id FROM entities WHERE name LIKE 'Phase6AcceptSp10_%')"
             )
-            _pg_scalar("DELETE FROM entities WHERE name LIKE 'Phase6AcceptSp10_%'")
-            _pg_scalar("DELETE FROM claims WHERE text LIKE 'phase6-accept-sp10%'")
-            _pg_scalar(
+            pg_params("DELETE FROM entities WHERE name LIKE 'Phase6AcceptSp10_%'")
+            pg_params("DELETE FROM claims WHERE text LIKE 'phase6-accept-sp10%'")
+            pg_params(
                 "DELETE FROM graph_change_log WHERE target_id IN "
                 "(SELECT claim_id::text FROM claims WHERE text LIKE 'phase6-accept-sp10%')"
             )
