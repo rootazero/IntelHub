@@ -9,6 +9,9 @@ import { useEnum, useT } from "../i18n";
 import { KINDS, kindColor, sevRadius } from "../kindmeta";
 import { PROVIDERS, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
 import type { TileProvider, TilesMode } from "../basemap";
+import { REGIONS } from "../mapControls";
+import { useMapView } from "../useMapView";
+import { MapControls } from "../components/MapControls";
 
 interface GeoEvent {
   event_id: string;
@@ -39,6 +42,7 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 export default function Radar() {
   const { t } = useT();
   const en = useEnum();
+  const { region, attach } = useMapView();
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const baseRef = useRef<L.Layer | null>(null);
@@ -53,6 +57,11 @@ export default function Radar() {
   const failCount = useRef(0);
   const tileProvider = useRef<TileProvider>(PRIMARY);
   const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
+  // skip the first run: the map-init effect below already fitBounds to
+  // REGIONS[region]; calling flyToBounds again here would hit Leaflet
+  // before the init RAF has set the view → 'Set map center and zoom first'
+  // error, React unmounts the whole tree.
+  const skipFirstRegion = useRef(true);
 
   // ---- map init (once) ----
   useEffect(() => {
@@ -64,19 +73,46 @@ export default function Radar() {
       maxZoom: 10,
       worldCopyJump: true,
       attributionControl: true,
-      zoomControl: true,
+      // Default zoom widget would compete with <MapControls>; disable it
+      // and let the shared component render zoom + region in the top-right.
+      zoomControl: false,
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
+    attach(map);
+    const fit = () => {
+      map.invalidateSize();
+      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitBounds(REGIONS[region], { animate: false });
+    };
+    const raf = requestAnimationFrame(fit);
+    const settle = setTimeout(fit, 300);
     addTileLayer(map, PRIMARY);
 
     // first-load timeout: if tiles are erroring after 5s, advance one tier
     const t = setTimeout(() => {
       if (failCount.current > 0 && baseRef.current) failover();
     }, 5000);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(settle);
+      cancelAnimationFrame(raf);
+      attach(null);
+    };
+    // region is intentionally NOT in deps — initial mount only; region
+    // changes are handled by a dedicated effect (smoother, separate animate).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Smooth region transition when user clicks a region button (whether on
+  // Radar or MonitorMap — region is shared via MapViewProvider). Re-fits
+  // the current region (no flicker because we keep the layer group intact).
+  useEffect(() => {
+    if (skipFirstRegion.current) { skipFirstRegion.current = false; return; }
+    const map = mapRef.current;
+    if (!map) return;
+    map.invalidateSize();
+    map.flyToBounds(REGIONS[region], { duration: 0.6, easeLinearity: 0.3 });
+  }, [region]);
 
   function addTileLayer(map: L.Map, provider: TileProvider) {
     const p = PROVIDERS[provider];
@@ -267,7 +303,12 @@ export default function Radar() {
         </span>
       </div>
       <div className="flex min-h-0 flex-1">
-        <div ref={divRef} className="min-w-0 flex-1" style={{ background: "#0a0e14" }} />
+        <div className="relative min-w-0 flex-1">
+          <div ref={divRef} className="absolute inset-0" style={{ background: "#0a0e14" }} />
+          {/* map controls: top-right. Shared with MonitorMap via <MapControls>;
+              one source of truth (region presets + zoom + reset). */}
+          <MapControls className="radar-map-ctrl" />
+        </div>
         {selected && (
           <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel p-3 text-xs">
             <div className="mb-2 flex items-center justify-between">
