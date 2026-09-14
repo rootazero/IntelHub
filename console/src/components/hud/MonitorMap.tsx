@@ -22,6 +22,9 @@ import { useT } from "../../i18n";
 import { kindColor, KIND_COLORS, sevRadius } from "../../kindmeta";
 import { PROVIDERS, CHAIN, PRIMARY } from "../../basemap";
 import type { TileProvider, TilesMode } from "../../basemap";
+import { REGIONS } from "../../mapControls";
+import { useMapView } from "../../useMapView";
+import { MapControls } from "../MapControls";
 
 interface GeoEvent {
   event_id: string;
@@ -50,18 +53,9 @@ const SEV_COLOR: Record<string, string> = {
 // resizes by itself — invalidateSize() before every refit.
 const WORLD: L.LatLngBoundsExpression = [[-58, -179], [76, 180]];
 
-// Region POVs (Crucix-style 6 preset angles). Latitudes slightly trimmed so
-// polar cap labels don't crowd; longitudes centered on each region so the
-// default world view stays intact when user clicks "WORLD" again.
-type RegionKey = "world" | "americas" | "europe" | "middleEast" | "asiaPacific" | "africa";
-const REGIONS: Record<RegionKey, L.LatLngBoundsExpression> = {
-  world: [[-58, -179], [76, 180]],
-  americas: [[-55, -170], [70, -30]],
-  europe: [[35, -25], [70, 60]],
-  middleEast: [[10, 25], [45, 75]],
-  asiaPacific: [[-15, 65], [55, 180]],
-  africa: [[-35, -20], [38, 55]],
-};
+// Region POVs live in ../../mapControls (single source of truth shared with
+// Radar); 6 preset angles with latitudes slightly trimmed so polar cap labels
+// don't crowd and longitudes centered on each region.
 
 export default function MonitorMap({
   refreshKey,
@@ -73,6 +67,7 @@ export default function MonitorMap({
   onClearSource?: () => void;
 }) {
   const { t } = useT();
+  const { region, attach } = useMapView();
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const baseRef = useRef<L.Layer | null>(null);
@@ -89,7 +84,6 @@ export default function MonitorMap({
   // center and zoom first' error, React unmounts the whole tree.
   const skipFirstRegion = useRef(true);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
-  const [region, setRegion] = useState<RegionKey>("world");
   const [tiles, setTiles] = useState<TilesMode>(PRIMARY);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
   const [bump, setBump] = useState(false);
@@ -148,6 +142,7 @@ export default function MonitorMap({
     });
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
+    attach(map);
     addTileLayer(map, PRIMARY);
     const fit = () => {
       map.invalidateSize();
@@ -158,7 +153,13 @@ export default function MonitorMap({
     const ro = new ResizeObserver(fit);
     ro.observe(divRef.current);
     const tm = setTimeout(() => { if (failCount.current > 0 && baseRef.current) failover(); }, 5000);
-    return () => { clearTimeout(tm); clearTimeout(settle); cancelAnimationFrame(raf); ro.disconnect(); };
+    return () => {
+      clearTimeout(tm);
+      clearTimeout(settle);
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      attach(null);
+    };
     // region is intentionally NOT in deps — initial mount only; region
     // changes are handled by a dedicated effect (smoother, separate animate).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,26 +268,9 @@ export default function MonitorMap({
         </span>
       </div>
 
-      {/* map controls: top-right. Region jump (single row) + zoom + reset */}
-      <div className="hud-map-ctrl">
-        <div className="hud-map-ctrl-row">
-          {(["world", "americas", "europe", "middleEast", "asiaPacific", "africa"] as RegionKey[]).map((r) => (
-            <button
-              key={r}
-              className={`hud-map-ctrl-btn ${region === r ? "on" : ""}`}
-              onClick={() => setRegion(r)}
-              title={t(`hud.region.${r}`)}
-            >
-              {t(`hud.region.${r}`)}
-            </button>
-          ))}
-        </div>
-        <div className="hud-map-ctrl-row">
-          <button className="hud-map-ctrl-btn icon" title={t("hud.zoomIn")} onClick={() => mapRef.current?.setZoom((mapRef.current?.getZoom() ?? 2) + 0.5)}>+</button>
-          <button className="hud-map-ctrl-btn icon" title={t("hud.zoomOut")} onClick={() => mapRef.current?.setZoom((mapRef.current?.getZoom() ?? 2) - 0.5)}>−</button>
-          <button className="hud-map-ctrl-btn icon" title={t("hud.zoomReset")} onClick={() => setRegion("world")}>⌂</button>
-        </div>
-      </div>
+      {/* map controls: top-right. Region jump (single row) + zoom + reset.
+          Shared with Radar via <MapControls> — single behavior, two themes. */}
+      <MapControls className="hud-map-ctrl" />
 
       {/* layer legend: bottom-right. Bumps on fresh sweep. */}
       <div className={`hud-map-legend ${bump ? "hud-legend-bump" : ""}`}>

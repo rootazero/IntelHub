@@ -220,12 +220,37 @@
 .hud-map-pill.bump { animation: hud-pulse 0.8s ease-out 2; }
 .hud-lite .hud-map-pill.bump { animation: none; }
 
-/* map control buttons (top-right): region jump, zoom, reset */
-.hud-map-ctrl {
+/* map control buttons (top-right): region jump, zoom, reset.
+   Shared with Radar via <MapControls> (../components/MapControls.tsx).
+   The shared component renders .map-ctrl* + .map-ctrl-btn — the .hud-*
+   prefix is just a theme alias for the command-deck visual language
+   (dark glass + --hud-* vars). */
+.hud-map-ctrl,
+.radar-map-ctrl {
   position: absolute; top: 6px; right: 6px; z-index: 500;
   display: flex; flex-direction: column; gap: 4px;
 }
-.hud-map-ctrl-row { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.map-ctrl-row { display: flex; gap: 3px; flex-wrap: wrap; justify-content: flex-end; }
+.map-ctrl-btn {
+  min-width: 26px; height: 22px; padding: 0 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9px;
+  letter-spacing: 0.04em; cursor: pointer;
+  transition: all 0.15s ease;
+}
+/* HUD theme: dark glass + --hud-* vars (command-deck look) */
+.hud-map-ctrl .map-ctrl-btn {
+  background: rgba(4, 8, 14, 0.78); backdrop-filter: blur(4px);
+  border: 1px solid var(--hud-edge); border-radius: 4px;
+  color: var(--hud-dim);
+}
+.hud-map-ctrl .map-ctrl-btn:hover { color: var(--hud-accent); border-color: var(--hud-accent); }
+.hud-map-ctrl .map-ctrl-btn.on { color: var(--hud-accent); border-color: var(--hud-accent); background: rgba(100, 240, 200, 0.08); }
+.hud-map-ctrl .map-ctrl-btn.icon { font-size: 12px; line-height: 1; }
+/* Back-compat: any leftover direct references to .hud-map-ctrl-btn get the
+   same treatment as .hud-map-ctrl .map-ctrl-btn. (No new code uses this
+   class — the shared component renders .map-ctrl-btn — but the rule is
+   here so future one-off HUD control code can opt into the HUD look.) */
 .hud-map-ctrl-btn {
   min-width: 26px; height: 22px; padding: 0 6px;
   display: inline-flex; align-items: center; justify-content: center;

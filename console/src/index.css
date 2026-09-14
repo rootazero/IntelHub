@@ -22,3 +22,25 @@ body {
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 4px; }
+
+/* Radar map controls (top-right): shared with the command-deck <MapControls>.
+   Panel-style theme — no glassmorphic blur, just border + panel bg. */
+.radar-map-ctrl .map-ctrl-btn {
+  background: var(--color-panel);
+  border: 1px solid var(--color-edge);
+  border-radius: 3px;
+  color: var(--color-dim);
+}
+.radar-map-ctrl .map-ctrl-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.radar-map-ctrl .map-ctrl-btn.on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.radar-map-ctrl .map-ctrl-btn.icon {
+  font-size: 14px;
+  line-height: 1;
+}
