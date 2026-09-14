@@ -122,17 +122,23 @@ export default function GraphCanvas({
               const e = d as G6EdgeData;
               return `rgba(180,200,220,${confidenceOpacity(e.confidence)})`;
             },
-            labelText: (d: unknown) => (d as G6EdgeData).rel_type,
-            labelBackground: true,
-            labelPadding: [1, 3],
-            labelFontSize: 9,
-            labelFill: "#9aa4b2",
+            // Edge labels are deliberately hidden by default — with dozens
+            // of rel_types on screen the per-edge text drowns the canvas.
+            // The label is revealed on click (state.selected below) where
+            // the user is already focused on that edge; the EdgePanel
+            // shows full properties anyway.
+            labelText: () => "",
           },
           state: {
             selected: {
               stroke: "#ffffff",
               lineWidth: 2.5,
               endArrowFill: "#ffffff",
+              labelText: (d: unknown) => (d as G6EdgeData).rel_type,
+              labelBackground: true,
+              labelPadding: [1, 3],
+              labelFontSize: 9,
+              labelFill: "#9aa4b2",
             },
           },
         },
