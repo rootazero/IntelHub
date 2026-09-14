@@ -1,0 +1,24 @@
+{
+  "name": "find_contradicting_claims",
+  "description": "Contradictions touching a claim (by claim_id) OR any claim about an entity (by entity_id). Exactly one must be supplied.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "claim_id": {
+        "description": "Contradictions touching this claim UUID (mutually exclusive with entity_id)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "entity_id": {
+        "description": "Contradictions touching any claim about this entity UUID (mutually exclusive with claim_id)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "args": {
+    "entity": "BRICS"
+  },
+  "kind": "readonly",
+  "is_error": true,
+  "parsed_content": "failed to deserialize parameters: missing field `name`",
+  "raw_first_500": "data: \nid: 0/29\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"failed to deserialize parameters: missing field `name`\"}],\"isError\":true}}\nid: 1/29\n\n"
+}

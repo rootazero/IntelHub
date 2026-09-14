@@ -1,0 +1,38 @@
+{
+  "name": "crawl_url",
+  "description": "Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status. When `await_embed=true`, blocks up to 30s for the embed worker to finish so a follow-up semantic_search returns this document.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "await_embed": {
+        "description": "If true (default false), block up to 30s waiting for the embed worker\nto finish this document so a follow-up semantic_search returns it.\nReturns `embedding_status` and `embed_waited_ms` in the response.\nWhen `embed=skip`, this flag is ignored.",
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "embed": {
+        "description": "Embedding decision (§40): \"auto\" (default, decision rules) | \"force\" | \"skip\"",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "investigation_id": {
+        "description": "Optional investigation UUID to attach the crawl task to",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "url": {
+        "description": "URL to crawl and ingest as evidence",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "type": "object"
+  }
+}

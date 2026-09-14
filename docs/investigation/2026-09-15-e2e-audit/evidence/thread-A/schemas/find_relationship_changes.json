@@ -1,0 +1,36 @@
+{
+  "name": "find_relationship_changes",
+  "description": "Relationship changes between two entities (by name fragment, case-insensitive). Most recent first, optional time window.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "a": {
+        "description": "Entity A name fragment",
+        "type": "string"
+      },
+      "b": {
+        "description": "Entity B name fragment",
+        "type": "string"
+      },
+      "from": {
+        "description": "ISO8601 lower bound (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "to": {
+        "description": "ISO8601 upper bound (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "a",
+      "b"
+    ],
+    "type": "object"
+  }
+}

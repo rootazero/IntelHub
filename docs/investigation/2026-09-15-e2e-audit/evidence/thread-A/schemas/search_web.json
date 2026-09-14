@@ -1,0 +1,26 @@
+{
+  "name": "search_web",
+  "description": "Search the web via the SearXNG federated sensor. Returns normalized results (url/title/snippet/engine).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 10, max 25)",
+        "format": "uint",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "query": {
+        "description": "The web search query",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  }
+}

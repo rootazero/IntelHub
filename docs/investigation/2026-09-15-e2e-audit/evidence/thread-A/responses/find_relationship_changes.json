@@ -1,0 +1,10 @@
+{
+  "args": {
+    "entity_a": "BRICS",
+    "entity_b": "China"
+  },
+  "kind": "readonly",
+  "is_error": true,
+  "parsed_content": "failed to deserialize parameters: missing field `a`",
+  "raw_first_500": "data: \nid: 0/9\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"failed to deserialize parameters: missing field `a`\"}],\"isError\":true}}\nid: 1/9\n\n"
+}

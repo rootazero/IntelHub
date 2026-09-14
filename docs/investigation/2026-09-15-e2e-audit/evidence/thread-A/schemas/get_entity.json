@@ -1,0 +1,17 @@
+{
+  "name": "get_entity",
+  "description": "Get an entity by id with aliases, outgoing relationships, and claims (resolves `merged_into` to the parent if applicable).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "entity_id": {
+        "description": "Entity UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "entity_id"
+    ],
+    "type": "object"
+  }
+}

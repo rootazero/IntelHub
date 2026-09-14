@@ -1,0 +1,17 @@
+{
+  "name": "tool_schema",
+  "description": "Return the full input schema (param names/types/required/description) for one MCP tool by name. Read-only, no budget cost, not audited.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "name": {
+        "description": "Tool name (e.g. \"create_claim\", \"find_path\")",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  }
+}

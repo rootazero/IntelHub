@@ -1,0 +1,11 @@
+{
+  "args": {
+    "component": "hub-core",
+    "action": "backup",
+    "token": ""
+  },
+  "kind": "expected DENY",
+  "is_error": false,
+  "parsed_content": null,
+  "raw_first_500": "data: \nid: 0/31\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32603,\"message\":\"policy_denied: Level 3 action requires a valid X-Admin-Token\"}}\nid: 1/31\n\n"
+}

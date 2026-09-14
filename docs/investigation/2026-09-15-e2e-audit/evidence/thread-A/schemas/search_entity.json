@@ -1,0 +1,32 @@
+{
+  "name": "search_entity",
+  "description": "Search entities by name with alias-aware matching. Returns up to `limit` matches with scores.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "kind": {
+        "description": "Optional entity kind filter (person|org|domain|ip|location|event|...)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "limit": {
+        "description": "Max results (default 20, max 100)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "name": {
+        "description": "Name fragment (case-insensitive contains match on name + aliases)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  }
+}

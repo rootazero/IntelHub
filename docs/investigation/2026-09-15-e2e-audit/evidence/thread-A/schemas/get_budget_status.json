@@ -1,0 +1,8 @@
+{
+  "name": "get_budget_status",
+  "description": "Get YOUR current budget state (GREEN/YELLOW/RED/KILL) with today's usage vs limits (§58–60). Self-throttle accordingly.",
+  "input_schema": {
+    "properties": {},
+    "type": "object"
+  }
+}

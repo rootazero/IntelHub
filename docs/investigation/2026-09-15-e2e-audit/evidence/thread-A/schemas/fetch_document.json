@@ -1,0 +1,17 @@
+{
+  "name": "fetch_document",
+  "description": "Fetch a document by URL: returns the stored evidence if already collected, otherwise crawls and ingests it first.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "url": {
+        "description": "Canonical or original URL to fetch (from store if present, else crawled fresh)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "type": "object"
+  }
+}

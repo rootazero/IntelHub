@@ -1,0 +1,32 @@
+{
+  "name": "hybrid_search",
+  "description": "Hybrid retrieval over evidence: keyword + vector channels fused with reciprocal-rank fusion (§41 candidate set → rerank → evidence set).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 10, max 50)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "query": {
+        "description": "Keyword query over stored evidence",
+        "type": "string"
+      },
+      "url_contains": {
+        "description": "Optional: only documents whose canonical URL contains this string",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  }
+}

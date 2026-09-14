@@ -1,0 +1,33 @@
+{
+  "name": "investigate",
+  "description": "Investigate a question: rule-based planner runs hybrid search + entity lookup + graph traversal + existing-claims lookup, returns synthesized evidence chain. Each step is its own sub-trace.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "investigation_id": {
+        "description": "Optional existing investigation UUID to attach findings to (and to pull existing claims from)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "max_steps": {
+        "description": "Max planner steps (default 6, hard cap 12)",
+        "format": "uint32",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "question": {
+        "description": "The natural-language question to investigate",
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ],
+    "type": "object"
+  }
+}

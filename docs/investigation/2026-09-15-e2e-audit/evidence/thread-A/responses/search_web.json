@@ -1,0 +1,36 @@
+{
+  "args": {
+    "query": "BRICS 2026",
+    "limit": 3
+  },
+  "kind": "may have egress",
+  "is_error": false,
+  "parsed_content": {
+    "count": 3,
+    "query": "BRICS 2026",
+    "results": [
+      {
+        "content": "The 18th BRICS Summit was held at Bharat Mandapam in New Delhi, India from 12\u201313 September 2026 under India's 2026 BRICS chairship. It brought together delegations from the BRICS members, partner countries, invitees and several international organisations.",
+        "engine": "brave",
+        "score": 8.370000000000001,
+        "title": "18th BRICS summit - Wikipedia",
+        "url": "https://en.wikipedia.org/wiki/18th_BRICS_summit"
+      },
+      {
+        "content": "Building for Resilience, Innovation, Cooperation and Sustainability \u00b7 Fostering BRICS cooperation with people-centric approach \u00b7 India's BRICS Chairship 2026 Key\u00a0...",
+        "engine": "brave",
+        "score": 5.4,
+        "title": "BRICS \u2013 Building for Resilience, Innovation, Cooperation and Sustainability",
+        "url": "https://www.brics2026.gov.in/"
+      },
+      {
+        "content": "BRICS cooperation continues to broaden its scope across a wide range of global issues, including fight against terrorism, climate change, food and energy security, the international economic and financial situation, telecommunications, agriculture, labour and employment, international financial architecture, trade, and the WTO.",
+        "engine": "brave",
+        "score": 1.05,
+        "title": "About Us \u2013 BRICS",
+        "url": "https://www.brics2026.gov.in/about-us/"
+      }
+    ]
+  },
+  "raw_first_500": "data: \nid: 0/32\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"count\\\": 3,\\n  \\\"query\\\": \\\"BRICS 2026\\\",\\n  \\\"results\\\": [\\n    {\\n      \\\"content\\\": \\\"The 18th BRICS Summit was held at Bharat Mandapam in New Delhi, India from 12\u201313 September 2026 under India's 2026 BRICS chairship. It brought together delegations from the BRICS members, partner countries, invitees and several international organisations.\\\",\\n      \\\"engine\\\": \\\"brave\\\",\\n      \\\"sc"
+}

@@ -1,0 +1,39 @@
+{
+  "name": "list_alerts",
+  "description": "List alerts from the unified alert center (§54): severity, source, links, recommended action.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "limit": {
+        "description": "Max results (default 50, max 200)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "severity": {
+        "description": "info|warning|critical",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "source": {
+        "description": "osint|agent|sensor|infra|budget|security",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "status": {
+        "description": "open|ack|muted (omit for all)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}

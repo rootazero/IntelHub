@@ -1,0 +1,35 @@
+{
+  "name": "create_entity",
+  "description": "Create an entity in the intelligence graph (typed intent → schema validation → PG canonical + Neo4j relationship memory). Level 2 governed.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "aliases": {
+        "description": "Optional aliases (max 10)",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "attributes": {
+        "description": "Optional attributes (allowlist: description,url,country,confidence,severity,first_seen,last_seen,tags,source)"
+      },
+      "kind": {
+        "description": "person|org|domain|ip|location|event|infrastructure|software|handle|email|phone|crypto_wallet",
+        "type": "string"
+      },
+      "name": {
+        "description": "Entity name (normalized)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "kind",
+      "name"
+    ],
+    "type": "object"
+  }
+}

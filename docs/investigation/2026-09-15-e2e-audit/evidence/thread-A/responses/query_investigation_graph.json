@@ -1,0 +1,14 @@
+{
+  "args": {
+    "investigation_id": "877f95ce-50b2-428b-bcbe-1367e5941e45"
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "claims": [],
+    "entities": [],
+    "findings": [],
+    "investigation_id": "877f95ce-50b2-428b-bcbe-1367e5941e45"
+  },
+  "raw_first_500": "data: \nid: 0/28\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"claims\\\": [],\\n  \\\"entities\\\": [],\\n  \\\"findings\\\": [],\\n  \\\"investigation_id\\\": \\\"877f95ce-50b2-428b-bcbe-1367e5941e45\\\"\\n}\"}],\"isError\":false}}\nid: 1/28\n\n"
+}

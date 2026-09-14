@@ -1,0 +1,24 @@
+{
+  "name": "list_evidence_for_entity",
+  "description": "Documents that cite this entity via claim_evidence. relation defaults to \"supports\". Side-effect: writes observations rows (idempotent).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "entity_id": {
+        "description": "Entity UUID",
+        "type": "string"
+      },
+      "relation": {
+        "description": "\"supports\" (default) or \"contradicts\"",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "entity_id"
+    ],
+    "type": "object"
+  }
+}
