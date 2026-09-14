@@ -286,6 +286,30 @@ check("rpm: bootstrap-host.sh body uses $PKG_INSTALL, no hardcoded apt-get insta
       not hardcoded_apt,
       "body must use $PKG_INSTALL — found raw 'sudo apt-get install' outside comments")
 
+# 9f. Docker install hardening: scripts/os-detect.sh exports DOCKER_REPO_URL
+#     so bootstrap-host.sh uses the per-distro official URL from
+#     https://docs.docker.com/engine/install/ instead of the legacy
+#     /linux/centos/ path. bootstrap-host.sh must NOT hardcode the centos
+#     URL and must validate the daemon + compose plugin post-install.
+check("docker: os-detect.sh exports DOCKER_REPO_URL",
+      "DOCKER_REPO_URL" in os_detect_src,
+      "must export DOCKER_REPO_URL for per-distro repo URL")
+check("docker: os-detect.sh sets RPM DOCKER_REPO_URL to /linux/rhel/ or /linux/fedora/",
+      bool(re.search(r'DOCKER_REPO_URL=\"https://download\.docker\.com/linux/(rhel|fedora)', os_detect_src)),
+      "RPM-family DOCKER_REPO_URL must be /linux/rhel/ or /linux/fedora/ (per docker.com)")
+check("docker: bootstrap-host.sh does NOT hardcode /linux/centos/",
+      "/linux/centos/" not in bootstrap_src,
+      "must use $DOCKER_REPO_URL — the legacy /linux/centos/ path is deprecated")
+check("docker: bootstrap-host.sh validates docker daemon post-install",
+      "docker info" in bootstrap_src,
+      "must run 'sudo docker info' after install to confirm the daemon is up")
+check("docker: bootstrap-host.sh verifies user is in docker group",
+      bool(re.search(r'id\s+-nG.*docker', bootstrap_src)),
+      "must verify 'id -nG $RUN_USER | grep -qw docker' after usermod")
+check("docker: bootstrap-host.sh validates docker compose plugin",
+      "docker compose version" in bootstrap_src,
+      "must check the compose plugin is available (docker.com ships it as docker-compose-plugin)")
+
 # 10. Reset-key infrastructure (idempotent: validates tooling + format +
 #     agent_id consistency, never rotates live keys). The actual rotation
 #     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.

@@ -61,6 +61,10 @@ case "$OS_FAMILY" in
     PKG_REPO_DIR="/etc/apt/sources.list.d"
     DOCKER_REPO_FILE="$PKG_REPO_DIR/docker.list"
     DOCKER_GPG_PATH="/etc/apt/keyrings/docker.asc"
+    DOCKER_REPO_URL="https://download.docker.com/linux/debian"
+    DOCKER_REPO_DIST="${VERSION_CODENAME:-}"
+    DOCKER_REPO_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+    DOCKER_GPG_URL="https://download.docker.com/linux/debian/gpg"
     ;;
   rpm)
     # dnf is the modern pkg manager (RHEL 8+, Fedora, Rocky 8+/9, Alma 8+/9).
@@ -81,10 +85,32 @@ case "$OS_FAMILY" in
     PKG_REPO_DIR="/etc/yum.repos.d"
     DOCKER_REPO_FILE="$PKG_REPO_DIR/docker-ce.repo"
     DOCKER_GPG_PATH="/etc/pki/rpm-gpg/docker.asc"
+    DOCKER_REPO_ARCH="$(uname -m)"
+    # Per docker.com docs (https://docs.docker.com/engine/install/), all
+    # RHEL-compatible distros (RHEL, CentOS Stream, Rocky, AlmaLinux,
+    # Oracle Linux, Amazon Linux 2023) use the /linux/rhel/$VERSION/
+    # path. Fedora uses /linux/fedora/$VERSION/. VERSION_ID is a
+    # major.minor string like 9.4 or 40.10 — strip the minor.
+    RHEL_MAJOR="${VERSION_ID%%.*}"
+    case "${ID:-}" in
+      fedora)
+        DOCKER_REPO_URL="https://download.docker.com/linux/fedora"
+        DOCKER_REPO_DIST="${RHEL_MAJOR}"
+        ;;
+      *)
+        # rhel | centos | rocky | almalinux | ol | amzn | amazon
+        DOCKER_REPO_URL="https://download.docker.com/linux/rhel"
+        DOCKER_REPO_DIST="${RHEL_MAJOR}"
+        ;;
+    esac
+    # GPG key for rpm is published under the same /linux/<distro>/ path.
+    DOCKER_GPG_URL="${DOCKER_REPO_URL}/gpg"
     ;;
   *)
     PKG_INSTALL=""; PKG_UPDATE=""; PKG_UPGRADE=""
     PKG_REPO_DIR=""; DOCKER_REPO_FILE=""; DOCKER_GPG_PATH=""
+    DOCKER_REPO_URL=""; DOCKER_REPO_DIST=""; DOCKER_REPO_ARCH=""
+    DOCKER_GPG_URL=""
     ;;
 esac
 
@@ -105,5 +131,6 @@ esac
 # "unused variable" warnings — these ARE used by sourcing scripts.
 # shellcheck disable=SC2034
 export OS_ID OS_PRETTY OS_FAMILY PKG_INSTALL PKG_UPDATE PKG_UPGRADE \
-       PKG_REPO_DIR DOCKER_REPO_FILE DOCKER_GPG_PATH SELINUX_STATE \
+       PKG_REPO_DIR DOCKER_REPO_FILE DOCKER_GPG_PATH DOCKER_REPO_URL \
+       DOCKER_REPO_DIST DOCKER_REPO_ARCH DOCKER_GPG_URL SELINUX_STATE \
        OS_SUPPORTED
