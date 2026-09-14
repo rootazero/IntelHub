@@ -1002,12 +1002,16 @@ fn translate_change_log(
 
 pub async fn run_reconcile(state: AppState, ct: tokio_util::sync::CancellationToken) {
     // First pass at startup after a short grace period (let the rest of
-    // the stack come up), then hourly.
+    // the stack come up), then every 15 minutes — matches the change_log
+    // mirror cadence so cleanup lag is bounded by the same interval.
+    // Hourly was the initial value; tightened to 15 min after the
+    // first VM 410 startup showed orphan accumulation between hourly
+    // ticks during heavy test churn.
     tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     if let Err(e) = reconcile_once(&state).await {
         tracing::warn!(error = %e, "initial reconcile failed");
     }
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
