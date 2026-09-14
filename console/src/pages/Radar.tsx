@@ -32,15 +32,16 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 type TilesMode = "stadia" | "carto" | "esri" | "offline";
 type TileProvider = "stadia" | "carto" | "esri";
 
-// Basemap chain. Two optional providers both supported:
-//   - Stadia Maps (alidade_smooth_dark): primary choice when a key is
-//     available. Designed as a data-overlay canvas (true black,
-//     designed for OSINT use). Free tier: 200K credits/month,
-//     non-commercial use permitted (stadiamaps.com/sign-up).
-//   - CARTO dark_all: legacy primary. 5M tiles/month free for
-//     non-commercial, requires key at carto.com/fascap/apikey.
-// Without either key the chain starts at Esri (which is grey, not true
-// black, but always available without auth).
+// Basemap chain. Three providers ordered by preference (best → worst):
+//   - CARTO dark_all: primary when a key is set. 5M tiles/month free for
+//     non-commercial use, key at carto.com/basemaps/apikey.
+//   - Esri Canvas/World_Dark_Gray_Base: always-available, no-auth second
+//     fallback. Grey (not true black) but reliable.
+//   - Stadia Maps (alidade_smooth_dark): last-resort third fallback when
+//     a key is set. 200K credits/month, non-commercial use permitted at
+//     stadiamaps.com/sign-up. Kept as final fallback only — its alidade
+//     style renders worse for our OSINT overlay density than CARTO.
+// Without either dark key the chain is just ["esri"] — grey only.
 // A burst of ≥4 tile errors (or no successful tile in the first 5s)
 // advances one tier; the last tier is the bundled offline GeoJSON.
 const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
@@ -72,11 +73,15 @@ const PROVIDERS = {
     },
   },
 } as const;
-// Order: stadia if keyed, else carto if keyed, else esri.
-const CHAIN: TileProvider[] =
-  STADIA_KEY ? ["stadia", "esri"]
-  : CARTO_KEY ? ["carto", "esri"]
-  : ["esri"];
+// Order: CARTO if keyed (best) → Esri (always, auth-free) → Stadia if keyed
+// (last-resort fallback). Esri is always present as a tier-2 anchor even
+// when both dark providers are key-ed, so a CARTO outage can't strand us
+// on Stadia's weaker rendering.
+const CHAIN: TileProvider[] = [
+  ...(CARTO_KEY ? (["carto"] as const) : []),
+  "esri",
+  ...(STADIA_KEY ? (["stadia"] as const) : []),
+];
 const PRIMARY = CHAIN[0];
 
 export default function Radar() {
@@ -292,7 +297,7 @@ export default function Radar() {
           {!STADIA_KEY && !CARTO_KEY && (
             <span
               className="rounded bg-rose-500/15 px-1.5 py-0.5 mono text-[10px] text-rose-400"
-              title="Dark basemap key missing from build — chain starts at Esri fallback (grey not black). Sign up for free at stadiamaps.com (preferred, non-commercial OSINT use) or carto.com/basemaps/apikey (5M tiles/mo), then rebuild the console with VITE_STADIA_KEY or VITE_CARTO_KEY set."
+              title="Dark basemap key missing from build — chain starts at Esri fallback (grey not black). Sign up free at carto.com/basemaps/apikey (5M tiles/mo, preferred) or stadiamaps.com (200K credits/mo), then rebuild the console with VITE_CARTO_KEY or VITE_STADIA_KEY set."
             >
               DARK MAP KEY MISSING
             </span>
