@@ -81,11 +81,17 @@ fn filter_attributes(attrs: Option<Value>) -> Result<Value> {
 }
 
 fn filter_aliases(aliases: Option<Vec<String>>) -> Result<Value> {
+    // 2026-09-15 fix (A-005/B-005/C-001): dedup with order preservation
+    // before the JSON serialize. Without this, every create_entity re-seed
+    // appends the full alias list via `entities.aliases || EXCLUDED.aliases`
+    // and accumulates duplicates that bubble up to the /entities/:id UI.
+    let mut seen = std::collections::HashSet::new();
     let list: Vec<String> = aliases
         .unwrap_or_default()
         .into_iter()
         .filter_map(|a| normalize_name(&a).ok())
         .take(10)
+        .filter(|a| seen.insert(a.clone()))
         .collect();
     Ok(json!(list))
 }
@@ -332,11 +338,21 @@ pub async fn create_entity(state: &AppState, actor: &str, intent: EntityIntent) 
     let aliases = filter_aliases(intent.aliases)?;
     let attributes = filter_attributes(intent.attributes)?;
 
+    // 2026-09-15 fix (A-005/B-005/C-001): use array_distinct() so the merge
+    // of the existing and incoming aliases deduplicates in-Postgres.
+    // Previously `entities.aliases || EXCLUDED.aliases` concatenated and
+    // accumulated duplicates on every re-seed (BRICS 12×, NASA FIRMS 82×).
     let (entity_id,): (Uuid,) = sqlx::query_as(
         "INSERT INTO entities (entity_id, kind, name, aliases, attributes, created_by)
          VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (kind, name) DO UPDATE
-           SET aliases = entities.aliases || EXCLUDED.aliases,
+           SET aliases = (
+                 SELECT to_jsonb(array_agg(DISTINCT v))
+                 FROM jsonb_array_elements_text(
+                   COALESCE(entities.aliases, '[]'::jsonb) ||
+                   COALESCE(EXCLUDED.aliases, '[]'::jsonb)
+                 ) AS v
+               ),
                attributes = entities.attributes || EXCLUDED.attributes
          RETURNING entity_id",
     )
@@ -1310,6 +1326,134 @@ async fn reconcile_once(state: &AppState) -> Result<()> {
         }
     }
 
+    // ---- 8. 2026-09-15 fix (B-001, B-003, B-004): reverse backfill.
+    //     The sections above only clean Neo4j → PG drift (orphans).
+    //     This section closes the PG → Neo4j direction: when the
+    //     graph_sync_queue replay fails (Neo4j unreachable during the
+    //     window), the PG canonical row stays in PG and never gets
+    //     mirrored. Reconciliation backfills these by enqueueing
+    //     idempotent ops into graph_sync_queue (graph_write itself uses
+    //     MERGE on both endpoints, so retries are safe).
+    //
+    //     Dedupe: op_id is UUID v5 from a fixed namespace + the natural
+    //     key, so repeated reconcile ticks don't requeue the same
+    //     backfill (ON CONFLICT (op_id) DO NOTHING).
+    let mut backfilled_claims = 0usize;
+    let mut backfilled_claim_edges = 0usize;
+    let mut backfilled_docs = 0usize;
+    // Fixed namespace UUID for backfill dedupe (random once, deterministic).
+    let backfill_ns: Uuid = Uuid::parse_str("8a3d4f1e-9b27-4c5d-b1e6-7f8a9c0d2e3b").unwrap();
+
+    // 8a. PG claims missing from Neo4j
+    let claim_pg_ids: Vec<Uuid> = sqlx::query_as("SELECT claim_id FROM claims")
+        .fetch_all(&state.pg).await?
+        .into_iter().map(|(c,)| c).collect();
+    let claim_neo_ids: std::collections::HashSet<String> = fetch_rows(
+        state,
+        "MATCH (c:Claim) RETURN c.claim_id AS cid",
+        &["cid"],
+    ).await?
+    .into_iter().map(|r| s_of(&r, "cid"))
+    .filter(|s| !s.is_empty()).collect();
+    for cid in &claim_pg_ids {
+        if claim_neo_ids.contains(&cid.to_string()) { continue; }
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT text, COALESCE(status::text, 'unverified') FROM claims WHERE claim_id = $1",
+        ).bind(cid).fetch_optional(&state.pg).await?;
+        if let Some((text, status)) = row {
+            let ents: Vec<(String, String)> = sqlx::query_as(
+                "SELECT kind, name FROM claim_entities WHERE claim_id = $1",
+            ).bind(cid).fetch_all(&state.pg).await?;
+            let mut op = json!({
+                "type": "create_claim",
+                "claim_id": cid.to_string(),
+                "text": text,
+                "status": status,
+            });
+            if !ents.is_empty() {
+                let arr: Vec<Value> = ents.iter().map(|(k, n)| json!({"kind": k, "name": n})).collect();
+                op.as_object_mut().unwrap().insert("entities".into(), json!(arr));
+            }
+            let op_id = Uuid::new_v5(&backfill_ns, format!("claim:{}", cid).as_bytes());
+            let inserted = sqlx::query(
+                "INSERT INTO graph_sync_queue (op_id, op) VALUES ($1, $2)
+                 ON CONFLICT (op_id) DO NOTHING",
+            ).bind(op_id).bind(&op).execute(&state.pg).await?;
+            if inserted.rows_affected() > 0 { backfilled_claims += 1; }
+        }
+    }
+
+    // 8b. PG claim_evidence rows missing from Neo4j :SUPPORTS edge
+    let ce_pg: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT claim_id, document_id FROM claim_evidence",
+    ).fetch_all(&state.pg).await?;
+    let ce_neo: std::collections::HashSet<(String, String)> = fetch_rows(
+        state,
+        "MATCH (c:Claim)-[r:SUPPORTS]->(d:Document)
+         RETURN c.claim_id AS cid, d.document_id AS did",
+        &["cid", "did"],
+    ).await?
+    .into_iter().map(|r| (s_of(&r, "cid"), s_of(&r, "did")))
+    .filter(|(c, d)| !c.is_empty() && !d.is_empty()).collect();
+    for (cid, did) in &ce_pg {
+        let key = (cid.to_string(), did.to_string());
+        if ce_neo.contains(&key) { continue; }
+        let op_id = Uuid::new_v5(&backfill_ns, format!("claim-edge:{}:{}", cid, did).as_bytes());
+        let op = json!({
+            "type": "link_claim_evidence",
+            "claim_id": cid.to_string(),
+            "document_id": did.to_string(),
+            "relation": "supports",
+        });
+        let inserted = sqlx::query(
+            "INSERT INTO graph_sync_queue (op_id, op) VALUES ($1, $2)
+             ON CONFLICT (op_id) DO NOTHING",
+        ).bind(op_id).bind(&op).execute(&state.pg).await?;
+        if inserted.rows_affected() > 0 { backfilled_claim_edges += 1; }
+    }
+
+    // 8c. PG documents missing from Neo4j :Document
+    let doc_pg_ids: Vec<Uuid> = sqlx::query_as("SELECT document_id FROM documents")
+        .fetch_all(&state.pg).await?
+        .into_iter().map(|(d,)| d).collect();
+    let doc_neo_ids: std::collections::HashSet<String> = fetch_rows(
+        state,
+        "MATCH (d:Document) RETURN d.document_id AS did",
+        &["did"],
+    ).await?
+    .into_iter().map(|r| s_of(&r, "did"))
+    .filter(|s| !s.is_empty()).collect();
+    for did in &doc_pg_ids {
+        if doc_neo_ids.contains(&did.to_string()) { continue; }
+        let row: Option<(String, Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT url_canonical, title, source_id::text
+             FROM documents WHERE document_id = $1",
+        ).bind(did).fetch_optional(&state.pg).await?;
+        if let Some((url, title, source_id)) = row {
+            let op_id = Uuid::new_v5(&backfill_ns, format!("doc:{}", did).as_bytes());
+            let op = json!({
+                "type": "create_document",
+                "document_id": did.to_string(),
+                "url_canonical": url,
+                "title": title.unwrap_or_default(),
+                "source_id": source_id.unwrap_or_default(),
+            });
+            let inserted = sqlx::query(
+                "INSERT INTO graph_sync_queue (op_id, op) VALUES ($1, $2)
+                 ON CONFLICT (op_id) DO NOTHING",
+            ).bind(op_id).bind(&op).execute(&state.pg).await?;
+            if inserted.rows_affected() > 0 { backfilled_docs += 1; }
+        }
+    }
+
+    if backfilled_claims + backfilled_claim_edges + backfilled_docs > 0 {
+        tracing::info!(
+            run_id,
+            backfilled_claims, backfilled_claim_edges, backfilled_docs,
+            "neo4j reconcile backfilled PG→Neo4j drift into graph_sync_queue"
+        );
+    }
+
     // Record run result.
     let details = json!({
         "orphan_entities": orphan_entities.len(),
@@ -1319,6 +1463,9 @@ async fn reconcile_once(state: &AppState) -> Result<()> {
         "stale_claim_doc_edges": stale_claim_edges,
         "stale_finding_doc_edges": stale_finding_doc_edges,
         "stale_finding_entity_edges": stale_finding_entity_edges,
+        "backfilled_claims": backfilled_claims,
+        "backfilled_claim_edges": backfilled_claim_edges,
+        "backfilled_documents": backfilled_docs,
     });
     sqlx::query(
         "UPDATE mirror_reconcile_runs
