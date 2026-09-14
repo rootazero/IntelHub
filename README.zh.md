@@ -25,18 +25,21 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 - **一键安装** — 在全新的 Debian/Ubuntu VM 上 `curl … | bash`，约 10 分钟即可获得
   一个完整可用的 OSINT 栈。崩溃安全：再次执行同一命令自动从断点续装。
 - **MCP 原生网关** — 每个能力都作为 MCP 工具暴露。任何 MCP 兼容 agent 都可直接调用
-  `hybrid_search`、`investigate`、`crawl_url`、`create_claim` 等，无需定制集成。
+  `hybrid_search`、`investigate`、`crawl_url`、`create_claim` 等，无需定制集成。每次
+  MCP 调用都会生成一个 UUID `trace_id`，串联 `cost_records.trace_id`、
+  `embedding_jobs.trace_id` 以及响应顶层的 `trace_id` 字段。通过
+  `GET /api/v1/traces/{trace_id}` 可以拉出完整的调用关系图（工具审计行、embedding
+  任务、rerank token 成本）。
 - **内置信号采集器** — 气候（EONET、NOAA）、辐射（EPA RadNet）、地震（USGS）、
   金融（FRED、Treasury、Finnhub、Comtrade、EIA）、制裁（OFAC、USASpending）、
   安全威胁（ACLED、GDELT、Bluesky、Telegram、X/Twitter、RSS）、网页
-  （SearXNG、Crawl4AI）。25+ 采集器全部内置到 hub-core 中（SP6+ —— 老的 Crucix
-  容器已退役）。
+  （SearXNG、Crawl4AI）。25+ 采集器全部内置到 hub-core 中。
 - **证据 + 审计追溯** — 每条 claim、finding、document、source 都可以追溯。claims 有
   audit 行、documents 有反向引用、findings 有证据链。审计日志是 append-only 的。
 - **成本与速率治理** — 每个 agent 独立的速率限制（Redis token bucket）、每个 agent
   独立的预算（token / 工具调用 / embed）、策略分级（L3 操作如组件备份需要 admin token）。
 - **内置 Web 控制台** — React 19 + Vite，中英双语。包括带黑色底图的全球雷达地图
-  （CARTO 主选 → Esri 兜底 → Stadia 末位）、调查工作台、知识图谱画布（带过滤器和侧边
+  （Stadia 主选 → Esri 兜底 → CARTO 末位）、调查工作台、知识图谱画布（带过滤器和侧边
   面板）、实时活动流、审计/搜索/概览页面。
 - **可观测性** — Prometheus + Grafana + cAdvisor + node-exporter，抓取 hub-core 的
   `/metrics` 和 docker 栈。预置的 Grafana dashboard 覆盖监控器扫描历史、预算消耗、
@@ -46,7 +49,11 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 - **混合搜索** — 关键词（通过 Qdrant 的 BM25）+ 语义（通过 T8star / OpenAI 兼容端点的
   embeddings），通过 Reciprocal Rank Fusion 融合，可选的 cross-encoder rerank
   （BAAI/bge-reranker-v2-m3，由 `HUB_RERANK_ENABLED` 控制开关）。通过
-  `investigate(question)` 工具实现多跳问答，带规则化 + LLM 兜底规划器。
+  `investigate(question)` 工具实现多跳问答，带规则化 + LLM 兜底规划器。重复查询走
+  Redis 结果缓存，键为 `(mode, query, limit, url_contains)`，TTL 300 秒 —— 命中时
+  加速 590 倍（7.1 秒 → 12 毫秒）。每个搜索响应都带顶层字段
+  `cache: "hit" | "miss" | "disabled" | "error"`；开关为 `HUB_QUERY_CACHE_ENABLED`
+  （默认 `true`）。
 - **崩溃安全的安装与更新** — 每个步骤都幂等且记录在 `~/IntelHub/.install-state`。
   重跑 install 命令会快速跳过已完成步骤，从失败点恢复。Secrets 是 write-once 的：
   任何重跑都不会覆盖已生成的 key。
@@ -83,7 +90,7 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/install.sh | bash
 ```
 
-安装器走 13 个幂等步骤：
+安装器走 12 个幂等步骤：
 
 1. **preflight** — 检查 OS / docker / 磁盘 / 内存
 2. **fetch-code** — `git clone`（或通过 `INTELHUB_TARBALL=…` 走 tarball）
@@ -94,11 +101,10 @@ curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/ins
    后的降级能力）
 7. **build-hub** — 在固定的 `rust:trixie` 容器里编译 Rust 二进制
 8. **stack-up** — `docker compose up -d` 拉起 data + sensor + ui 三层
-9. **build-crucix** — 兼容老版本的占位（SP6 后已无操作）
-10. **build-console** — 在 `node:22-trixie` 里跑 `npm run build`，嵌入地图 key
-11. **start-hub** — 启用并启动 `hub-core.service`
-12. **provision-agents** — 铸造 agent + console 两个 API key，写入 `core/agent-keys.txt`
-13. **verify** — 健康检查（失败时把该步骤标记 undone，重跑时从这里恢复）
+9. **build-console** — 在 `node:22-trixie` 里跑 `npm run build`，嵌入地图 key
+10. **start-hub** — 启用并启动 `hub-core.service`
+11. **provision-agents** — 铸造 agent + console 两个 API key，写入 `core/agent-keys.txt`
+12. **verify** — 健康检查（失败时把该步骤标记 undone，重跑时从这里恢复）
 
 每个步骤都记录在 `~/IntelHub/.install-state` 中。**重跑同一命令自动续装**：
 已完成的步骤快速跳过、secrets 保持 write-once、最终健康检查重新验证一切。
@@ -235,3 +241,67 @@ bash scripts/reset-key.sh all        # 同时重置两个
 - 完整项目规范：[`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)
 - 各功能设计文档：[`docs/superpowers/specs/`](docs/superpowers/specs/)
 - English version: [`README.md`](README.md)
+
+## 运维
+
+随仓库一起发布的运维工具，都放在 `scripts/` 里。可以在任意主机上用 agent key 跑——
+开发机 Mac（走 ssh）或者虚拟机本身（本地）。
+
+### 跑验收套件
+
+```bash
+KEY=$(ssh -o BatchMode=yes IntelHub 'grep "api_key:" ~/IntelHub/core/agent-keys.txt | head -1 | grep -o "ihk_[a-f0-9]*"')
+for a in sp3 sp6 sp7 sp8 sp9 sp10; do
+  echo "== $a =="; python3 scripts/accept-$a.py "$KEY" 2>&1 | tail -1
+done
+```
+
+每个脚本输出 `== N passed, K shelved, M failed ==`。`shelved`（sp5/6/7）覆盖
+缺失 API key 的场景 —— 退出码仅反映 `failed`，所以 shelved 检查不会破坏 CI。
+用 `INTELHUB_SSH=<alias>` 覆盖 SSH 目标。套件自动检测 `$INTELHUB_HOME/core/hub`
+回落到本地执行，所以同一套脚本在部署机和你笔记本上都能跑。
+
+### 写自己的脚本 —— 用 `scripts/_remote.py`
+
+不要手搭 `subprocess.run(["ssh", ...])`。直接导入这个 helper：
+
+```python
+from _remote import (
+    sh, pg, pg_stdin, pg_params,   # shell + Postgres
+    redis, cypher,                 # Redis + Neo4j
+    grafana_creds, grafana_request, # Grafana
+)
+```
+
+它通过 `$INTELHUB_HOME/core/hub` sentinel 自动决定走 ssh 还是本地 —— 无需
+`INTELHUB_LOCAL` 开关。Redis / Neo4j / Grafana 的鉴权自动从 `compose/.env` 抽取。
+`pg_params` 只用于受控输入的测试夹具；不可信输入请走 `pg_stdin`。
+
+### Schema 变更后回填 Neo4j 图谱镜像
+
+幂等 —— 任何迁移动到 entities / findings / claims / documents 后都可以放心重跑：
+
+```bash
+python3 scripts/backfill-neo4j-graph-mirror.py    # entities / relationships / documents / findings / claim_evidence / finding_evidence
+python3 scripts/backfill-neo4j-entity-ids.py      # 孤儿 entity_id=NULL 修复
+python3 scripts/backfill-finding-entities.py
+python3 scripts/backfill-claim-audit.py
+```
+
+### 设置或轮换黑色底图的 key
+
+```bash
+bash scripts/set-dark-map-key.sh
+```
+
+按 key 形状自动检测 Stadia（UUID 形态）还是 CARTO（`cb1_` 前缀），同时写入
+`compose/.env` 和 `console-build.env`。两者都有时优先 Stadia。控制台上的红色
+"DARK MAP KEY MISSING" 徽章表示两者都没设。改完后跑一次
+`bash scripts/build-console.sh` 重建控制台才会在 UI 里生效。
+
+### 不跑完整 installer 也能更新 `compose/.env`
+
+如果手改后在 `compose/.env` 里留下了未展开的 `$(...)` 模板（docker-compose 不会展开
+`$(...)` —— 一个常见陷阱），`update.sh` 会通过 `verify_templates()` 自动检测并重新
+生成。底层脚本是 `resolve-versions.sh`（读 `FORCE=1 bash scripts/resolve-versions.sh`
+以当前固定版本全量重新生成）。

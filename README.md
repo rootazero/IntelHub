@@ -29,12 +29,16 @@ single non-container service).
   command resumes where you left off.
 - **MCP-native gateway** — every capability is exposed as an MCP tool. Any
   MCP-compatible agent can call `hybrid_search`, `investigate`, `crawl_url`,
-  `create_claim`, etc. without bespoke integration.
+  `create_claim`, etc. without bespoke integration. Every MCP call threads
+  a UUID `trace_id` through `cost_records.trace_id`, `embedding_jobs.trace_id`,
+  and the response's top-level `trace_id` field. Walk the full call graph
+  (tool audit rows, embedding jobs, rerank token costs) via
+  `GET /api/v1/traces/{trace_id}`.
 - **Native signal collectors** — climate (EONET, NOAA), radiation (EPA
   RadNet), seismic (USGS), financial (FRED, Treasury, Finnhub, Comtrade, EIA),
   sanctions (OFAC, USASpending), threats (ACLED, GDELT, Bluesky, Telegram,
   X/Twitter, RSS), web (SearXNG, Crawl4AI). 25+ collectors, built into
-  hub-core itself (SP6+ — the old Crucix container is gone).
+  hub-core itself.
 - **Evidence + audit trail** — every claim, finding, document, and source is
   traceable. Claims have audit rows, documents have reverse refs, findings
   have evidence chains. The audit log is append-only.
@@ -42,7 +46,7 @@ single non-container service).
   per-agent budgets (token / tool-call / embed), policy levels (admin token
   required for L3 actions like component backups).
 - **Built-in web console** — React 19 + Vite, zh/en i18n. Includes a global
-  radar map with dark basemaps (CARTO primary → Esri fallback → Stadia last),
+  radar map with dark basemaps (Stadia primary → Esri fallback → CARTO last),
   an investigation workbench, a knowledge graph canvas (filters + side
   panels), live activity streams, audit/search/overview pages.
 - **Observability** — Prometheus + Grafana + cAdvisor + node-exporter,
@@ -56,7 +60,11 @@ single non-container service).
   T8star / OpenAI-compatible endpoint), fused via Reciprocal Rank Fusion,
   optional cross-encoder rerank (BAAI/bge-reranker-v2-m3, gated by
   `HUB_RERANK_ENABLED`). Multi-hop Q&A via the `investigate(question)` tool
-  with rule-based + LLM-fallback planners.
+  with rule-based + LLM-fallback planners. Repeat calls are served from a
+  Redis result cache keyed by `(mode, query, limit, url_contains)` with a
+  300 s TTL — 590× speedup on a hit (7.1 s → 12 ms). Every search response
+  carries a top-level `cache: "hit" | "miss" | "disabled" | "error"` field;
+  toggle with `HUB_QUERY_CACHE_ENABLED` (default `true`).
 - **Crash-safe install + update** — every step is idempotent and recorded in
   `~/IntelHub/.install-state`. Re-running the install command fast-skips
   completed steps and resumes at the failure point. Secrets are write-once:
@@ -94,7 +102,7 @@ deployment topology — lives in [`OSINTIntelligenceHub.md`](OSINTIntelligenceHu
 curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/install.sh | bash
 ```
 
-The installer walks 13 idempotent steps:
+The installer walks 12 idempotent steps:
 
 1. **preflight** — check OS / docker / disk / RAM
 2. **fetch-code** — `git clone` (or tarball via `INTELHUB_TARBALL=…`)
@@ -105,12 +113,11 @@ The installer walks 13 idempotent steps:
    its feature + a stated "Enter-to-skip" degraded capability)
 7. **build-hub** — compile Rust binary in a pinned `rust:trixie` container
 8. **stack-up** — `docker compose up -d` for data + sensor + ui layers
-9. **build-crucix** — legacy alias kept for backward compat (no-op since SP6)
-10. **build-console** — `npm run build` in `node:22-trixie`, embeds map keys
-11. **start-hub** — enable + start `hub-core.service`
-12. **provision-agents** — mint agent + console API keys into
+9. **build-console** — `npm run build` in `node:22-trixie`, embeds map keys
+10. **start-hub** — enable + start `hub-core.service`
+11. **provision-agents** — mint agent + console API keys into
     `core/agent-keys.txt`
-13. **verify** — health check (marks step undone on failure so a re-run
+12. **verify** — health check (marks step undone on failure so a re-run
     resumes there)
 
 Every step is recorded in `~/IntelHub/.install-state`. **Re-run the same
@@ -265,3 +272,75 @@ exists in `core/agent-keys.txt`, the step skips. Re-running `install.sh` or
 - Full project spec: [`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)
 - Per-feature design docs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
 - 中文版 README: [`README.zh.md`](README.zh.md)
+
+## Operating
+
+Operational tooling that ships with the repo. All live in `scripts/`. Run
+them from any host with the agent key — the dev Mac (over ssh) or the VM
+itself (locally).
+
+### Run the acceptance suite
+
+```bash
+KEY=$(ssh -o BatchMode=yes IntelHub 'grep "api_key:" ~/IntelHub/core/agent-keys.txt | head -1 | grep -o "ihk_[a-f0-9]*"')
+for a in sp3 sp6 sp7 sp8 sp9 sp10; do
+  echo "== $a =="; python3 scripts/accept-$a.py "$KEY" 2>&1 | tail -1
+done
+```
+
+Each script prints `== N passed, K shelved, M failed ==`. `shelved`
+(sp5/6/7) covers missing-API-key scenarios — the exit code only reflects
+`failed`, so shelved checks do not break CI. Override the SSH target with
+`INTELHUB_SSH=<alias>`. The suite auto-detects `$INTELHUB_HOME/core/hub`
+and falls back to local execution, so the same scripts run on the deploy
+host and your laptop.
+
+### Custom scripts — use `scripts/_remote.py`
+
+Don't hand-roll `subprocess.run(["ssh", ...])`. Import the helper:
+
+```python
+from _remote import (
+    sh, pg, pg_stdin, pg_params,   # shell + Postgres
+    redis, cypher,                 # Redis + Neo4j
+    grafana_creds, grafana_request, # Grafana
+)
+```
+
+It auto-routes ssh-or-local via the `$INTELHUB_HOME/core/hub` sentinel —
+no `INTELHUB_LOCAL` switch needed. Auth for Redis / Neo4j / Grafana is
+extracted from `compose/.env` automatically. Use `pg_params` only for test
+fixtures with controlled input; untrusted input goes through `pg_stdin`.
+
+### Backfill the Neo4j graph mirror after schema changes
+
+Idempotent — safe to re-run any time a migration touches entities,
+findings, claims, or documents:
+
+```bash
+python3 scripts/backfill-neo4j-graph-mirror.py    # entities / relationships / documents / findings / claim_evidence / finding_evidence
+python3 scripts/backfill-neo4j-entity-ids.py      # orphan entity_id=NULL fix
+python3 scripts/backfill-finding-entities.py
+python3 scripts/backfill-claim-audit.py
+```
+
+### Set or rotate the dark-map basemap key
+
+```bash
+bash scripts/set-dark-map-key.sh
+```
+
+Auto-detects Stadia (UUID-shaped) vs CARTO (`cb1_`-prefixed) keys and
+writes both `compose/.env` and `console-build.env`. Stadia is preferred
+when both are present. A red "DARK MAP KEY MISSING" badge in the console
+indicates neither is set. Rebuild the console
+(`bash scripts/build-console.sh`) for the change to take effect in the UI.
+
+### Update `compose/.env` without re-running the full installer
+
+If a manual edit left unexpanded `$(...)` templates in `compose/.env`
+(docker-compose does not expand `$(...)` — a common foot-gun), `update.sh`
+will auto-detect and regenerate them via `verify_templates()`. The
+underlying script is `resolve-versions.sh` (read `FORCE=1 bash
+scripts/resolve-versions.sh` to regenerate the whole file from current
+pinned tags).
