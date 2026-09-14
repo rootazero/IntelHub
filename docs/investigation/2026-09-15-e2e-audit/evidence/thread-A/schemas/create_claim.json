@@ -1,0 +1,59 @@
+{
+  "name": "create_claim",
+  "description": "Create a claim bound to evidence (§43: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.",
+  "input_schema": {
+    "$defs": {
+      "ClaimEntityRefArgs": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "description": "subject|object|mentioned (default mentioned)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "entities": {
+        "description": "Entities the claim is about (created if missing)",
+        "items": {
+          "$ref": "#/$defs/ClaimEntityRefArgs"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "evidence_document_ids": {
+        "description": "§43: at least one evidence document UUID is REQUIRED",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "text": {
+        "description": "Claim text (8–4000 chars)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "text",
+      "evidence_document_ids"
+    ],
+    "type": "object"
+  }
+}

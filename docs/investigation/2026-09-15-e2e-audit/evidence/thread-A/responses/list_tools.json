@@ -1,0 +1,175 @@
+{
+  "args": {},
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "count": 41,
+    "tools": [
+      {
+        "description": "Acknowledge an open alert.",
+        "name": "acknowledge_alert"
+      },
+      {
+        "description": "Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status. When `await_embed=true`, blocks up to 30s for the embed worker to finish so a follow-up semantic_search returns this document.",
+        "name": "crawl_url"
+      },
+      {
+        "description": "Create a claim bound to evidence (\u00a743: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.",
+        "name": "create_claim"
+      },
+      {
+        "description": "Create an entity in the intelligence graph (typed intent \u2192 schema validation \u2192 PG canonical + Neo4j relationship memory). Level 2 governed.",
+        "name": "create_entity"
+      },
+      {
+        "description": "Create an agent finding bound to evidence (directive \u00a728/\u00a729: claims must cite supporting/contradicting evidence; findings are agent inference, never presented as verified fact).",
+        "name": "create_finding"
+      },
+      {
+        "description": "Create a new investigation (first-class object: target/question/hypothesis).",
+        "name": "create_investigation"
+      },
+      {
+        "description": "Create a typed relationship between two existing entities (endpoints must exist \u2014 create them first). Level 2 governed.",
+        "name": "create_relationship"
+      },
+      {
+        "description": "Fetch a document by URL: returns the stored evidence if already collected, otherwise crawls and ingests it first.",
+        "name": "fetch_document"
+      },
+      {
+        "description": "Fetch deep fundamentals for a US ticker via financialdatasets.ai (8 endpoints: profile/statements/segments/13F holders/insider KPI/guidance). Level 2 governed; responses are cached 30 days in Postgres (pay-per-request provider \u2014 a cache hit costs nothing).",
+        "name": "financials_fetch"
+      },
+      {
+        "description": "Contradictions touching a claim (by claim_id) OR any claim about an entity (by entity_id). Exactly one must be supplied.",
+        "name": "find_contradicting_claims"
+      },
+      {
+        "description": "Find the shortest path between two entities in the knowledge graph. v2: temporal-aware, weighted by 1-confidence. Replaces v1 (no back-compat: v1 was unused in production).",
+        "name": "find_path"
+      },
+      {
+        "description": "Relationship changes between two entities (by name fragment, case-insensitive). Most recent first, optional time window.",
+        "name": "find_relationship_changes"
+      },
+      {
+        "description": "Claims that cite this entity, joined with documents that support them (supports-only by design; use find_contradicting_claims for the opposing half).",
+        "name": "find_supporting_claims"
+      },
+      {
+        "description": "Get YOUR current budget state (GREEN/YELLOW/RED/KILL) with today's usage vs limits (\u00a758\u201360). Self-throttle accordingly.",
+        "name": "get_budget_status"
+      },
+      {
+        "description": "Get a stored document by id (content + metadata + provenance).",
+        "name": "get_document"
+      },
+      {
+        "description": "Get an entity by id with aliases, outgoing relationships, and claims (resolves `merged_into` to the parent if applicable).",
+        "name": "get_entity"
+      },
+      {
+        "description": "Audit timeline of an entity and its relationships (graph_change_log filtered by entity + relationship target_id).",
+        "name": "get_entity_timeline"
+      },
+      {
+        "description": "Get a stored evidence document including provenance chain (source, retrieval time, content hash) and the findings that reference it.",
+        "name": "get_evidence"
+      },
+      {
+        "description": "Variable-length neighborhood expansion in the graph (depth default 2, clamped 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).",
+        "name": "get_neighbors"
+      },
+      {
+        "description": "Aggregate system health: Postgres, Redis, Neo4j, Qdrant, SearXNG, Crawl4AI latencies + docker container states.",
+        "name": "get_system_health"
+      },
+      {
+        "description": "Get the status of a task (search/crawl/ingest/analysis).",
+        "name": "get_task_status"
+      },
+      {
+        "description": "Hybrid retrieval over evidence: keyword + vector channels fused with reciprocal-rank fusion (\u00a741 candidate set \u2192 rerank \u2192 evidence set).",
+        "name": "hybrid_search"
+      },
+      {
+        "description": "Investigate a question: rule-based planner runs hybrid search + entity lookup + graph traversal + existing-claims lookup, returns synthesized evidence chain. Each step is its own sub-trace.",
+        "name": "investigate"
+      },
+      {
+        "description": "Keyword full-text search over stored evidence documents.",
+        "name": "keyword_search"
+      },
+      {
+        "description": "List alerts from the unified alert center (\u00a754): severity, source, links, recommended action.",
+        "name": "list_alerts"
+      },
+      {
+        "description": "Documents that cite this entity via claim_evidence. relation defaults to \"supports\". Side-effect: writes observations rows (idempotent).",
+        "name": "list_evidence_for_entity"
+      },
+      {
+        "description": "List investigations, optionally filtered by status.",
+        "name": "list_investigations"
+      },
+      {
+        "description": "List all available MCP tools (name + one-line description). Use this first when an error says 'missing field X' to discover the canonical argument name. Read-only, no budget cost, not audited.",
+        "name": "list_tools"
+      },
+      {
+        "description": "Mute an open alert (stops dedupe-bumping and webhook noise for this alert).",
+        "name": "mute_alert"
+      },
+      {
+        "description": "Query entities in the relationship graph by name (read-only, parameterized \u2014 no arbitrary Cypher).",
+        "name": "query_entity"
+      },
+      {
+        "description": "Findings + entities + claims for an investigation (joins via claim_entities + findings.investigation_id).",
+        "name": "query_investigation_graph"
+      },
+      {
+        "description": "List relationships of an entity in the graph (read-only, parameterized).",
+        "name": "query_relationship"
+      },
+      {
+        "description": "LEVEL 3 (requires X-Admin-Token, default DENY per \u00a761): run a whitelisted lifecycle action on a component \u2014 upgrade|rollback|backup via the pinned VM scripts.",
+        "name": "run_component_action"
+      },
+      {
+        "description": "Search entities by name with alias-aware matching. Returns up to `limit` matches with scores.",
+        "name": "search_entity"
+      },
+      {
+        "description": "Search the web via the SearXNG federated sensor. Returns normalized results (url/title/snippet/engine).",
+        "name": "search_web"
+      },
+      {
+        "description": "Semantic similarity search over embedded evidence (vector channel, \u00a739\u201342). Falls back to labeled keyword results only when nothing is embedded yet.",
+        "name": "semantic_search"
+      },
+      {
+        "description": "Query monitor time-series observations (macro FRED/EIA/Treasury, market quotes, sentiment). Series are self-describing with units, e.g. fred:VIXCLS, fred:CPIAUCSL_YOY, quote:AAPL, sentiment:AAPL, eia:WTI_SPOT_USD_BBL.",
+        "name": "signal_query"
+      },
+      {
+        "description": "Return the full input schema (param names/types/required/description) for one MCP tool by name. Read-only, no budget cost, not audited.",
+        "name": "tool_schema"
+      },
+      {
+        "description": "Update an investigation's fields (title/question/target/hypothesis/status).",
+        "name": "update_investigation"
+      },
+      {
+        "description": "v2 batch claim extractor (no evidence required \u2014 for LLM extractor pipelines that pick claims out of documents). Mirrors REST POST /api/v1/v2/extract_claims. Each claim is a separate transaction; audit rows drive the Neo4j mirror worker. Level 2 governed.",
+        "name": "v2_extract_claims"
+      },
+      {
+        "description": "Manage the monitor market watchlist (add/remove/toggle/list). The markets collector quotes enabled symbols every 6h; finintel tracks their news/insiders/sentiment hourly. Level 2 governed.",
+        "name": "watchlist_manage"
+      }
+    ]
+  },
+  "raw_first_500": "data: \nid: 0/25\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"count\\\": 41,\\n  \\\"tools\\\": [\\n    {\\n      \\\"description\\\": \\\"Acknowledge an open alert.\\\",\\n      \\\"name\\\": \\\"acknowledge_alert\\\"\\n    },\\n    {\\n      \\\"description\\\": \\\"Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status. When `await_embed=true`, blocks up to 30s for the embed worker to finish so a fo"
+}

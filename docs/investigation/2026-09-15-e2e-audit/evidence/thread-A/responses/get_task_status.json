@@ -1,0 +1,9 @@
+{
+  "args": {
+    "task_id": "00000000-0000-0000-0000-000000000000"
+  },
+  "kind": "expected 404",
+  "is_error": false,
+  "parsed_content": null,
+  "raw_first_500": "data: \nid: 0/18\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32602,\"message\":\"not_found: task 00000000-0000-0000-0000-000000000000\"}}\nid: 1/18\n\n"
+}

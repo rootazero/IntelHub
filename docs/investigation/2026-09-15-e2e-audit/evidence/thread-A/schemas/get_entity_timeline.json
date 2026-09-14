@@ -1,0 +1,39 @@
+{
+  "name": "get_entity_timeline",
+  "description": "Audit timeline of an entity and its relationships (graph_change_log filtered by entity + relationship target_id).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "entity_id": {
+        "description": "Entity UUID",
+        "type": "string"
+      },
+      "from": {
+        "description": "ISO8601 lower bound (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "limit": {
+        "description": "Max results (default 100, max 500)",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "to": {
+        "description": "ISO8601 upper bound (optional)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "entity_id"
+    ],
+    "type": "object"
+  }
+}

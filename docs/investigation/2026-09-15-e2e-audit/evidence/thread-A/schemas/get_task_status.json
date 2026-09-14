@@ -1,0 +1,17 @@
+{
+  "name": "get_task_status",
+  "description": "Get the status of a task (search/crawl/ingest/analysis).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "task_id": {
+        "description": "Task UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "task_id"
+    ],
+    "type": "object"
+  }
+}

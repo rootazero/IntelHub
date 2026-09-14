@@ -1,0 +1,70 @@
+{
+  "name": "v2_extract_claims",
+  "description": "v2 batch claim extractor (no evidence required — for LLM extractor pipelines that pick claims out of documents). Mirrors REST POST /api/v1/v2/extract_claims. Each claim is a separate transaction; audit rows drive the Neo4j mirror worker. Level 2 governed.",
+  "input_schema": {
+    "$defs": {
+      "ClaimEntityRefArgs": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "description": "subject|object|mentioned (default mentioned)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "V2ClaimInput": {
+        "properties": {
+          "entity_refs": {
+            "description": "Optional entity refs (created if missing by kind+name upsert)",
+            "items": {
+              "$ref": "#/$defs/ClaimEntityRefArgs"
+            },
+            "type": "array"
+          },
+          "text": {
+            "description": "Claim text (8–4000 chars)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "claims": {
+        "description": "Batch of claims to insert (capped at 200 per call)",
+        "items": {
+          "$ref": "#/$defs/V2ClaimInput"
+        },
+        "type": "array"
+      },
+      "task_id": {
+        "description": "Optional task_id for traceability (audit row will link to it)",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "claims"
+    ],
+    "type": "object"
+  }
+}

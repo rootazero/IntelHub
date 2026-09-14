@@ -1,0 +1,17 @@
+{
+  "name": "get_document",
+  "description": "Get a stored document by id (content + metadata + provenance).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "document_id": {
+        "description": "Document UUID",
+        "type": "string"
+      }
+    },
+    "required": [
+      "document_id"
+    ],
+    "type": "object"
+  }
+}

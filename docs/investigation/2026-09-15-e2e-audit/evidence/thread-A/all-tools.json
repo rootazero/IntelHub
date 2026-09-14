@@ -1,0 +1,1227 @@
+[
+  {
+    "name": "acknowledge_alert",
+    "description": "Acknowledge an open alert.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "alert_id": {
+          "description": "Alert UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "crawl_url",
+    "description": "Crawl a URL via Crawl4AI and ingest it as evidence (normalized, deduplicated, provenance-tracked). Returns document_id and dedupe status. When `await_embed=true`, blocks up to 30s for the embed worker to finish so a follow-up semantic_search returns this document.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "await_embed": {
+          "description": "If true (default false), block up to 30s waiting for the embed worker\nto finish this document so a follow-up semantic_search returns it.\nReturns `embedding_status` and `embed_waited_ms` in the response.\nWhen `embed=skip`, this flag is ignored.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "embed": {
+          "description": "Embedding decision (§40): \"auto\" (default, decision rules) | \"force\" | \"skip\"",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investigation_id": {
+          "description": "Optional investigation UUID to attach the crawl task to",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "description": "URL to crawl and ingest as evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_claim",
+    "description": "Create a claim bound to evidence (§43: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.",
+    "inputSchema": {
+      "$defs": {
+        "ClaimEntityRefArgs": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "role": {
+              "description": "subject|object|mentioned (default mentioned)",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entities": {
+          "description": "Entities the claim is about (created if missing)",
+          "items": {
+            "$ref": "#/$defs/ClaimEntityRefArgs"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "evidence_document_ids": {
+          "description": "§43: at least one evidence document UUID is REQUIRED",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "description": "Claim text (8–4000 chars)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "evidence_document_ids"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_entity",
+    "description": "Create an entity in the intelligence graph (typed intent → schema validation → PG canonical + Neo4j relationship memory). Level 2 governed.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "aliases": {
+          "description": "Optional aliases (max 10)",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "attributes": {
+          "description": "Optional attributes (allowlist: description,url,country,confidence,severity,first_seen,last_seen,tags,source)"
+        },
+        "kind": {
+          "description": "person|org|domain|ip|location|event|infrastructure|software|handle|email|phone|crypto_wallet",
+          "type": "string"
+        },
+        "name": {
+          "description": "Entity name (normalized)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_finding",
+    "description": "Create an agent finding bound to evidence (directive §28/§29: claims must cite supporting/contradicting evidence; findings are agent inference, never presented as verified fact).",
+    "inputSchema": {
+      "$defs": {
+        "EvidenceLink": {
+          "properties": {
+            "document_id": {
+              "description": "Document UUID supporting/contradicting the finding",
+              "type": "string"
+            },
+            "relation": {
+              "description": "\"supports\" (default) or \"contradicts\"",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "document_id"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "claim_text": {
+          "description": "The claim text (agent inference — NOT verified fact, directive §29)",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "Evidence links — at least one required",
+          "items": {
+            "$ref": "#/$defs/EvidenceLink"
+          },
+          "type": "array"
+        },
+        "investigation_id": {
+          "description": "Investigation UUID this finding belongs to",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "Optional task UUID to attribute",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Short finding title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "investigation_id",
+        "title",
+        "claim_text",
+        "evidence"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_investigation",
+    "description": "Create a new investigation (first-class object: target/question/hypothesis).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "hypothesis": {
+          "description": "Initial hypothesis",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "question": {
+          "description": "The question this investigation answers",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "description": "The target (person/org/domain/event/...)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Investigation title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "create_relationship",
+    "description": "Create a typed relationship between two existing entities (endpoints must exist — create them first). Level 2 governed.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "attributes": true,
+        "from_kind": {
+          "type": "string"
+        },
+        "from_name": {
+          "type": "string"
+        },
+        "rel_type": {
+          "description": "controls|owns|communicates_with|resolves_to|located_in|affiliated_with|uses|hosts|registered_by|related_to",
+          "type": "string"
+        },
+        "to_kind": {
+          "type": "string"
+        },
+        "to_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_kind",
+        "from_name",
+        "to_kind",
+        "to_name",
+        "rel_type"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "fetch_document",
+    "description": "Fetch a document by URL: returns the stored evidence if already collected, otherwise crawls and ingests it first.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "url": {
+          "description": "Canonical or original URL to fetch (from store if present, else crawled fresh)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "financials_fetch",
+    "description": "Fetch deep fundamentals for a US ticker via financialdatasets.ai (8 endpoints: profile/statements/segments/13F holders/insider KPI/guidance). Level 2 governed; responses are cached 30 days in Postgres (pay-per-request provider — a cache hit costs nothing).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "ticker": {
+          "description": "US ticker, e.g. AAPL (financialdatasets.ai coverage: US equities)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ticker"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_contradicting_claims",
+    "description": "Contradictions touching a claim (by claim_id) OR any claim about an entity (by entity_id). Exactly one must be supplied.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "claim_id": {
+          "description": "Contradictions touching this claim UUID (mutually exclusive with entity_id)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entity_id": {
+          "description": "Contradictions touching any claim about this entity UUID (mutually exclusive with claim_id)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_path",
+    "description": "Find the shortest path between two entities in the knowledge graph. v2: temporal-aware, weighted by 1-confidence. Replaces v1 (no back-compat: v1 was unused in production).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "from": {
+          "description": "Start entity name (case-insensitive exact match)",
+          "type": "string"
+        },
+        "max_hops": {
+          "description": "Maximum hops to expand (default 5, clamped 1..=8)",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "Target entity name (case-insensitive exact match)",
+          "type": "string"
+        },
+        "weighted": {
+          "description": "Weight edges by 1 - confidence (sum), default true. false = raw hop count.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_relationship_changes",
+    "description": "Relationship changes between two entities (by name fragment, case-insensitive). Most recent first, optional time window.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "a": {
+          "description": "Entity A name fragment",
+          "type": "string"
+        },
+        "b": {
+          "description": "Entity B name fragment",
+          "type": "string"
+        },
+        "from": {
+          "description": "ISO8601 lower bound (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "ISO8601 upper bound (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_supporting_claims",
+    "description": "Claims that cite this entity, joined with documents that support them (supports-only by design; use find_contradicting_claims for the opposing half).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity_id": {
+          "description": "Entity UUID",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max results (default 50, max 100)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_budget_status",
+    "description": "Get YOUR current budget state (GREEN/YELLOW/RED/KILL) with today's usage vs limits (§58–60). Self-throttle accordingly.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_document",
+    "description": "Get a stored document by id (content + metadata + provenance).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "document_id": {
+          "description": "Document UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_entity",
+    "description": "Get an entity by id with aliases, outgoing relationships, and claims (resolves `merged_into` to the parent if applicable).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity_id": {
+          "description": "Entity UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_entity_timeline",
+    "description": "Audit timeline of an entity and its relationships (graph_change_log filtered by entity + relationship target_id).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity_id": {
+          "description": "Entity UUID",
+          "type": "string"
+        },
+        "from": {
+          "description": "ISO8601 lower bound (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Max results (default 100, max 500)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "to": {
+          "description": "ISO8601 upper bound (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_evidence",
+    "description": "Get a stored evidence document including provenance chain (source, retrieval time, content hash) and the findings that reference it.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "document_id": {
+          "description": "Document UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_neighbors",
+    "description": "Variable-length neighborhood expansion in the graph (depth default 2, clamped 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "at_time": {
+          "description": "Optional ISO8601 timestamp for temporal filter (only edges valid at this time)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "depth": {
+          "description": "Expansion depth (default 1, clamped 1..=4)",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "entity_id": {
+          "description": "Entity UUID to expand from",
+          "type": "string"
+        },
+        "min_confidence": {
+          "description": "Drop edges with confidence below this (0.0..=1.0, default 0.0)",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rel_types": {
+          "description": "Optional filter: only follow these rel_types (e.g. [\"controls\",\"owns\"])",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_system_health",
+    "description": "Aggregate system health: Postgres, Redis, Neo4j, Qdrant, SearXNG, Crawl4AI latencies + docker container states.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_task_status",
+    "description": "Get the status of a task (search/crawl/ingest/analysis).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "task_id": {
+          "description": "Task UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "hybrid_search",
+    "description": "Hybrid retrieval over evidence: keyword + vector channels fused with reciprocal-rank fusion (§41 candidate set → rerank → evidence set).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 10, max 50)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "Keyword query over stored evidence",
+          "type": "string"
+        },
+        "url_contains": {
+          "description": "Optional: only documents whose canonical URL contains this string",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "investigate",
+    "description": "Investigate a question: rule-based planner runs hybrid search + entity lookup + graph traversal + existing-claims lookup, returns synthesized evidence chain. Each step is its own sub-trace.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "investigation_id": {
+          "description": "Optional existing investigation UUID to attach findings to (and to pull existing claims from)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_steps": {
+          "description": "Max planner steps (default 6, hard cap 12)",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "question": {
+          "description": "The natural-language question to investigate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "keyword_search",
+    "description": "Keyword full-text search over stored evidence documents.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 10, max 50)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "Keyword query over stored evidence",
+          "type": "string"
+        },
+        "url_contains": {
+          "description": "Optional: only documents whose canonical URL contains this string",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_alerts",
+    "description": "List alerts from the unified alert center (§54): severity, source, links, recommended action.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 50, max 200)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "severity": {
+          "description": "info|warning|critical",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "osint|agent|sensor|infra|budget|security",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "open|ack|muted (omit for all)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_evidence_for_entity",
+    "description": "Documents that cite this entity via claim_evidence. relation defaults to \"supports\". Side-effect: writes observations rows (idempotent).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity_id": {
+          "description": "Entity UUID",
+          "type": "string"
+        },
+        "relation": {
+          "description": "\"supports\" (default) or \"contradicts\"",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entity_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_investigations",
+    "description": "List investigations, optionally filtered by status.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 20, max 100)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Filter by status (open|paused|closed); omit for all",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "list_tools",
+    "description": "List all available MCP tools (name + one-line description). Use this first when an error says 'missing field X' to discover the canonical argument name. Read-only, no budget cost, not audited.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "name": "mute_alert",
+    "description": "Mute an open alert (stops dedupe-bumping and webhook noise for this alert).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "alert_id": {
+          "description": "Alert UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "alert_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_entity",
+    "description": "Query entities in the relationship graph by name (read-only, parameterized — no arbitrary Cypher).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "kind": {
+          "description": "Optional entity kind filter (person|org|domain|ip|location|event|...)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Max results (default 20, max 100)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Entity name (case-insensitive contains match)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_investigation_graph",
+    "description": "Findings + entities + claims for an investigation (joins via claim_entities + findings.investigation_id).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "investigation_id": {
+          "description": "Investigation UUID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "investigation_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "query_relationship",
+    "description": "List relationships of an entity in the graph (read-only, parameterized).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 50, max 200)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Entity name (exact, case-insensitive)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "run_component_action",
+    "description": "LEVEL 3 (requires X-Admin-Token, default DENY per §61): run a whitelisted lifecycle action on a component — upgrade|rollback|backup via the pinned VM scripts.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "description": "upgrade|rollback|backup",
+          "type": "string"
+        },
+        "component": {
+          "description": "postgres|redis|neo4j|qdrant|searxng|crawl4ai|spiderfoot|huginn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "search_entity",
+    "description": "Search entities by name with alias-aware matching. Returns up to `limit` matches with scores.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "kind": {
+          "description": "Optional entity kind filter (person|org|domain|ip|location|event|...)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Max results (default 20, max 100)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Name fragment (case-insensitive contains match on name + aliases)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "search_web",
+    "description": "Search the web via the SearXNG federated sensor. Returns normalized results (url/title/snippet/engine).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 10, max 25)",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "The web search query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "semantic_search",
+    "description": "Semantic similarity search over embedded evidence (vector channel, §39–42). Falls back to labeled keyword results only when nothing is embedded yet.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "description": "Max results (default 10, max 50)",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "Keyword query over stored evidence",
+          "type": "string"
+        },
+        "url_contains": {
+          "description": "Optional: only documents whose canonical URL contains this string",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "signal_query",
+    "description": "Query monitor time-series observations (macro FRED/EIA/Treasury, market quotes, sentiment). Series are self-describing with units, e.g. fred:VIXCLS, fred:CPIAUCSL_YOY, quote:AAPL, sentiment:AAPL, eia:WTI_SPOT_USD_BBL.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "from": {
+          "description": "ISO8601 lower bound (optional, default: no bound)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "Max points (default 100, max 1000), newest first",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "series": {
+          "description": "Series name or LIKE pattern, e.g. \"fred:%\", \"quote:AAPL\", \"sentiment:%\"",
+          "type": "string"
+        },
+        "to": {
+          "description": "ISO8601 upper bound (optional)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "series"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "tool_schema",
+    "description": "Return the full input schema (param names/types/required/description) for one MCP tool by name. Read-only, no budget cost, not audited.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "name": {
+          "description": "Tool name (e.g. \"create_claim\", \"find_path\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "update_investigation",
+    "description": "Update an investigation's fields (title/question/target/hypothesis/status).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "hypothesis": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "investigation_id": {
+          "description": "Investigation UUID",
+          "type": "string"
+        },
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "open|paused|closed",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "investigation_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "v2_extract_claims",
+    "description": "v2 batch claim extractor (no evidence required — for LLM extractor pipelines that pick claims out of documents). Mirrors REST POST /api/v1/v2/extract_claims. Each claim is a separate transaction; audit rows drive the Neo4j mirror worker. Level 2 governed.",
+    "inputSchema": {
+      "$defs": {
+        "ClaimEntityRefArgs": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "role": {
+              "description": "subject|object|mentioned (default mentioned)",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        "V2ClaimInput": {
+          "properties": {
+            "entity_refs": {
+              "description": "Optional entity refs (created if missing by kind+name upsert)",
+              "items": {
+                "$ref": "#/$defs/ClaimEntityRefArgs"
+              },
+              "type": "array"
+            },
+            "text": {
+              "description": "Claim text (8–4000 chars)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "claims": {
+          "description": "Batch of claims to insert (capped at 200 per call)",
+          "items": {
+            "$ref": "#/$defs/V2ClaimInput"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "description": "Optional task_id for traceability (audit row will link to it)",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "claims"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "watchlist_manage",
+    "description": "Manage the monitor market watchlist (add/remove/toggle/list). The markets collector quotes enabled symbols every 6h; finintel tracks their news/insiders/sentiment hourly. Level 2 governed.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "action": {
+          "description": "add|remove|toggle|list",
+          "type": "string"
+        },
+        "asset_class": {
+          "description": "us_stock|etf|index|crypto (add only, default us_stock)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "Human label (add only)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "Symbol (required for add/remove/toggle), e.g. AAPL, BTCUSD",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    }
+  }
+]

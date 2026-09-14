@@ -1,0 +1,12 @@
+{
+  "args": {
+    "from_kind": "org",
+    "from_name": "BRICS",
+    "to_kind": "country",
+    "to_name": "China"
+  },
+  "kind": "readonly",
+  "is_error": true,
+  "parsed_content": "failed to deserialize parameters: missing field `from`",
+  "raw_first_500": "data: \nid: 0/8\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"failed to deserialize parameters: missing field `from`\"}],\"isError\":true}}\nid: 1/8\n\n"
+}

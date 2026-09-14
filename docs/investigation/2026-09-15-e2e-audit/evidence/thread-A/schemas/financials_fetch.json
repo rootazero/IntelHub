@@ -1,0 +1,17 @@
+{
+  "name": "financials_fetch",
+  "description": "Fetch deep fundamentals for a US ticker via financialdatasets.ai (8 endpoints: profile/statements/segments/13F holders/insider KPI/guidance). Level 2 governed; responses are cached 30 days in Postgres (pay-per-request provider — a cache hit costs nothing).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "ticker": {
+        "description": "US ticker, e.g. AAPL (financialdatasets.ai coverage: US equities)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ticker"
+    ],
+    "type": "object"
+  }
+}

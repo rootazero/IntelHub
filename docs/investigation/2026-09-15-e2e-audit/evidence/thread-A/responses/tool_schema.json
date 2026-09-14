@@ -1,0 +1,67 @@
+{
+  "args": {
+    "name": "create_claim"
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "description": "Create a claim bound to evidence (\u00a743: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.",
+    "input_schema": {
+      "$defs": {
+        "ClaimEntityRefArgs": {
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "role": {
+              "description": "subject|object|mentioned (default mentioned)",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entities": {
+          "description": "Entities the claim is about (created if missing)",
+          "items": {
+            "$ref": "#/$defs/ClaimEntityRefArgs"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "evidence_document_ids": {
+          "description": "\u00a743: at least one evidence document UUID is REQUIRED",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "text": {
+          "description": "Claim text (8\u20134000 chars)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "evidence_document_ids"
+      ],
+      "type": "object"
+    },
+    "name": "create_claim"
+  },
+  "raw_first_500": "data: \nid: 0/35\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"description\\\": \\\"Create a claim bound to evidence (\u00a743: at least one evidence document REQUIRED). Optionally links entities (created if missing). Level 2 governed.\\\",\\n  \\\"input_schema\\\": {\\n    \\\"$defs\\\": {\\n      \\\"ClaimEntityRefArgs\\\": {\\n        \\\"properties\\\": {\\n          \\\"kind\\\": {\\n            \\\"type\\\": \\\"string\\\"\\n          },\\n          \\\"name\\\": {\\n            \\\"type\\\": \\\"str"
+}

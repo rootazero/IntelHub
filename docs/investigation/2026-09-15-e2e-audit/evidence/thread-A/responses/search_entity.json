@@ -1,0 +1,43 @@
+{
+  "args": {
+    "name": "BRICS",
+    "limit": 3
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": [
+    {
+      "aliases": [
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz",
+        "brics-russia-2024",
+        "brics.bz"
+      ],
+      "entity_id": "3846325c-093f-4ac7-85e4-4ab4daa50468",
+      "kind": "org",
+      "name": "BRICS",
+      "score": 1.0
+    }
+  ],
+  "raw_first_500": "data: \nid: 0/30\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"[\\n  {\\n    \\\"aliases\\\": [\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"brics-russia-2024\\\",\\n      \\\"brics.bz\\\",\\n      \\\"bric"
+}

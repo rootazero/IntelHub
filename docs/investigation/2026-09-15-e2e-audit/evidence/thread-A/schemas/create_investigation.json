@@ -1,0 +1,38 @@
+{
+  "name": "create_investigation",
+  "description": "Create a new investigation (first-class object: target/question/hypothesis).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "hypothesis": {
+        "description": "Initial hypothesis",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "question": {
+        "description": "The question this investigation answers",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "target": {
+        "description": "The target (person/org/domain/event/...)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "title": {
+        "description": "Investigation title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "type": "object"
+  }
+}

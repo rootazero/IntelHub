@@ -1,0 +1,9 @@
+{
+  "args": {
+    "id": "3846325c-093f-4ac7-85e4-4ab4daa50468"
+  },
+  "kind": "readonly",
+  "is_error": true,
+  "parsed_content": "failed to deserialize parameters: missing field `entity_id`",
+  "raw_first_500": "data: \nid: 0/13\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"failed to deserialize parameters: missing field `entity_id`\"}],\"isError\":true}}\nid: 1/13\n\n"
+}

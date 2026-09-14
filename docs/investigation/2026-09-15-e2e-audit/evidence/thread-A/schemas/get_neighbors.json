@@ -1,0 +1,52 @@
+{
+  "name": "get_neighbors",
+  "description": "Variable-length neighborhood expansion in the graph (depth default 2, clamped 1..=4, optional temporal filter at `at_time`, post-filter on rel_types/min_confidence).",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "at_time": {
+        "description": "Optional ISO8601 timestamp for temporal filter (only edges valid at this time)",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "depth": {
+        "description": "Expansion depth (default 1, clamped 1..=4)",
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "entity_id": {
+        "description": "Entity UUID to expand from",
+        "type": "string"
+      },
+      "min_confidence": {
+        "description": "Drop edges with confidence below this (0.0..=1.0, default 0.0)",
+        "format": "double",
+        "type": [
+          "number",
+          "null"
+        ]
+      },
+      "rel_types": {
+        "description": "Optional filter: only follow these rel_types (e.g. [\"controls\",\"owns\"])",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "entity_id"
+    ],
+    "type": "object"
+  }
+}

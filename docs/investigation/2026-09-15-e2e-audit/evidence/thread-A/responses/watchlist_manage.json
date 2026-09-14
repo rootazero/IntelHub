@@ -1,0 +1,145 @@
+{
+  "args": {
+    "action": "list"
+  },
+  "kind": "readonly",
+  "is_error": false,
+  "parsed_content": {
+    "count": 22,
+    "watchlist": [
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Apple",
+        "symbol": "AAPL"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "AMD",
+        "symbol": "AMD"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Amazon",
+        "symbol": "AMZN"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Broadcom",
+        "symbol": "AVGO"
+      },
+      {
+        "asset_class": "crypto",
+        "enabled": true,
+        "label": "Bitcoin",
+        "symbol": "BTCUSD"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Dow 30 ETF",
+        "symbol": "DIA"
+      },
+      {
+        "asset_class": "crypto",
+        "enabled": true,
+        "label": "Ethereum",
+        "symbol": "ETHUSD"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Gold ETF",
+        "symbol": "GLD"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Alphabet",
+        "symbol": "GOOGL"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Russell 2000 ETF",
+        "symbol": "IWM"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "JPMorgan",
+        "symbol": "JPM"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Meta",
+        "symbol": "META"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Microsoft",
+        "symbol": "MSFT"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "NVIDIA",
+        "symbol": "NVDA"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Nasdaq 100 ETF",
+        "symbol": "QQQ"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Silver ETF",
+        "symbol": "SLV"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "S&P 500 ETF",
+        "symbol": "SPY"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "20Y+ Treasury ETF",
+        "symbol": "TLT"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Tesla",
+        "symbol": "TSLA"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "Crude Oil ETF",
+        "symbol": "USO"
+      },
+      {
+        "asset_class": "etf",
+        "enabled": true,
+        "label": "USD Bull ETF",
+        "symbol": "UUP"
+      },
+      {
+        "asset_class": "us_stock",
+        "enabled": true,
+        "label": "Exxon Mobil",
+        "symbol": "XOM"
+      }
+    ]
+  },
+  "raw_first_500": "data: \nid: 0/37\nretry: 3000\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"{\\n  \\\"count\\\": 22,\\n  \\\"watchlist\\\": [\\n    {\\n      \\\"asset_class\\\": \\\"us_stock\\\",\\n      \\\"enabled\\\": true,\\n      \\\"label\\\": \\\"Apple\\\",\\n      \\\"symbol\\\": \\\"AAPL\\\"\\n    },\\n    {\\n      \\\"asset_class\\\": \\\"us_stock\\\",\\n      \\\"enabled\\\": true,\\n      \\\"label\\\": \\\"AMD\\\",\\n      \\\"symbol\\\": \\\"AMD\\\"\\n    },\\n    {\\n      \\\"asset_class\\\": \\\"us_stock\\\",\\n      \\\"enabled\\\": true,\\n      \\\"label\\\":"
+}
