@@ -530,4 +530,194 @@ async fn replay_once(state: &AppState) -> Result<()> {
     Ok(())
 }
 
+// ---------- change_log mirror worker (SP9 v2 path → Neo4j) ----------
+//
+// Background: graph_v2 (SP9 compiler) writes canonical state to PG + an
+// audit row to graph_change_log, but never reached Neo4j. The v1 replay
+// worker drains graph_sync_queue, so the natural fix is: this worker
+// reads un-mirrored change_log rows, translates to v1 op shapes, and
+// enqueues them into graph_sync_queue. Downstream v1 path handles
+// Neo4j writes (MERGE-based, idempotent). See docs/superpowers/specs/
+// 2026-09-14-intelhub-graph-v2-mirror-design.md for the full translation
+// table and rationale.
+
+pub async fn run_change_log_mirror(state: AppState, ct: tokio_util::sync::CancellationToken) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+    loop {
+        tokio::select! {
+            _ = ct.cancelled() => break,
+            _ = tick.tick() => {
+                if let Err(e) = mirror_change_log_once(&state).await {
+                    tracing::warn!(error = %e, "change_log mirror tick failed");
+                }
+            }
+        }
+    }
+}
+
+async fn mirror_change_log_once(state: &AppState) -> Result<()> {
+    // 1. Pull a batch of un-mirrored change_log rows.
+    let rows: Vec<(i64, String, String, String, Value)> = sqlx::query_as(
+        "SELECT change_id, op, target_kind, target_id, after
+         FROM graph_change_log
+         WHERE mirrored_at IS NULL
+         ORDER BY change_id
+         LIMIT 50",
+    )
+    .fetch_all(&state.pg)
+    .await?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    // 2. Pre-resolve kind/name for any relationship rows (after.subject /
+    //    after.object are entity uuids — change_log doesn't store names).
+    let mut resolve_uuids: Vec<String> = Vec::new();
+    for (_, op, tk, _, after) in &rows {
+        if (op == "insert" || op == "update") && tk == "relationship" {
+            if let Some(s) = after.get("subject").and_then(|v| v.as_str()) {
+                resolve_uuids.push(s.to_string());
+            }
+            if let Some(o) = after.get("object").and_then(|v| v.as_str()) {
+                resolve_uuids.push(o.to_string());
+            }
+        }
+    }
+    resolve_uuids.sort();
+    resolve_uuids.dedup();
+    let name_map: std::collections::HashMap<String, (String, String)> = if resolve_uuids.is_empty()
+    {
+        Default::default()
+    } else {
+        let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT entity_id, kind, name FROM entities
+             WHERE entity_id::text = ANY($1)",
+        )
+        .bind(&resolve_uuids)
+        .fetch_all(&state.pg)
+        .await?;
+        rows.into_iter()
+            .map(|(id, k, n)| (id.to_string(), (k, n)))
+            .collect()
+    };
+
+    // 3. Translate each row → one or more v1 ops, enqueue them.
+    let mut all_queued: Vec<Uuid> = Vec::new();
+    for (change_id, op, target_kind, target_id, after) in &rows {
+        let ops = translate_change_log(op, target_kind, target_id, after, &name_map);
+        for v1op in ops {
+            let (op_id,): (Uuid,) = sqlx::query_as(
+                "INSERT INTO graph_sync_queue (op_id, op) VALUES ($1, $2)
+                 ON CONFLICT (op_id) DO NOTHING
+                 RETURNING op_id",
+            )
+            .bind(Uuid::new_v4())
+            .bind(&v1op)
+            .fetch_one(&state.pg)
+            .await?;
+            all_queued.push(op_id);
+        }
+        // Mark change_log row as mirrored once its ops are durably queued.
+        // We mark per-row even if no ops were produced (skipped kinds) so
+        // the worker doesn't re-scan them forever.
+        sqlx::query(
+            "UPDATE graph_change_log SET mirrored_at = now() WHERE change_id = $1",
+        )
+        .bind(change_id)
+        .execute(&state.pg)
+        .await?;
+    }
+
+    if !all_queued.is_empty() {
+        tracing::debug!(count = all_queued.len(), "change_log mirror enqueued ops");
+    }
+    Ok(())
+}
+
+fn translate_change_log(
+    op: &str,
+    target_kind: &str,
+    target_id: &str,
+    after: &Value,
+    name_map: &std::collections::HashMap<String, (String, String)>,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    match (op, target_kind) {
+        ("insert" | "update", "entity") => {
+            let kind = after
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let name = after
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if kind.is_empty() || name.is_empty() {
+                tracing::warn!(target_id, "change_log entity row missing kind/name in after");
+                return out;
+            }
+            out.push(json!({
+                "type": "create_entity",
+                "entity_id": target_id,
+                "kind": kind,
+                "name": name,
+                "aliases": Value::Array(Vec::new()),
+                "attributes": Value::Object(Default::default()),
+            }));
+        }
+        ("insert" | "update", "relationship") => {
+            let subject = after.get("subject").and_then(|v| v.as_str()).unwrap_or("");
+            let object = after.get("object").and_then(|v| v.as_str()).unwrap_or("");
+            let predicate = after
+                .get("predicate")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if subject.is_empty() || object.is_empty() || predicate.is_empty() {
+                tracing::warn!(target_id, "change_log rel row missing subject/object/predicate");
+                return out;
+            }
+            let (from_kind, from_name) = name_map
+                .get(subject)
+                .cloned()
+                .unwrap_or_else(|| (String::new(), String::new()));
+            let (to_kind, to_name) = name_map
+                .get(object)
+                .cloned()
+                .unwrap_or_else(|| (String::new(), String::new()));
+            if from_kind.is_empty() || to_kind.is_empty() {
+                tracing::warn!(
+                    target_id,
+                    subject,
+                    object,
+                    "change_log rel row: endpoint not in PG entities"
+                );
+                return out;
+            }
+            // No relationship_id in change_log — the v1 mirror path is
+            // fine without it (MERGE on the (fk,fn,tk,tn,rel) tuple).
+            out.push(json!({
+                "type": "create_relationship",
+                "from_id": subject,
+                "to_id": object,
+                "from_kind": from_kind, "from_name": from_name,
+                "to_kind": to_kind, "to_name": to_name,
+                "rel_type": predicate,
+                "attributes": Value::Object(Default::default()),
+            }));
+        }
+        _ => {
+            // Op kinds we don't mirror yet:
+            //   merge + entity        → split / re-attach (modeling decision)
+            //   contradict + contradiction → no :Contradiction node label yet
+            //   any + claim           → claim↔document / finding↔entity
+            //                           (needs new Neo4j node labels)
+            //   temporal_close        → Neo4j has no edge valid_until yet
+            // See design doc.
+        }
+    }
+    out
+}
+
 use crate::types::BusEvent;

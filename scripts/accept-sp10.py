@@ -443,6 +443,77 @@ def check_30_neo4j_entity_ids_backfilled():
         return False, f"exception: {type(e).__name__}: {e}"
 
 
+def check_31_pg_minus_neo4j_entity_diff():
+    """2026-09-14 v2 mirror guard: every active PG entity (merged_into IS
+    NULL) must have a Neo4j mirror. The change_log mirror worker
+    (graphw::run_change_log_mirror) plus the backfill script
+    (backfill-neo4j-graph-mirror.py) close the gap; this assertion
+    catches regressions.
+
+    Compares (kind||'|'||name) between PG entities and Neo4j :Entity
+    nodes. Diffs: orphans (PG without Neo4j) + extras (Neo4j without PG,
+    allowed for test fixtures but reported as a soft warning). Hard fail
+    on any PG entity missing its mirror.
+    """
+    try:
+        import base64 as _b64
+        pgp_out = subprocess.run(
+            ["docker", "exec", "intelhub-postgres", "psql",
+             "-U", "intelhub", "-d", "intelhub", "-tAc",
+             "SELECT kind||'|'||name FROM entities WHERE merged_into IS NULL ORDER BY 1"],
+            capture_output=True, text=True, timeout=30,
+        ).stdout
+        pg_set = set(line for line in pgp_out.splitlines() if "|" in line)
+
+        out = subprocess.run(
+            ["docker", "inspect", "intelhub-neo4j",
+             "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout
+        pw = ""
+        for line in out.splitlines():
+            if line.startswith("NEO4J_AUTH=neo4j/"):
+                pw = line.split("=", 1)[1].split("/", 1)[1]
+                break
+        if not pw:
+            return False, "NEO4J_AUTH not found"
+
+        body = json.dumps({"statements": [{
+            "statement": "MATCH (e:Entity) RETURN e.kind AS k, e.name AS n ORDER BY k, n"}]})
+        r = subprocess.run(
+            ["docker", "exec", "intelhub-neo4j",
+             "wget", "-qO-",
+             "--header=Content-Type: application/json",
+             "--header=Accept: application/json",
+             "--header=Authorization: Basic " + _b64.b64encode(f"neo4j:{pw}".encode()).decode(),
+             "--post-data=" + body,
+             "http://localhost:7474/db/neo4j/tx/commit"],
+            capture_output=True, text=True, timeout=30,
+        )
+        data = json.loads(r.stdout or "{}")
+        rows = data.get("results", [{}])[0].get("data", [])
+        neo_set = set()
+        for row in rows:
+            k, n = row["row"]
+            if k and n:
+                neo_set.add(f"{k}|{n}")
+
+        missing = sorted(pg_set - neo_set)
+        extras = sorted(neo_set - pg_set)
+        if missing:
+            sample = missing[:5]
+            return False, (
+                f"{len(missing)} PG entities have NO Neo4j mirror (first 5: {sample}). "
+                f"Run scripts/backfill-neo4j-graph-mirror.py and wait ~20s."
+            )
+        return True, (
+            f"PG={len(pg_set)} mirrored; {len(neo_set)} Neo4j nodes "
+            f"({len(extras)} extras, tolerated for test fixtures)"
+        )
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+
+
 CHECKS = [
     ("01 edges expose source_id/target_id", check_01_edges_have_ids),
     ("02 multi-hop path real source/target", check_02_multi_hop_source_target),
@@ -474,6 +545,7 @@ CHECKS = [
     ("28 Graph.tsx uses source_id/target_id", check_28_graph_uses_source_target_ids),
     ("29 layout (d3-force) + autoFit in bundle", check_29_layout_and_autofit_in_bundle),
     ("30 Neo4j Entity nodes all have entity_id", check_30_neo4j_entity_ids_backfilled),
+    ("31 PG entities all have a Neo4j mirror", check_31_pg_minus_neo4j_entity_diff),
 ]
 
 print(f"== SP10 acceptance ({len(CHECKS)} assertions) ==")
