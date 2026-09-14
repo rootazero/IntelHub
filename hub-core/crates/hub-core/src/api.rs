@@ -70,6 +70,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/graph/path", get(graph_path))
         .route("/api/v1/graph/investigation/{id}", get(graph_investigation))
         .route("/api/v1/graph/evidence", get(graph_evidence))
+        // graph_v2 write-side: batch claim extractor (calls emit_claim_audit)
+        .route("/api/v1/v2/extract_claims", axum::routing::post(crate::graph_v2::extract::extract_claims))
         // SP3 static console (public shell; every data call still needs a key)
         .fallback(serve_static)
 }

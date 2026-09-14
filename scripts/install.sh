@@ -425,6 +425,16 @@ run_step start-hub        step_start_hub
 run_step provision-agents step_provision_agents
 run_step verify           step_verify
 
+# Best-effort historical-data backfills on fresh install. The two
+# scripts are idempotent and exit 0 with a no-op message when there's
+# nothing to do; a fresh DB just prints "nothing to backfill".
+# Skip with SKIP_BACKFILLS=1 (default on — they're cheap and harmless).
+if [[ "${SKIP_BACKFILLS:-0}" != "1" ]]; then
+  for bf in backfill-claim-audit.py backfill-finding-entities.py; do
+    [[ -f "$HOME_DIR/scripts/$bf" ]] && python3 "$HOME_DIR/scripts/$bf" 2>&1 | tail -3 || true
+  done
+fi
+
 LANIP=$(get_env "$HOME_DIR/compose/.env" LAN_IP)
 CONSOLE_KEY=$(grep -A3 '^=== console ===' "$HOME_DIR/core/agent-keys.txt" 2>/dev/null | grep -o 'ihk_[a-f0-9]*' | head -1)
 cat <<EOF
