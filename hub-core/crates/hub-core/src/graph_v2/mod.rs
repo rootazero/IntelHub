@@ -12,6 +12,7 @@ pub mod audit;
 pub mod compiler;
 pub mod contradiction;
 pub mod evidence;
+pub mod extract;
 pub mod resolve;
 pub mod resolve_async;
 pub mod temporal;

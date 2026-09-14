@@ -100,6 +100,28 @@ if [[ -z "$HEALTHY" ]]; then
   die "hub-core did not come up"
 fi
 
+# ============================================================ backfills ====
+# Post-upgrade one-shot healers (idempotent). Each script exits 0 with
+# a no-op message when there's nothing to do. They target specific
+# historical data shapes that predate the corresponding migration —
+# re-running them on a fully migrated VM is a cheap no-op.
+#
+# SKIP_BACKFILLS=1 to skip (useful for narrow component-only updates
+# that don't touch hub-core schema).
+
+if [[ "${SKIP_BACKFILLS:-0}" != "1" ]]; then
+  echo "==> run post-upgrade backfills (idempotent healers)"
+  for bf in backfill-claim-audit.py backfill-finding-entities.py; do
+    bf_path="$SCRIPTS/$bf"
+    if [[ -f "$bf_path" ]]; then
+      echo "    $bf"
+      if ! python3 "$bf_path" 2>&1 | tail -5; then
+        warn "$bf failed — continuing update (backfills are best-effort)"
+      fi
+    fi
+  done
+fi
+
 # ============================================================ Track B ====
 say "Track B: docker components — smart diff"
 TRACK_B_STATUS=skipped

@@ -34,7 +34,7 @@ const ATTR_ALLOWLIST: &[&str] = &[
     "last_seen", "tags", "source",
 ];
 
-fn valid_kind(kind: &str) -> Result<&str> {
+pub(crate) fn valid_kind(kind: &str) -> Result<&str> {
     ENTITY_KINDS
         .iter()
         .find(|k| **k == kind)
@@ -52,7 +52,7 @@ fn valid_rel(rel: &str) -> Result<&str> {
 
 /// Name normalization: trim + collapse internal whitespace + cap 256 chars.
 /// (Trim-only; full NFC noted as spec deviation — no extra dependency.)
-fn normalize_name(raw: &str) -> Result<String> {
+pub(crate) fn normalize_name(raw: &str) -> Result<String> {
     let collapsed: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let name: String = collapsed.chars().take(256).collect();
     if name.is_empty() {
@@ -1319,7 +1319,50 @@ async fn reconcile_once(state: &AppState) -> Result<()> {
         ?details,
         "neo4j reconcile pass complete"
     );
+
+    // Notify only when orphans were removed — steady-state runs are
+    // silent. The alert goes through the unified alerts engine so it
+    // picks up dedupe, decay cooldown, webhook delivery, and console
+    // visibility for free. dedupe_key keeps the alert cluster to one
+    // open row per source-table-kind (e.g. "reconcile:orphan:claim")
+    // so repeated runs BUMP rather than spam.
+    if total_removed > 0 {
+        let top_kind = pick_top_kind(&details);
+        let body = format!(
+            "Reconcile run #{run_id} removed {total_removed} orphans: {details}"
+        );
+        if let Err(e) = crate::alerts::raise(state, crate::alerts::NewAlert {
+            severity: "warning",
+            source: "infra",
+            title: &format!("Neo4j mirror drift: {total_removed} orphans cleaned ({top_kind})"),
+            body: Some(&body),
+            task_id: None,
+            investigation_id: None,
+            entity_name: None,
+            evidence_id: None,
+            recommended_action: Some("review graph_change_log + mirror_reconcile_runs for root cause"),
+            dedupe_key: Some(&format!("reconcile:orphan:{top_kind}")),
+        }).await {
+            tracing::warn!(error = %e, "reconcile orphan alert raise failed");
+        }
+    }
+
     Ok(())
+}
+
+/// Pick the largest orphan bucket so the alert title points operators
+/// at the right table. Stable across runs that produce the same shape.
+fn pick_top_kind(details: &Value) -> &'static str {
+    let buckets: [(&str, usize); 7] = [
+        ("entity", details.get("orphan_entities").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("claim", details.get("orphan_claims").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("finding", details.get("orphan_findings").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("document", details.get("orphan_documents").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("claim_doc_edge", details.get("stale_claim_doc_edges").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("finding_doc_edge", details.get("stale_finding_doc_edges").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+        ("finding_entity_edge", details.get("stale_finding_entity_edges").and_then(|v| v.as_u64()).unwrap_or(0) as usize),
+    ];
+    buckets.into_iter().max_by_key(|(_, n)| *n).map(|(k, _)| k).unwrap_or("unknown")
 }
 
 use crate::types::BusEvent;
