@@ -63,6 +63,15 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tokio::spawn(async move { crate::graphw::run_replay(s, t).await });
     }
     {
+        // SP9 v2 change_log → Neo4j mirror. Reads graph_change_log rows
+        // (written by graph_v2::compiler), translates to v1 op shapes,
+        // enqueues into graph_sync_queue where the replay worker above
+        // drains it. Cadence 15s.
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::graphw::run_change_log_mirror(s, t).await });
+    }
+    {
         let s = (*state).clone();
         let t = ct.child_token();
         tokio::spawn(async move { crate::alerts::run_dispatcher(s, t).await });
