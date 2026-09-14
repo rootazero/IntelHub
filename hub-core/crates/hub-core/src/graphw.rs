@@ -1361,8 +1361,12 @@ async fn reconcile_once(state: &AppState) -> Result<()> {
             "SELECT text, COALESCE(status::text, 'unverified') FROM claims WHERE claim_id = $1",
         ).bind(cid).fetch_optional(&state.pg).await?;
         if let Some((text, status)) = row {
+            // claim_entities only carries entity_id; JOIN to get the kind/name
+            // the create_claim op needs for the :ABOUT edge materialization.
             let ents: Vec<(String, String)> = sqlx::query_as(
-                "SELECT kind, name FROM claim_entities WHERE claim_id = $1",
+                "SELECT e.kind, e.name FROM claim_entities ce
+                 JOIN entities e ON e.entity_id = ce.entity_id
+                 WHERE ce.claim_id = $1",
             ).bind(cid).fetch_all(&state.pg).await?;
             let mut op = json!({
                 "type": "create_claim",
