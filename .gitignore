@@ -5,6 +5,7 @@ backups/
 hub-core/target/
 console/node_modules/
 console/dist/
+console/tsconfig.tsbuildinfo
 .env.crucix
 __pycache__/
 *.pyc
