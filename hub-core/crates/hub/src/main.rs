@@ -23,6 +23,14 @@ async fn main() -> Result<()> {
             let version = flag_value(&args, "--version");
             hub_core::admin::create_agent_cli(&cfg, &name, version.as_deref()).await
         }
+        Some("rotate-agent-key") => {
+            // hub rotate-agent-key --name <name>
+            // Soft-revoke the agent's previous api_key and mint a new one.
+            // agent_id is preserved; clients see a fresh bearer key.
+            let name = flag_value(&args, "--name")
+                .ok_or_else(|| anyhow::anyhow!("usage: hub rotate-agent-key --name <name>"))?;
+            hub_core::admin::rotate_agent_key_cli(&cfg, &name).await
+        }
         _ => {
             let state = Arc::new(AppState::new(cfg).await?);
             hub_core::server::serve(state).await

@@ -8,7 +8,6 @@ SPA, MCP tool count unchanged, regression gates run separately.
 Usage: accept-sp8.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import urllib.request
@@ -17,10 +16,15 @@ import urllib.error
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 HUB = BASE
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg, redis  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -53,14 +57,7 @@ def req(path, key=KEY, timeout=20, method="GET", body=None, raw=False):
             return e.code, {}
 
 
-def vm(cmd):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=90,
-    ).stdout.strip()
 
-
-print("== SP7 acceptance: monitor command deck ==")
 
 # 1. history endpoint shape + fred series has points
 st, d = req("/api/v1/signals/history?series=fred:VIXCLS&days=40")
@@ -96,7 +93,7 @@ check("delta endpoint shape + direction enum",
       f"status={st} rows={len(rows)}")
 
 # 6. delta covers every health-cell source (incl. series collectors)
-health = vm('docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2) HKEYS hub:monitor:health')
+health = redis("HKEYS", "hub:monitor:health")
 health_sources = {s for s in health.split() if s}
 delta_sources = {r.get("source") for r in rows}
 check("delta covers all health-cell sources",
@@ -104,7 +101,7 @@ check("delta covers all health-cell sources",
       f"health={len(health_sources)} delta={len(delta_sources)} missing={sorted(health_sources - delta_sources)}")
 
 # 6b. sweep-history ring exists and delta trend is consistent with it
-hist_len = vm('docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2) LLEN hub:monitor:sweephist:usgs')
+hist_len = redis("LLEN", "hub:monitor:sweephist:usgs")
 check("sweep-history ring populated (restart-proof baseline)",
       hist_len.isdigit() and int(hist_len) >= 1, f"usgs ring len={hist_len}")
 with_trend = [r for r in rows if isinstance(r.get("trend"), list) and len(r["trend"]) >= 2]
@@ -149,7 +146,7 @@ check("radar kind=political events exist (title classifier)", pol >= 1, f"count=
 st, d8c = req("/api/v1/radar/events?kind=climate&from=2026-01-01T00:00:00Z&limit=50")
 cli = len(d8c.get("items", [])) if st == 200 else 0
 check("radar kind=climate events exist (eonet)", cli >= 1, f"count={cli}")
-n = vm('docker exec intelhub-postgres psql -U intelhub -d intelhub -tAc "SELECT count(DISTINCT series) FROM signal_observations WHERE source=\'monitor:climate\'"')
+n = pg("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:climate'")
 check("climate indicator series observed (CO2+GISTEMP)", n.strip().isdigit() and int(n.strip()) >= 2, f"climate={n.strip()}")
 pal2 = vm('grep -c "#2dd4bf" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | grep -v ":0" | head -1')
 check("console bundle has climate palette (teal)", bool(pal2), pal2 or "MISSING")
@@ -194,6 +191,61 @@ for line in text.splitlines():
         except Exception:
             pass
 check("MCP tools/list = 40 (28 + list_tools + tool_schema + investigate + 10 sp9)", len(tools) >= 38, f"count={len(tools)}")
+
+# 10. Reset-key infrastructure (idempotent: validates tooling + format +
+#     agent_id consistency, never rotates live keys). The actual rotation
+#     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.
+import re
+IHK_RE = re.compile(r"^ihk_[a-f0-9]{64}$")
+KEYS_FILE = "$HOME_DIR/core/agent-keys.txt".replace("$HOME_DIR", "/home/zou/IntelHub")
+keys_txt = vm(f"cat {KEYS_FILE} 2>/dev/null")
+def extract(name, blob):
+    # Line-walk: split on === name === header, read the next 3 non-empty lines.
+    aid = key = None
+    lines = blob.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f"=== {name} ===":
+            for j in range(i + 1, min(i + 6, len(lines))):
+                if lines[j].startswith("agent_id:"):
+                    aid = lines[j].split(":", 1)[1].strip()
+                elif lines[j].startswith("api_key:"):
+                    key = lines[j].split(":", 1)[1].strip()
+            break
+    return (aid, key)
+agent_block = extract("agent", keys_txt)
+console_block = extract("console", keys_txt)
+check("agent-keys.txt: 'agent' block parses", agent_block is not None,
+      f"agent_id={agent_block[0] if agent_block else '?'}")
+check("agent-keys.txt: 'agent' key matches ihk_<64hex>", agent_block and bool(IHK_RE.match(agent_block[1])),
+      f"key={agent_block[1] if agent_block else '?'}")
+check("agent-keys.txt: 'console' block parses", console_block is not None,
+      f"agent_id={console_block[0] if console_block else '?'}")
+check("agent-keys.txt: 'console' key matches ihk_<64hex>", console_block and bool(IHK_RE.match(console_block[1])),
+      f"key={console_block[1] if console_block else '?'}")
+
+# reset-key.sh script: present, executable, refuses bad input cleanly.
+check("scripts/reset-key.sh exists + executable",
+      bool(vm("test -x /home/zou/IntelHub/scripts/reset-key.sh && echo OK")),
+      "missing or not executable")
+out = vm("INTELHUB_NONINTERACTIVE=1 bash /home/zou/IntelHub/scripts/reset-key.sh 2>&1; true")
+check("reset-key.sh rejects missing arg (exit code + 'usage' text)",
+      "usage" in out.lower() and "agent|console|all" in out, out[:120])
+out = vm("INTELHUB_NONINTERACTIVE=1 bash /home/zou/IntelHub/scripts/reset-key.sh bogus 2>&1; true")
+check("reset-key.sh rejects unknown name (exit code + clear error)",
+      "unknown name" in out, out[:120])
+
+# hub rotate-agent-key CLI: present + rejects unknown agent name with bad_request.
+out = vm("set -a; . /home/zou/IntelHub/core/hub.env; . /home/zou/IntelHub/core/secrets.env; set +a; "
+         "/home/zou/IntelHub/core/hub rotate-agent-key --name __no_such_agent__ 2>&1; true")
+check("hub rotate-agent-key rejects unprovisioned agent",
+      "not provisioned" in out, out[:120])
+
+# Live-key/agent_id parity between on-disk file and PG api_keys.
+if agent_block:
+    pg_agent_id = pg("SELECT agent_id::text FROM api_keys WHERE revoked = false "
+                     "AND agent_id = (SELECT agent_id FROM agents WHERE name = 'agent')")
+    check("PG api_keys: live 'agent' row matches agent-keys.txt agent_id",
+          pg_agent_id.strip() == agent_block[0], f"file={agent_block[0]} pg={pg_agent_id.strip()}")
 
 print(f"\n== {passed} passed, {failed} failed ==")
 sys.exit(1 if failed else 0)
