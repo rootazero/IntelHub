@@ -236,12 +236,6 @@ bash scripts/reset-key.sh all        # 同时重置两个
 - `examples/` — `intelhub.env.example` 用于无人值守安装
 - `docs/superpowers/specs/` — 各子项目设计文档
 
-## 文档
-
-- 完整项目规范：`OSINTIntelligenceHub.md`
-- 各功能设计文档：`docs/superpowers/specs/`
-- English version: [`README.md`](README.md)
-
 ## 运维
 
 随仓库一起发布的运维工具，都放在 `scripts/` 里。可以在任意主机上用 agent key 跑——
