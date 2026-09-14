@@ -22,7 +22,7 @@ passed = failed = 0
 # Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
 # on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _remote import sh as vm, pg  # noqa: E402
+from _remote import sh as vm, pg, grafana_request  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -128,11 +128,11 @@ tg = vm_json("curl -s -m 5 http://172.30.3.20:9090/api/v1/targets")
 targets = {t["labels"]["job"]: t["health"] for t in tg.get("data", {}).get("activeTargets", [])}
 check("prometheus targets all up", len(targets) >= 3 and all(v == "up" for v in targets.values()), str(targets))
 
-# 8. grafana datasource + dashboard
-ds = vm_json("curl -s -m 5 -u admin:$(grep '^GRAFANA_ADMIN_PASSWORD=' /home/zou/IntelHub/compose/.env | cut -d= -f2) http://172.30.3.22:3000/api/datasources")
+# 8. grafana datasource + dashboard (creds auto-extracted from compose/.env)
+ds = grafana_request("/api/datasources", timeout=5)
 check("grafana datasource Prometheus provisioned", isinstance(ds, list) and any(d.get("type") == "prometheus" for d in ds), f"datasources={len(ds) if isinstance(ds, list) else 0}")
-dash = vm_json("curl -s -m 5 -u admin:$(grep '^GRAFANA_ADMIN_PASSWORD=' /home/zou/IntelHub/compose/.env | cut -d= -f2) http://172.30.3.22:3000/api/dashboards/uid/intelhub-overview")
-check("grafana IntelHub Overview dashboard provisioned", "dashboard" in dash, dash.get("dashboard", {}).get("title", ""))
+dash = grafana_request("/api/dashboards/uid/intelhub-overview", timeout=5)
+check("grafana IntelHub Overview dashboard provisioned", "dashboard" in dash, dash.get("dashboard", {}).get("title", "") if isinstance(dash, dict) else "")
 
 # 9. console: radar page + offline geojson asset
 code, body = raw_text(BASE + "/radar")
