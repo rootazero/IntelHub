@@ -79,6 +79,14 @@ echo "==> rebuild hub-core"
 bash "$SCRIPTS/build-hub.sh"
 sudo chown "$(id -un):$(id -gn)" "$HUB_DIR/core/hub" 2>/dev/null || true
 
+# 2026-09-14: always rebuild the console too, so any out-of-band dist
+# (e.g. Mac-built dist rsynced to the VM) gets overwritten with a
+# verify-passing build before the user reloads. build-console.sh has
+# its own post-build verify (refuses to publish a bundle that's missing
+# the keys present in core/console-build.env).
+echo "==> rebuild console (matches dist to source + console-build.env keys)"
+bash "$SCRIPTS/build-console.sh" || warn "build-console.sh failed — console dist may be stale"
+
 echo "==> restart hub-core.service"
 sudo systemctl restart hub-core
 
