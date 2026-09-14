@@ -72,6 +72,16 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tokio::spawn(async move { crate::graphw::run_change_log_mirror(s, t).await });
     }
     {
+        // 2026-09-14 phase 3: Neo4j ↔ PG reconciler. Detaches/deletes
+        // Neo4j nodes + edges whose PG canonical rows no longer exist.
+        // Defense-in-depth for the one-way change_log mirror: nothing in
+        // production currently deletes graph tables, but admin tools /
+        // future retract endpoints could. Runs once at startup + hourly.
+        let s = (*state).clone();
+        let t = ct.child_token();
+        tokio::spawn(async move { crate::graphw::run_reconcile(s, t).await });
+    }
+    {
         let s = (*state).clone();
         let t = ct.child_token();
         tokio::spawn(async move { crate::alerts::run_dispatcher(s, t).await });

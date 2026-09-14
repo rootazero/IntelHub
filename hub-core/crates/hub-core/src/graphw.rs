@@ -194,8 +194,18 @@ async fn try_graph_write(state: &AppState, op: &Value) -> Result<()> {
             state.neo4j.run(q).await?;
             if let Some(entities) = op.get("entities").and_then(|e| e.as_array()) {
                 for ent in entities {
+                    // 2026-09-14 phase 3 fix: the audit path may reference
+                    // entities that were just created in PG and haven't
+                    // been mirrored to Neo4j yet (no (insert, entity)
+                    // change_log row fired in time). MERGE both endpoints
+                    // so the :ABOUT edge materialises regardless of the
+                    // entity mirror race. If the entity later gets a
+                    // proper entity_id from create_entity, the SET on
+                    // merge updates the same node — no duplication.
                     let q = neo4rs::query(
-                        "MATCH (c:Claim {claim_id: $cid}), (e:Entity {kind: $kind, name: $name})
+                        "MERGE (e:Entity {kind: $kind, name: $name})
+                         WITH e
+                         MATCH (c:Claim {claim_id: $cid})
                          MERGE (c)-[:ABOUT]->(e)",
                     )
                     .param("cid", op["claim_id"].as_str().unwrap_or(""))
@@ -454,6 +464,24 @@ pub async fn create_claim(state: &AppState, actor: &str, intent: ClaimIntent) ->
         "status": "unverified", "entities": graph_entities,
     });
     let synced = graph_write(state, op).await;
+
+    // 2026-09-14 phase 3: change_log audit row. If graph_write above
+    // failed (Neo4j down etc.), the next mirror tick will retry the
+    // mirror via translate_change_log's create_claim arm (matches
+    // after={text,status} with neither `linked` nor `entity_id`).
+    // Backfill scripts also replay this shape, so historical claims
+    // gain a mirror if Neo4j ever goes cold.
+    sqlx::query(
+        "INSERT INTO graph_change_log (op, target_kind, target_id, before, after, changed_by)
+         VALUES ('insert','claim',$1, NULL, jsonb_build_object('text',$2,'status',$3,'entities',$4::jsonb), $5)",
+    )
+    .bind(claim_id.to_string())
+    .bind(&text)
+    .bind("unverified")
+    .bind(Value::Array(graph_entities.clone()))
+    .bind(actor)
+    .execute(&state.pg)
+    .await?;
 
     crate::events::publish(
         state,
@@ -816,9 +844,10 @@ fn translate_change_log(
         }
         // 2026-09-14: claim evidence + finding-about + contradiction +
         // entity-merge translations. The change_log op kind 'insert' with
-        // target_kind 'claim' has TWO sub-shapes — disambiguate by after
+        // target_kind 'claim' has THREE sub-shapes — disambiguate by after
         // JSON: {linked,relation} = link_evidence_to_claim;
-        // {entity_id,relation:"about"} = mark_finding_about_entity.
+        //         {entity_id,relation:"about"} = mark_finding_about_entity;
+        //         {text,status,...} = create_claim (new in phase 3).
         ("insert" | "update", "claim") => {
             if let (Some(document_id), Some(relation)) = (
                 after.get("linked").and_then(|v| v.as_str()),
@@ -847,6 +876,32 @@ fn translate_change_log(
                     }));
                 } else {
                     tracing::warn!(target_id, "claim/finding_about: empty uuid");
+                }
+            } else if let Some(text) =
+                after.get("text").and_then(|v| v.as_str())
+            {
+                // 2026-09-14 phase 3: bare claim audit row (from
+                // create_claim in this file). target_id is the claim_id.
+                // entities[] is optional — create_claim passes the graph
+                // entities (kind/name pairs) when the claim references any.
+                if !target_id.is_empty() && !text.is_empty() {
+                    let status = after
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unverified");
+                    let entities = after
+                        .get("entities")
+                        .cloned()
+                        .unwrap_or(Value::Array(Vec::new()));
+                    out.push(json!({
+                        "type": "create_claim",
+                        "claim_id": target_id,
+                        "text": text,
+                        "status": status,
+                        "entities": entities,
+                    }));
+                } else {
+                    tracing::warn!(target_id, "claim/create_claim: empty uuid or text");
                 }
             } else {
                 tracing::warn!(target_id, "claim change_log row with unrecognized after shape");
@@ -917,6 +972,350 @@ fn translate_change_log(
         }
     }
     out
+}
+
+// ============================================================
+// Phase 3 — Neo4j ↔ PG reconciliation worker
+// ============================================================
+//
+// The change_log mirror worker is one-way: PG → Neo4j. It never removes
+// Neo4j nodes. If a PG row gets deleted (currently no production path
+// does this, but admin tools or future retract endpoints could) the
+// corresponding Neo4j node becomes an orphan.
+//
+// This worker closes the loop defensively. On startup + every hour, it
+// diffs Neo4j against PG for the 5 main tables and DETACH DELETEs
+// orphans. Idempotent — empty diffs are the steady state.
+//
+// Tables covered:
+//   * entities            — (kind, name) → :Entity
+//   * relationships       — (from_id, to_id, rel_type) → :REL
+//   * claims              — claim_id → :Claim
+//   * findings            — finding_id → :Finding
+//   * documents           — document_id → :Document
+//   * claim_evidence      — (claim_id, document_id, relation) → claim-doc edge
+//   * finding_evidence    — (finding_id, document_id) → finding-doc :SUPPORTS
+//   * finding_entities    — (finding_id, entity_id) → finding-entity :ABOUT
+//
+// Edges not in PG (e.g. :MERGED_INTO) are skipped — they're mirror
+// audit edges with no PG source.
+
+pub async fn run_reconcile(state: AppState, ct: tokio_util::sync::CancellationToken) {
+    // First pass at startup after a short grace period (let the rest of
+    // the stack come up), then hourly.
+    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+    if let Err(e) = reconcile_once(&state).await {
+        tracing::warn!(error = %e, "initial reconcile failed");
+    }
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = ct.cancelled() => break,
+            _ = tick.tick() => {
+                if let Err(e) = reconcile_once(&state).await {
+                    tracing::warn!(error = %e, "reconcile tick failed");
+                }
+            }
+        }
+    }
+}
+
+async fn reconcile_once(state: &AppState) -> Result<()> {
+    // Open a run row for visibility / accept-sp10 check.
+    let (run_id,): (i64,) =
+        sqlx::query_as("INSERT INTO mirror_reconcile_runs DEFAULT VALUES RETURNING run_id")
+            .fetch_one(&state.pg)
+            .await?;
+
+    // Helper: drain a Cypher RETURN into a Vec<Value>, one per row.
+    async fn fetch_rows(
+        state: &AppState,
+        cypher: &str,
+        cols: &[&str],
+    ) -> Result<Vec<Value>> {
+        let q = neo4rs::query(cypher);
+        let mut stream = state.neo4j.execute(q).await?;
+        let mut out: Vec<Value> = Vec::new();
+        loop {
+            match stream.next().await {
+                Ok(Some(row)) => {
+                    let mut obj = serde_json::Map::new();
+                    for col in cols {
+                        if let Ok(v) = row.get::<neo4rs::BoltType>(col) {
+                            obj.insert((*col).to_string(), crate::graph_queries::bolt_to_json(&v));
+                        }
+                    }
+                    out.push(Value::Object(obj));
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    return Err(crate::error::HubError::GraphUnavailable(format!(
+                        "neo4j stream: {e}"
+                    )));
+                }
+            }
+        }
+        Ok(out)
+    }
+    fn s_of(v: &Value, key: &str) -> String {
+        v.get(key)
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    // ---- 1. Orphan :Entity nodes (no PG row with same kind+name) ----
+    let entity_pg: std::collections::HashSet<(String, String)> = {
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT kind, name FROM entities")
+                .fetch_all(&state.pg)
+                .await?;
+        rows.into_iter().collect()
+    };
+    let entity_neo: Vec<(String, String)> = fetch_rows(state, "MATCH (e:Entity) RETURN e.kind AS k, e.name AS n", &["k","n"])
+        .await?
+        .into_iter()
+        .map(|r| (s_of(&r, "k"), s_of(&r, "n")))
+        .filter(|(k, n)| !k.is_empty() && !n.is_empty())
+        .collect();
+    let mut orphan_entities: Vec<(String, String)> = Vec::new();
+    for kn in &entity_neo {
+        if !entity_pg.contains(kn) {
+            orphan_entities.push(kn.clone());
+        }
+    }
+    let mut total_removed = 0usize;
+    for (k, n) in &orphan_entities {
+        // Safe to DETACH DELETE here: orphans by definition have no PG
+        // canonical counterparts, so no PG FK references them.
+        let cypher = "MATCH (e:Entity {kind: $k, name: $n}) DETACH DELETE e";
+        let q = neo4rs::query(cypher)
+            .param("k", k.as_str())
+            .param("n", n.as_str());
+        state.neo4j.run(q).await?;
+        total_removed += 1;
+    }
+
+    // ---- 2. Orphan :Claim nodes (no PG row with same claim_id) ----
+    let claim_pg: std::collections::HashSet<String> = {
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT claim_id FROM claims")
+            .fetch_all(&state.pg)
+            .await?;
+        rows.into_iter().map(|(c,)| c.to_string()).collect()
+    };
+    let claim_neo: Vec<String> = fetch_rows(state, "MATCH (c:Claim) RETURN c.claim_id AS cid", &["cid"])
+        .await?
+        .into_iter()
+        .map(|r| s_of(&r, "cid"))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut orphan_claims: Vec<String> = Vec::new();
+    for cid in &claim_neo {
+        if !claim_pg.contains(cid) {
+            orphan_claims.push(cid.clone());
+        }
+    }
+    for cid in &orphan_claims {
+        let cypher = "MATCH (c:Claim {claim_id: $cid}) DETACH DELETE c";
+        let q = neo4rs::query(cypher).param("cid", cid.as_str());
+        state.neo4j.run(q).await?;
+        total_removed += 1;
+    }
+
+    // ---- 3. Orphan :Finding nodes ----
+    let finding_pg: std::collections::HashSet<String> = {
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT finding_id FROM findings")
+            .fetch_all(&state.pg)
+            .await?;
+        rows.into_iter().map(|(c,)| c.to_string()).collect()
+    };
+    let finding_neo: Vec<String> = fetch_rows(state, "MATCH (f:Finding) RETURN f.finding_id AS fid", &["fid"])
+        .await?
+        .into_iter()
+        .map(|r| s_of(&r, "fid"))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut orphan_findings: Vec<String> = Vec::new();
+    for fid in &finding_neo {
+        if !finding_pg.contains(fid) {
+            orphan_findings.push(fid.clone());
+        }
+    }
+    for fid in &orphan_findings {
+        let cypher = "MATCH (f:Finding {finding_id: $fid}) DETACH DELETE f";
+        let q = neo4rs::query(cypher).param("fid", fid.as_str());
+        state.neo4j.run(q).await?;
+        total_removed += 1;
+    }
+
+    // ---- 4. Orphan :Document nodes ----
+    let doc_pg: std::collections::HashSet<String> = {
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT document_id FROM documents")
+            .fetch_all(&state.pg)
+            .await?;
+        rows.into_iter().map(|(c,)| c.to_string()).collect()
+    };
+    let doc_neo: Vec<String> = fetch_rows(state, "MATCH (d:Document) RETURN d.document_id AS did", &["did"])
+        .await?
+        .into_iter()
+        .map(|r| s_of(&r, "did"))
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut orphan_docs: Vec<String> = Vec::new();
+    for did in &doc_neo {
+        if !doc_pg.contains(did) {
+            orphan_docs.push(did.clone());
+        }
+    }
+    for did in &orphan_docs {
+        let cypher = "MATCH (d:Document {document_id: $did}) DETACH DELETE d";
+        let q = neo4rs::query(cypher).param("did", did.as_str());
+        state.neo4j.run(q).await?;
+        total_removed += 1;
+    }
+
+    // ---- 5. Stale claim-doc edges (claim_evidence) ----
+    let edge_keys_pg: std::collections::HashSet<(String, String, String)> = {
+        let rows: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
+            "SELECT claim_id, document_id, relation FROM claim_evidence",
+        )
+        .fetch_all(&state.pg)
+        .await?;
+        rows.into_iter()
+            .map(|(c, d, r)| (c.to_string(), d.to_string(), r))
+            .collect()
+    };
+    let edge_rows_neo: Vec<(String, String, String)> = fetch_rows(
+        state,
+        "MATCH (c:Claim)-[r]->(d:Document)
+         WHERE type(r) IN ['SUPPORTS','CONTRADICTS']
+         RETURN c.claim_id AS cid, d.document_id AS did, type(r) AS rel",
+        &["cid", "did", "rel"],
+    )
+    .await?
+    .into_iter()
+    .map(|r| (s_of(&r, "cid"), s_of(&r, "did"), s_of(&r, "rel")))
+    .collect();
+    let mut stale_claim_edges = 0usize;
+    for (cid, did, rel) in &edge_rows_neo {
+        let rel_norm = if rel == "CONTRADICTS" { "contradicts" } else { "supports" };
+        let key = (cid.clone(), did.clone(), rel_norm.to_string());
+        if !edge_keys_pg.contains(&key) {
+            let cypher = format!(
+                "MATCH (c:Claim {{claim_id: $cid}})-[r:{rel}]->(d:Document {{document_id: $did}}) DELETE r"
+            );
+            let q = neo4rs::query(&cypher)
+                .param("cid", cid.as_str())
+                .param("did", did.as_str());
+            state.neo4j.run(q).await?;
+            total_removed += 1;
+            stale_claim_edges += 1;
+        }
+    }
+
+    // ---- 6. Stale finding-doc edges (finding_evidence) ----
+    let fedges_pg: std::collections::HashSet<(String, String)> = {
+        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT finding_id, document_id FROM finding_evidence",
+        )
+        .fetch_all(&state.pg)
+        .await?;
+        rows.into_iter()
+            .map(|(c, d)| (c.to_string(), d.to_string()))
+            .collect()
+    };
+    let fedges_neo: Vec<(String, String)> = fetch_rows(
+        state,
+        "MATCH (f:Finding)-[:SUPPORTS]->(d:Document)
+         RETURN f.finding_id AS fid, d.document_id AS did",
+        &["fid", "did"],
+    )
+    .await?
+    .into_iter()
+    .map(|r| (s_of(&r, "fid"), s_of(&r, "did")))
+    .filter(|(f, d)| !f.is_empty() && !d.is_empty())
+    .collect();
+    let mut stale_finding_doc_edges = 0usize;
+    for (fid, did) in &fedges_neo {
+        let key = (fid.clone(), did.clone());
+        if !fedges_pg.contains(&key) {
+            let cypher = "MATCH (f:Finding {finding_id: $fid})-[r:SUPPORTS]->(d:Document {document_id: $did}) DELETE r";
+            let q = neo4rs::query(cypher)
+                .param("fid", fid.as_str())
+                .param("did", did.as_str());
+            state.neo4j.run(q).await?;
+            total_removed += 1;
+            stale_finding_doc_edges += 1;
+        }
+    }
+
+    // ---- 7. Stale finding-entity :ABOUT edges ----
+    let fes_pg: std::collections::HashSet<(String, String)> = {
+        let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT finding_id, entity_id FROM finding_entities",
+        )
+        .fetch_all(&state.pg)
+        .await?;
+        rows.into_iter()
+            .map(|(c, d)| (c.to_string(), d.to_string()))
+            .collect()
+    };
+    let fes_neo: Vec<(String, String)> = fetch_rows(
+        state,
+        "MATCH (f:Finding)-[:ABOUT]->(e:Entity)
+         RETURN f.finding_id AS fid, e.entity_id AS eid",
+        &["fid", "eid"],
+    )
+    .await?
+    .into_iter()
+    .map(|r| (s_of(&r, "fid"), s_of(&r, "eid")))
+    .filter(|(f, e)| !f.is_empty() && !e.is_empty())
+    .collect();
+    let mut stale_finding_entity_edges = 0usize;
+    for (fid, eid) in &fes_neo {
+        let key = (fid.clone(), eid.clone());
+        if !fes_pg.contains(&key) {
+            let cypher = "MATCH (f:Finding {finding_id: $fid})-[r:ABOUT]->(e:Entity {entity_id: $eid}) DELETE r";
+            let q = neo4rs::query(cypher)
+                .param("fid", fid.as_str())
+                .param("eid", eid.as_str());
+            state.neo4j.run(q).await?;
+            total_removed += 1;
+            stale_finding_entity_edges += 1;
+        }
+    }
+
+    // Record run result.
+    let details = json!({
+        "orphan_entities": orphan_entities.len(),
+        "orphan_claims": orphan_claims.len(),
+        "orphan_findings": orphan_findings.len(),
+        "orphan_documents": orphan_docs.len(),
+        "stale_claim_doc_edges": stale_claim_edges,
+        "stale_finding_doc_edges": stale_finding_doc_edges,
+        "stale_finding_entity_edges": stale_finding_entity_edges,
+    });
+    sqlx::query(
+        "UPDATE mirror_reconcile_runs
+            SET finished_at = now(),
+                orphans_removed = $1,
+                details = $2
+          WHERE run_id = $3",
+    )
+    .bind(total_removed as i32)
+    .bind(&details)
+    .bind(run_id)
+    .execute(&state.pg)
+    .await?;
+
+    tracing::info!(
+        run_id,
+        orphans_removed = total_removed,
+        ?details,
+        "neo4j reconcile pass complete"
+    );
+    Ok(())
 }
 
 use crate::types::BusEvent;

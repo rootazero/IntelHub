@@ -13,7 +13,9 @@ use crate::state::AppState;
 /// Minimal BoltType → JSON conversion covering our templates' return shapes.
 /// Mirrors the helper in `graph.rs`; intentionally duplicated (kept private)
 /// so the read plane here has no dependency on the write plane there.
-fn bolt_to_json(v: &neo4rs::BoltType) -> Value {
+/// `pub(crate)` so the reconcile worker in graphw.rs can reuse it (added
+/// 2026-09-14) instead of duplicating the variant list a third time.
+pub(crate) fn bolt_to_json(v: &neo4rs::BoltType) -> Value {
     match v {
         neo4rs::BoltType::String(s) => Value::String(s.value.clone()),
         neo4rs::BoltType::Integer(i) => json!(i.value),
