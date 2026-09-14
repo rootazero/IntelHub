@@ -425,6 +425,21 @@ async fn dispatch_mark_finding(
     .bind(entity_id)
     .execute(pool)
     .await?;
+    // 2026-09-14 phase 3: canonical finding_entities row (PG source of
+    // truth for the :ABOUT edge). The change_log emit below stays
+    // unchanged so the Neo4j mirror worker (translate_change_log →
+    // link_finding_about_entity) keeps producing the edge.
+    sqlx::query(
+        "INSERT INTO finding_entities (finding_id, entity_id, role, confidence, created_by)
+         VALUES ($1, $2, 'about', $3, $4)
+         ON CONFLICT (finding_id, entity_id, role) DO NOTHING",
+    )
+    .bind(finding_id)
+    .bind(entity_id)
+    .bind(conf)
+    .bind(actor)
+    .execute(pool)
+    .await?;
     sqlx::query(
         "INSERT INTO graph_change_log (op, target_kind, target_id, before, after, changed_by, task_id)
          VALUES ('insert','claim',$1, NULL, jsonb_build_object('entity_id',$2,'relation','about'), $3, $4)",
