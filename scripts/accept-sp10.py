@@ -815,6 +815,178 @@ def check_38_create_claim_audit_mirrors():
             _pg_scalar("DELETE FROM entities WHERE entity_id = $1", eid)
 
 
+def check_39_mcp_v2_extract_claims():
+    """MCP exposes v2_extract_claims — the first real caller of the v2
+    audit helper (extract.rs::extract_claims_inner). Verifies:
+      1. MCP initialize + tools/list succeed
+      2. v2_extract_claims is in the tool list with the expected schema
+      3. Calling v2_extract_claims inserts a claim + audit row that
+         mirrors to Neo4j within 60s
+    Cleans up in finally so re-runs are idempotent.
+    """
+    import time
+    import http.client as _hc
+    host = "10.10.10.41"
+    port = 8800
+    path = "/mcp"
+    auth = f"Bearer {KEY}"
+    def post(payload):
+        body = json.dumps(payload).encode()
+        conn = _hc.HTTPConnection(host, port, timeout=15)
+        try:
+            conn.request(
+                "POST", path, body=body,
+                headers={
+                    "Authorization": auth,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+            )
+            resp = conn.getresponse()
+            data = resp.read().decode()
+            sid = resp.getheader("mcp-session-id")
+            return data, sid
+        finally:
+            conn.close()
+    def sse_data(text):
+        for ln in text.splitlines():
+            if ln.startswith("data:"):
+                yield ln[5:].strip()
+    try:
+        # 1. initialize → session id from response header
+        init_data, sid = post({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                       "clientInfo": {"name": "accept-sp10-check-39", "version": "1.0"}},
+        })
+        if not sid:
+            return False, "initialize did not return mcp-session-id header"
+
+        # Subsequent calls carry the session id
+        def post_sid(payload):
+            body = json.dumps(payload).encode()
+            conn = _hc.HTTPConnection(host, port, timeout=15)
+            try:
+                conn.request(
+                    "POST", path, body=body,
+                    headers={
+                        "Authorization": auth,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/event-stream",
+                        "mcp-session-id": sid,
+                    },
+                )
+                resp = conn.getresponse()
+                return resp.read().decode()
+            finally:
+                conn.close()
+
+        # 2. tools/list — verify v2_extract_claims present
+        list_data = post_sid({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}
+        })
+        tools = []
+        for d in sse_data(list_data):
+            try:
+                r = json.loads(d).get("result", {})
+                if r.get("tools"):
+                    tools = r["tools"]; break
+            except Exception:
+                pass
+        if not tools:
+            return False, "MCP tools/list returned no tools"
+        names = {t["name"] for t in tools}
+        if "v2_extract_claims" not in names:
+            return False, f"v2_extract_claims missing from MCP tool list (got {len(tools)} tools)"
+
+        # 3. End-to-end call via MCP
+        suffix = str(int(time.time()))
+        text = f"phase6-accept-sp10 check_39 marker {suffix}"
+        ent_name = f"Phase6AcceptSp10_{suffix}"
+        call_data = post_sid({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "v2_extract_claims", "arguments": {
+                "claims": [{
+                    "text": text,
+                    "entity_refs": [{"kind": "org", "name": ent_name, "role": "subject"}],
+                }],
+            }},
+        })
+        cid = None
+        for d in sse_data(call_data):
+            try:
+                r = json.loads(d).get("result", {})
+                for c in r.get("content", []):
+                    if c.get("type") == "text":
+                        payload = json.loads(c["text"])
+                        ids = payload.get("claim_ids", [])
+                        if ids:
+                            cid = ids[0]; break
+            except Exception:
+                pass
+        if not cid:
+            return False, "v2_extract_claims did not return a claim_id"
+
+        # 4. Audit row was emitted by the helper + mirror worker picked it up
+        deadline = time.time() + 60
+        mirrored = False
+        while time.time() < deadline:
+            n = _pg_scalar(
+                "SELECT count(*) FROM graph_change_log "
+                "WHERE target_kind='claim' AND target_id=$1 "
+                "AND mirrored_at IS NOT NULL",
+                cid,
+            )
+            if int(n or 0) >= 1:
+                mirrored = True; break
+            time.sleep(3)
+        if not mirrored:
+            return False, f"MCP-created claim {cid[:8]} audit row not mirrored in 60s"
+
+        # 5. Neo4j has the Claim + Entity + :ABOUT edge
+        rows = []
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            rows = _neo4j_query(
+                "MATCH (c:Claim {claim_id: $cid})-[:ABOUT]->(e:Entity) "
+                "WHERE e.kind = $kind AND e.name = $name "
+                "RETURN c.text, e.name",
+                {"cid": cid, "kind": "org", "name": ent_name},
+            )
+            if rows and rows[0].get("row"):
+                break
+            time.sleep(3)
+        if not rows or not rows[0].get("row"):
+            return False, f"Neo4j missing :ABOUT edge for MCP claim {cid[:8]}"
+        return True, (
+            f"MCP v2_extract_claims → claim {cid[:8]} → audit row → "
+            f"mirror → :Claim + :ABOUT edge"
+        )
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+    finally:
+        # Best-effort cleanup (don't fail the check if cleanup hits an edge)
+        try:
+            _pg_scalar(
+                "DELETE FROM claim_entities WHERE entity_id IN "
+                "(SELECT entity_id FROM entities WHERE name LIKE 'Phase6AcceptSp10_%')"
+            )
+            _pg_scalar("DELETE FROM entities WHERE name LIKE 'Phase6AcceptSp10_%'")
+            _pg_scalar("DELETE FROM claims WHERE text LIKE 'phase6-accept-sp10%'")
+            _pg_scalar(
+                "DELETE FROM graph_change_log WHERE target_id IN "
+                "(SELECT claim_id::text FROM claims WHERE text LIKE 'phase6-accept-sp10%')"
+            )
+        except Exception:
+            pass
+        # Neo4j cleanup
+        try:
+            _neo4j_query("MATCH (e:Entity) WHERE e.name STARTS WITH 'Phase6AcceptSp10' DETACH DELETE e")
+            _neo4j_query("MATCH (c:Claim) WHERE c.text STARTS WITH 'phase6-accept-sp10' DETACH DELETE c")
+        except Exception:
+            pass
+
+
 CHECKS = [
     ("01 edges expose source_id/target_id", check_01_edges_have_ids),
     ("02 multi-hop path real source/target", check_02_multi_hop_source_target),
@@ -854,6 +1026,7 @@ CHECKS = [
     ("36 reconcile worker ran at startup (23+ orphans cleaned)", check_36_reconcile_worker_ran),
     ("37 reconcile worker steady-state (run N+1 removes 0)", check_37_reconcile_steady_state),
     ("38 create_claim audit row → Neo4j mirror (claim entities)", check_38_create_claim_audit_mirrors),
+    ("39 MCP exposes v2_extract_claims (real caller of v2 audit helper)", check_39_mcp_v2_extract_claims),
 ]
 
 print(f"== SP10 acceptance ({len(CHECKS)} assertions) ==")

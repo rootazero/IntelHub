@@ -76,14 +76,27 @@ pub async fn extract_claims(
         return Err((axum::http::StatusCode::BAD_REQUEST, "claims capped at 200 per call".into()));
     }
     let actor = format!("agent:{}", agent.name);
+    let claim_ids = extract_claims_inner(&state, &actor, &body).await.map_err(|e| {
+        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))
+    })?;
+    Ok(Json(ExtractClaimsResponse { claim_ids }))
+}
+
+/// Core logic — public so MCP can reuse it. Returns the inserted claim
+/// IDs in input order. Each claim is a separate transaction (one bad
+/// row doesn't roll back the rest), but the audit + canonical writes
+/// within a single claim are atomic.
+pub async fn extract_claims_inner(
+    state: &AppState,
+    actor: &str,
+    body: &ExtractClaimsBody,
+) -> Result<Vec<Uuid>, sqlx::Error> {
     let mut claim_ids = Vec::with_capacity(body.claims.len());
     for c in &body.claims {
-        let cid = insert_one_claim(&state, &actor, c, body.task_id).await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))
-        })?;
+        let cid = insert_one_claim(state, actor, c, body.task_id).await?;
         claim_ids.push(cid);
     }
-    Ok(Json(ExtractClaimsResponse { claim_ids }))
+    Ok(claim_ids)
 }
 
 async fn insert_one_claim(

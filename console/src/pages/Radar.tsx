@@ -270,6 +270,14 @@ export default function Radar() {
         </select>
         <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
         <span className="ml-auto flex items-center gap-2">
+          {!CARTO_KEY && (
+            <span
+              className="rounded bg-rose-500/15 px-1.5 py-0.5 mono text-[10px] text-rose-400"
+              title="CARTO basemap key missing from build — chain starts at Esri fallback. Sign up at carto.com/basemaps/apikey (free) and rebuild the console with VITE_CARTO_KEY set."
+            >
+              CARTO KEY MISSING
+            </span>
+          )}
           <span
             className={`rounded px-1.5 py-0.5 mono text-[10px] ${tiles === PRIMARY ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"}`}
           >

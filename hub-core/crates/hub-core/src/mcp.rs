@@ -374,6 +374,24 @@ pub struct CreateClaimArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct V2ExtractClaimsArgs {
+    /// Batch of claims to insert (capped at 200 per call)
+    pub claims: Vec<V2ClaimInput>,
+    /// Optional task_id for traceability (audit row will link to it)
+    #[schemars(with = "Option<String>")]
+    pub task_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct V2ClaimInput {
+    /// Claim text (8–4000 chars)
+    pub text: String,
+    /// Optional entity refs (created if missing by kind+name upsert)
+    #[serde(default)]
+    pub entity_refs: Vec<ClaimEntityRefArgs>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct CreateRelationshipArgs {
     pub from_kind: String,
     pub from_name: String,
@@ -1727,6 +1745,42 @@ impl HubMcp {
             Err(e) => Err(map_err(e)),
         };
         self.record(&ctx, "create_claim", started, if out.is_ok() { "ok" } else { "error" }).await;
+        out
+    }
+
+    #[tool(description = "v2 batch claim extractor (no evidence required — for LLM extractor pipelines that pick claims out of documents). Mirrors REST POST /api/v1/v2/extract_claims. Each claim is a separate transaction; audit rows drive the Neo4j mirror worker. Level 2 governed.")]
+    async fn v2_extract_claims(
+        &self,
+        Parameters(args): Parameters<V2ExtractClaimsArgs>,
+        ctx: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let started = Instant::now();
+        self.gate(&ctx, "v2_extract_claims").await?;
+        let agent = agent_of(&ctx);
+        let actor = format!("agent:{}", agent.name);
+        let body = crate::graph_v2::extract::ExtractClaimsBody {
+            claims: args.claims.into_iter().map(|c| {
+                crate::graph_v2::extract::ClaimInput {
+                    text: c.text,
+                    entity_refs: c.entity_refs.into_iter().map(|e| {
+                        crate::graph_v2::extract::EntityRef { kind: e.kind, name: e.name, role: e.role }
+                    }).collect(),
+                }
+            }).collect(),
+            task_id: args.task_id,
+        };
+        let out = match crate::graph_v2::extract::extract_claims_inner(
+            &self.state,
+            &actor,
+            &body,
+        ).await {
+            Ok(ids) => ok_text(json!({
+                "claim_ids": ids,
+                "count": ids.len(),
+            })),
+            Err(e) => Err(map_err(e.into())),
+        };
+        self.record(&ctx, "v2_extract_claims", started, if out.is_ok() { "ok" } else { "error" }).await;
         out
     }
 
