@@ -8,7 +8,6 @@ SPA, MCP tool count unchanged, regression gates run separately.
 Usage: accept-sp8.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import urllib.request
@@ -17,10 +16,15 @@ import urllib.error
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 HUB = BASE
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg, redis  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -53,14 +57,7 @@ def req(path, key=KEY, timeout=20, method="GET", body=None, raw=False):
             return e.code, {}
 
 
-def vm(cmd):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=90,
-    ).stdout.strip()
 
-
-print("== SP7 acceptance: monitor command deck ==")
 
 # 1. history endpoint shape + fred series has points
 st, d = req("/api/v1/signals/history?series=fred:VIXCLS&days=40")
@@ -96,7 +93,7 @@ check("delta endpoint shape + direction enum",
       f"status={st} rows={len(rows)}")
 
 # 6. delta covers every health-cell source (incl. series collectors)
-health = vm('docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2) HKEYS hub:monitor:health')
+health = redis("HKEYS", "hub:monitor:health")
 health_sources = {s for s in health.split() if s}
 delta_sources = {r.get("source") for r in rows}
 check("delta covers all health-cell sources",
@@ -104,7 +101,7 @@ check("delta covers all health-cell sources",
       f"health={len(health_sources)} delta={len(delta_sources)} missing={sorted(health_sources - delta_sources)}")
 
 # 6b. sweep-history ring exists and delta trend is consistent with it
-hist_len = vm('docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2) LLEN hub:monitor:sweephist:usgs')
+hist_len = redis("LLEN", "hub:monitor:sweephist:usgs")
 check("sweep-history ring populated (restart-proof baseline)",
       hist_len.isdigit() and int(hist_len) >= 1, f"usgs ring len={hist_len}")
 with_trend = [r for r in rows if isinstance(r.get("trend"), list) and len(r["trend"]) >= 2]
@@ -149,7 +146,7 @@ check("radar kind=political events exist (title classifier)", pol >= 1, f"count=
 st, d8c = req("/api/v1/radar/events?kind=climate&from=2026-01-01T00:00:00Z&limit=50")
 cli = len(d8c.get("items", [])) if st == 200 else 0
 check("radar kind=climate events exist (eonet)", cli >= 1, f"count={cli}")
-n = vm('docker exec intelhub-postgres psql -U intelhub -d intelhub -tAc "SELECT count(DISTINCT series) FROM signal_observations WHERE source=\'monitor:climate\'"')
+n = pg("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:climate'")
 check("climate indicator series observed (CO2+GISTEMP)", n.strip().isdigit() and int(n.strip()) >= 2, f"climate={n.strip()}")
 pal2 = vm('grep -c "#2dd4bf" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | grep -v ":0" | head -1')
 check("console bundle has climate palette (teal)", bool(pal2), pal2 or "MISSING")

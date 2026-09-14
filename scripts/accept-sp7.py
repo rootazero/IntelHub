@@ -8,7 +8,6 @@ Signals REST, alert rule integrity.
 Usage: accept-sp7.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import time
@@ -18,10 +17,15 @@ import urllib.error
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 HUB = BASE
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg, redis, pg_stdin  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -50,18 +54,8 @@ def req(path, key=KEY, timeout=20, method="GET", body=None):
             return e.code, {}
 
 
-def vm(cmd):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=90,
-    ).stdout.strip()
-
-
-PSQL = 'DBURL=$(grep "^DATABASE_URL=" /home/zou/IntelHub/core/hub.env | cut -d= -f2-); U=$(echo $DBURL | sed -E "s|.*://([^:]+):.*|\\1|"); docker exec intelhub-postgres psql -U "$U" -d intelhub -t -A -c'
-
-
 def pg1(sql):
-    out = vm(f'{PSQL} "{sql}"')
+    out = pg(sql)
     return out.splitlines()[-1].strip() if out else ""
 
 
@@ -127,8 +121,7 @@ n = pg1("SELECT count(*) FROM monitor_watchlist")
 check("watchlist seeded >= 15", n.isdigit() and int(n) >= 15, n)
 
 # 2. finance collectors report health
-REDIS = 'docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2)'
-cells = vm(f"{REDIS} HKEYS hub:monitor:health").split()
+cells = redis("HKEYS", "hub:monitor:health").split()
 fin_cells = [c for c in ["fred", "eia", "treasury", "markets", "finintel"] if c in cells]
 check("finance collector health cells", len(fin_cells) >= 4, ",".join(fin_cells))
 
@@ -177,7 +170,7 @@ check("watchlist list clean after loop", "ACME7" not in syms, f"n={len(syms)}")
 
 # 8. MCP: financials_fetch — graceful on empty-balance account; cache logic
 #    verified via a synthetic complete row (real-credit fetch tested at deploy).
-vm(f'{PSQL} "DELETE FROM fd_cache WHERE ticker = \'ZZTEST\'" > /dev/null')
+pg('DELETE FROM fd_cache WHERE ticker = \'ZZTEST\'')
 r0 = tool_json(tool(sid, "financials_fetch", {"ticker": "ZZTEST"}, 7))
 brief0 = r0.get("brief", {})
 check("financials_fetch graceful (no crash, honest incomplete)",
@@ -188,8 +181,7 @@ import base64
 _seed_sql = ("INSERT INTO fd_cache (ticker, fetched_at, endpoints, payload) VALUES "
              "('ZZTEST', now(), '{\"company_facts\":{\"name\":\"Test Co\"},\"income_statements\":[]}'::jsonb, "
              "'{\"ticker\":\"ZZTEST\",\"complete\":true,\"company\":{\"name\":\"Test Co\"}}'::jsonb);")
-_b64 = base64.b64encode(_seed_sql.encode()).decode()
-vm(f'echo {_b64} | base64 -d | docker exec -i intelhub-postgres psql -U $(DBURL=$(grep "^DATABASE_URL=" /home/zou/IntelHub/core/hub.env | cut -d= -f2-); echo $DBURL | sed -E "s|.*://([^:]+):.*|\\1|") -d intelhub -q')
+pg_stdin(_seed_sql)
 seeded = pg1("SELECT count(*) FROM fd_cache WHERE ticker='ZZTEST'")
 if seeded != "1":
     check("financials_fetch cache seed inserted", False, f"seeded={seeded}")
@@ -198,7 +190,7 @@ else:
     check("financials_fetch cache HIT (zero upstream cost)",
           r2.get("cached") is True and r2.get("brief", {}).get("ticker") == "ZZTEST",
           f"cached={r2.get('cached')}")
-vm(f'{PSQL} "DELETE FROM fd_cache WHERE ticker = \'ZZTEST\'" > /dev/null')
+pg('DELETE FROM fd_cache WHERE ticker = \'ZZTEST\'')
 
 # 9. REST: signals latest + watchlist list (console backing)
 code, latest = req("/api/v1/signals/latest")

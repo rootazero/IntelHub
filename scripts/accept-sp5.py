@@ -5,7 +5,6 @@ evidence push endpoint, SpiderFoot→evidence bridge, Telegram alerts.
 Usage: accept-sp5.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import time
@@ -14,10 +13,15 @@ import urllib.error
 
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg, redis  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -46,13 +50,6 @@ def req(path, key=KEY, timeout=15, method="GET", body=None):
             return e.code, {}
 
 
-def vm(cmd, timeout=90):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=timeout,
-    ).stdout.strip()
-
-
 def vm_json(cmd, timeout=90):
     out = vm(cmd, timeout)
     try:
@@ -61,14 +58,12 @@ def vm_json(cmd, timeout=90):
         return {}
 
 
-PSQL = 'DBURL=$(grep "^DATABASE_URL=" /home/zou/IntelHub/core/hub.env | cut -d= -f2-); U=$(echo $DBURL | sed -E "s|.*://([^:]+):.*|\\1|"); docker exec intelhub-postgres psql -U "$U" -d intelhub -t -A -c'
-
 print("== SP5 acceptance ==")
 
 # 1. monitor key-gated sources live (FIRMS/ACLED keys migrated to hub secrets.env)
-firms_state = vm("docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep '^REDIS_PASSWORD=' /home/zou/IntelHub/compose/.env | cut -d= -f2) HGET hub:monitor:health firms")
+firms_state = redis("HGET", "hub:monitor:health", "firms")
 check("monitor FIRMS source ok (key migrated)", '\"state\":\"ok\"' in firms_state.replace(" ", ""), firms_state[:120])
-fires = vm(f"""{PSQL} "SELECT count(*) FROM geo_events WHERE source='monitor:firms'" """).splitlines()[-1]
+fires = pg("SELECT count(*) FROM geo_events WHERE source='monitor:firms'").splitlines()[-1]
 check("FIRMS fire events in geo_events", fires.isdigit() and int(fires) > 0, f"fire={fires}")
 
 # 2. spiderfoot + huginn containers healthy
@@ -105,14 +100,14 @@ check("spiderfoot scan finished", scan_id is not None, f"id={scan_id}")
 if scan_id:
     doc = ""
     for _ in range(15):  # poller tick 120s + ingest
-        doc = vm(f"""{PSQL} "SELECT document_id FROM documents WHERE metadata->>'scan_id'='{scan_id}' LIMIT 1" """).splitlines()[-1]
+        doc = pg(f"SELECT document_id FROM documents WHERE metadata->>'scan_id'='{scan_id}' LIMIT 1").splitlines()[-1]
         if doc and "-" in doc:
             break
         time.sleep(10)
     check("spiderfoot scan → evidence document", bool(doc and "-" in doc), f"doc={doc[:8] if doc else 'none'}")
 
 # 5. telegram channel delivered (drill rows from implementation phase)
-tg = vm(f"""{PSQL} "SELECT status FROM alert_deliveries WHERE endpoint='telegram://chat' ORDER BY created_at DESC LIMIT 1" """).splitlines()[-1]
+tg = pg("SELECT status FROM alert_deliveries WHERE endpoint='telegram://chat' ORDER BY created_at DESC LIMIT 1").splitlines()[-1]
 check("telegram delivery DELIVERED", tg == "DELIVERED", tg)
 
 print(f"\n== {passed} passed, {failed} failed ==")

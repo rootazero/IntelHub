@@ -31,10 +31,15 @@ import uuid as _uuid
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 HUB = BASE
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 PASSED = FAILED = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as ssh, pg as sql, cypher as _cypher_str  # noqa: E402
 
 # ----- helpers ---------------------------------------------------------
 
@@ -68,53 +73,15 @@ def req(path, key=KEY, timeout=30, method="GET", body=None, raw=False):
             return e.code, {}
 
 
-def ssh(cmd, timeout=90):
-    """Run a command on the target VM.
-
-    Two modes:
-      - Remote (default): ssh into SSH_HOST (IntelHub or IntelHub-test).
-        Used when the script is invoked from a Mac or another host.
-      - Local: if SSH_HOST == 'localhost' (or INTELHUB_LOCAL=1 is set),
-        run the command directly via subprocess. Required because VM 410
-        has no private key for ssh-ing back to itself — the script can
-        only run docker exec commands directly when it lives on the VM.
-
-    Detects the mode once at startup so per-call cost is minimal.
-    """
-    if SSH_HOST in ("localhost", "127.0.0.1") or os.environ.get("INTELHUB_LOCAL") == "1":
-        return subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout,
-        ).stdout.strip()
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=timeout,
-    ).stdout.strip()
-
-
-def sql(q, timeout=60):
-    # Shell-quote the SQL by wrapping in double quotes; psql -tAc wants raw SQL.
-    # Embed via -c instead of stdin so quoting is unambiguous.
-    return ssh(f"docker exec intelhub-postgres psql -U intelhub -d intelhub -tAc {shlex_quote(q)}", timeout)
-
-
-def shlex_quote(s):
-    """Bash-ish single-quote escape for arbitrary SQL strings."""
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
-def neo4j_password():
-    out = ssh("grep '^NEO4J_PASSWORD=' /home/zou/IntelHub/compose/.env | cut -d= -f2")
-    return out.strip()
-
-
 def cypher(stmt, timeout=60):
-    pw = neo4j_password()
-    # Pass the password via -p. The shlex_quote covers the password so it's
-    # safely embedded in the ssh'd shell command.
-    cmd = (f"docker exec intelhub-neo4j cypher-shell -u neo4j "
-           f"-p {shlex_quote(pw)} --format plain {shlex_quote(stmt)}")
-    out = ssh(cmd, timeout)
-    return [l for l in out.splitlines() if l.strip()]
+    """Run a cypher-shell query, return list of non-empty lines.
+
+    Historical sp9 semantics: --format plain puts the column header on
+    line 1, data rows after. _cypher_str returns the raw stdout string;
+    we split + filter here so callers can do ``cypher_table()`` without
+    re-implementing the filter.
+    """
+    return [l for l in _cypher_str(stmt, timeout=timeout).splitlines() if l.strip()]
 
 
 def cypher_table(stmt):
@@ -582,12 +549,13 @@ def check_11_baseline_regressions():
             # instead (its argv[2] is the admin token).
             argv.append(BASE)
         child_env = dict(os.environ)
-        child_env.setdefault("INTELHUB_SSH", SSH_HOST)
+        child_env.setdefault("INTELHUB_SSH", os.environ.get("INTELHUB_SSH", "IntelHub"))
         child_env.setdefault("INTELHUB_HUB", BASE)
         # Forward INTELHUB_LOCAL so nested scripts know to skip ssh
-        # when running directly on the target VM. Parent has it set;
-        # children need it propagated to reach the same VMs as the
-        # parent (e.g. accept-sp10 also relies on docker exec, not ssh).
+        # when running directly on the target VM. scripts/_remote.py
+        # auto-detects via sentinel $INTELHUB_HOME/core/hub, but
+        # INTELHUB_LOCAL=1 lets the caller force the bypass (useful
+        # for testing nested acceptance on the same VM).
         child_env.setdefault("INTELHUB_LOCAL", os.environ.get("INTELHUB_LOCAL", "0"))
         try:
             proc = subprocess.run(argv, capture_output=True, text=True, timeout=180, env=child_env)

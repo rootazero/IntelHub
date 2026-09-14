@@ -6,7 +6,6 @@ hub-core (spec 2026-09-10-intelhub-sp6-native-monitor-design.md).
 Usage: accept-sp4.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import time
@@ -15,10 +14,15 @@ import urllib.error
 
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -71,18 +75,6 @@ def vm_json(cmd):
         return json.loads(out) if out else {}
     except Exception:
         return {}
-
-
-def vm(cmd):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=60,
-    ).stdout.strip()
-
-
-def pg(sql):
-    return vm("DBURL=$(grep '^DATABASE_URL=' /home/zou/IntelHub/core/hub.env | cut -d= -f2-); "
-              f"docker exec intelhub-postgres psql \"$DBURL\" -tA -c \"{sql}\"")
 
 
 print("== SP4 acceptance (SP6 native-monitor rewrite) ==")
