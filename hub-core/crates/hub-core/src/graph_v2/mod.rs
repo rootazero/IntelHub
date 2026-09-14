@@ -6,7 +6,9 @@
 //! - `evidence` — Task 3 (evidence binding)
 //! - `contradiction` — Task 4 (claim contradiction detection + review)
 //! - `temporal` — Task 5 (valid_from/valid_until semantics, point-in-time reads)
+//! - `audit` — change_log emit helper for future v2 claim sites
 
+pub mod audit;
 pub mod compiler;
 pub mod contradiction;
 pub mod evidence;
