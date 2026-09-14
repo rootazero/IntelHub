@@ -2,6 +2,10 @@
 # set-carto-key.sh — write CARTO basemap key into console-build.env and
 # rebuild the console so the dark tiles take effect.
 #
+# NOTE: this script now accepts either a CARTO key (cb1_...) or a
+# Stadia Maps key (Stadia takes precedence in the chain). For the
+# new recommended provider, see set-dark-map-key.sh.
+#
 # Without a key the Radar page falls back to Esri's "dark gray" style
 # (still functional, less aesthetic). Get a free key at:
 #   https://carto.com/basemaps/apikey
@@ -13,6 +17,7 @@
 #   bash scripts/set-carto-key.sh cb1_xxx             # positional arg
 #
 # Idempotent: re-running with a new key overwrites the old one.
+# Deprecated as the recommended primary; prefer set-dark-map-key.sh.
 
 set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -52,9 +57,8 @@ mkdir -p "$(dirname "$BENV")"
 [[ -f "$BENV" ]] || { echo "# console build-time inputs (0600)" > "$BENV"; }
 chmod 600 "$BENV"
 
-# Upsert VITE_CARTO_KEY (no quoting — CARTO keys are alphanumeric+underscore)
+# Upsert VITE_CARTO_KEY (no quoting — keys are alphanumeric+underscore)
 if grep -q '^VITE_CARTO_KEY=' "$BENV" 2>/dev/null; then
-  # Replace existing line in-place
   sed -i.bak "s|^VITE_CARTO_KEY=.*|VITE_CARTO_KEY=$key|" "$BENV"
   rm -f "$BENV.bak"
 else

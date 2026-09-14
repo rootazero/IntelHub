@@ -5,23 +5,43 @@
 set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# VITE_CARTO_KEY (optional) is baked into the bundle: set → CARTO dark_all
-# primary basemap; unset → Esri primary (see console/src/pages/Radar.tsx).
-# Fallback chain so a missing console-build.env never silently degrades the
-# basemap: explicit env → core/console-build.env → CARTO_BASEMAP_KEY in
-# core/secrets.env.
-if [[ -z "${VITE_CARTO_KEY:-}" ]]; then
+# Two optional dark basemap keys can be baked into the bundle:
+#   VITE_STADIA_KEY → Stadia Maps alidade_smooth_dark (primary choice)
+#   VITE_CARTO_KEY  → CARTO dark_all (legacy primary)
+# Without either key the chain starts at Esri (grey, not black).
+#
+# Fallback chain per key so a missing console-build.env never silently
+# degrades the basemap: explicit env → core/console-build.env →
+# matching CARTO_BASEMAP_KEY / STADIA_API_KEY in core/secrets.env.
+# Order of precedence in the rendered chain: Stadia > CARTO > Esri.
+
+resolve_key() {
+  local vite_var="$1" secrets_var="$2"
+  local env_var="${!vite_var:-}"
+  if [[ -n "$env_var" ]]; then
+    echo "$env_var"; return
+  fi
   if [[ -f "$HUB_DIR/core/console-build.env" ]]; then
-    VITE_CARTO_KEY=$(grep '^VITE_CARTO_KEY=' "$HUB_DIR/core/console-build.env" | head -1 | cut -d= -f2- || true)
+    local v
+    v=$(grep "^${vite_var}=" "$HUB_DIR/core/console-build.env" | head -1 | cut -d= -f2- || true)
+    if [[ -n "$v" ]]; then echo "$v"; return; fi
   fi
-  if [[ -z "${VITE_CARTO_KEY:-}" && -f "$HUB_DIR/core/secrets.env" ]]; then
-    VITE_CARTO_KEY=$(grep '^CARTO_BASEMAP_KEY=' "$HUB_DIR/core/secrets.env" | head -1 | cut -d= -f2- || true)
+  if [[ -f "$HUB_DIR/core/secrets.env" ]]; then
+    local v
+    v=$(grep "^${secrets_var}=" "$HUB_DIR/core/secrets.env" | head -1 | cut -d= -f2- || true)
+    if [[ -n "$v" ]]; then echo "$v"; return; fi
   fi
-fi
-if [[ -z "${VITE_CARTO_KEY:-}" ]]; then
-  echo "WARN: no CARTO key found — console will use the Esri fallback basemap" >&2
+  echo ""
+}
+
+VITE_STADIA_KEY="$(resolve_key VITE_STADIA_KEY STADIA_API_KEY)"
+VITE_CARTO_KEY="$(resolve_key VITE_CARTO_KEY CARTO_BASEMAP_KEY)"
+
+if [[ -z "${VITE_STADIA_KEY:-}" ]] && [[ -z "${VITE_CARTO_KEY:-}" ]]; then
+  echo "WARN: no dark basemap key found (Stadia or CARTO) — console will use the Esri fallback (grey, not black). Sign up free at stadiamaps.com or carto.com/basemaps/apikey." >&2
 fi
 docker run --rm \
+  -e VITE_STADIA_KEY="${VITE_STADIA_KEY:-}" \
   -e VITE_CARTO_KEY="${VITE_CARTO_KEY:-}" \
   -v "$HUB_DIR/console:/src" \
   -v intelhub-npm-cache:/root/.npm \
