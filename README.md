@@ -267,12 +267,6 @@ exists in `core/agent-keys.txt`, the step skips. Re-running `install.sh` or
 - `examples/` — `intelhub.env.example` for unattended install
 - `docs/superpowers/specs/` — per-sub-project design docs
 
-## Documentation
-
-- Full project spec: `OSINTIntelligenceHub.md`
-- Per-feature design docs: `docs/superpowers/specs/`
-- 中文版 README: [`README.zh.md`](README.zh.md)
-
 ## Operating
 
 Operational tooling that ships with the repo. All live in `scripts/`. Run
