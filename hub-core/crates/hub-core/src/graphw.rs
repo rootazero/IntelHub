@@ -419,7 +419,10 @@ pub async fn create_claim(state: &AppState, actor: &str, intent: ClaimIntent) ->
         .execute(&state.pg)
         .await?;
     for doc_id in &doc_ids {
-        sqlx::query(
+        // PG row: idempotent via ON CONFLICT DO NOTHING (claim_evidence PK
+        // is (claim_id, document_id, relation)). This is PG canonical —
+        // duplicate inserts don't break anything.
+        let _res = sqlx::query(
             "INSERT INTO claim_evidence (claim_id, document_id) VALUES ($1,$2)
              ON CONFLICT DO NOTHING",
         )
@@ -427,6 +430,23 @@ pub async fn create_claim(state: &AppState, actor: &str, intent: ClaimIntent) ->
         .bind(doc_id)
         .execute(&state.pg)
         .await?;
+
+        // 2026-09-14: always emit per-evidence-row link_claim_evidence op so
+        // the Neo4j mirror worker materializes the Claim→Document :SUPPORTS
+        // edge for THIS claim. v1 ClaimIntent has no `relation` field
+        // (mcp.rs:370) — the PG claim_evidence table has no relation column
+        // either, so "supports" is the implicit default. Hardcoded to match.
+        // graph_write itself is idempotent on the Neo4j side (MERGE on
+        // both endpoints + edge), so re-running create_claim with the same
+        // claim+doc pair is harmless — but here we run for every doc_id, so
+        // a SECOND claim reusing the same docs ALSO gets its own edges.
+        let link_op = json!({
+            "type": "link_claim_evidence",
+            "claim_id": claim_id,
+            "document_id": doc_id,
+            "relation": "supports",
+        });
+        graph_write(state, link_op).await;
     }
 
     // Resolve/create referenced entities + link them.
