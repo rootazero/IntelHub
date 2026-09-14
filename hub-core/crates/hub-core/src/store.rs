@@ -32,6 +32,48 @@ pub async fn create_agent(pg: &PgPool, name: &str, version: Option<&str>) -> Res
     Ok((agent_id, key))
 }
 
+/// Rotate (replace) the API key for an existing agent. The previous key is
+/// soft-revoked (`revoked = true`) — its row stays in `api_keys` for audit /
+/// trace purposes — and a fresh key is minted. The agent_id is preserved so
+/// MCP clients that hold the agent_id still see continuity. No restart is
+/// needed: hub-core looks keys up by hash on every request.
+///
+/// Returns `(agent_id, new_api_key)` on success.
+pub async fn rotate_agent_key(pg: &PgPool, name: &str) -> Result<(Uuid, String)> {
+    // Look up the existing agent. `agents.name` is UNIQUE so this is one row.
+    let row = sqlx::query("SELECT agent_id FROM agents WHERE name = $1")
+        .bind(name)
+        .fetch_optional(pg)
+        .await?;
+    let row = row.ok_or_else(|| {
+        HubError::bad_request(format!(
+            "agent '{name}' is not provisioned yet — use create-agent first"
+        ))
+    })?;
+    use sqlx::Row;
+    let agent_id: Uuid = row.get(0);
+
+    // Soft-revoke all existing live keys for this agent. Auth's resolve_key
+    // filters `revoked = false` so old keys stop working the instant the
+    // UPDATE commits — well within the next MCP request.
+    sqlx::query("UPDATE api_keys SET revoked = true WHERE agent_id = $1 AND revoked = false")
+        .bind(agent_id)
+        .execute(pg)
+        .await?;
+
+    // Mint a fresh key + insert as the new live row.
+    let key = format!("ihk_{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let key_hash = crate::auth::hash_key(&key);
+    sqlx::query("INSERT INTO api_keys (key_id, agent_id, key_hash, label) VALUES ($1, $2, $3, $4)")
+        .bind(Uuid::new_v4())
+        .bind(agent_id)
+        .bind(key_hash)
+        .bind("rotated")
+        .execute(pg)
+        .await?;
+    Ok((agent_id, key))
+}
+
 /// Resolve a presented bearer key to (agent_id, key_id, name).
 pub async fn resolve_key(pg: &PgPool, presented: &str) -> Result<Option<(Uuid, Uuid, String)>> {
     let hash = crate::auth::hash_key(presented);
