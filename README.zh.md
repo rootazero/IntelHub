@@ -7,6 +7,8 @@ hub-core 通过统一的 Model Context Protocol 网关暴露整个信号层：�
 
 > 英文版：[`README.md`](README.md)
 
+![IntelHub 控制台 — 实况信号层：22/28 个采集器在线，全球雷达 145 个事件，FRED/VIX/Comtrade 关键指标、市场行情、实时告警流。](docs/assets/console-hero.png)
+
 ---
 
 ## IntelHub 是什么？
