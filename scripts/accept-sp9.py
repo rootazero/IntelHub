@@ -813,6 +813,21 @@ def check_14_neo4j_mirror_lag():
         if pending_after <= pending_before:
             drained = True
             break
+    # Cleanup Accept9Smoke test fixtures from Neo4j so they don't pollute
+    # other tests' counts (sp10.check_30 was tripped by the 40 leftover
+    # Accept9Smoke{N} nodes that have no PG entity_id by design — this
+    # smoke test intentionally bypasses PG). Idempotent.
+    try:
+        # Delete from PG first (in case the replay worker actually wrote
+        # them to PG entities on some code path), then Neo4j DETACH DELETE.
+        sql("DELETE FROM entities WHERE name LIKE 'Accept9Smoke%'")
+        # Neo4j: detach delete by (kind, name) prefix.
+        neo_out = ssh(
+            "docker exec intelhub-neo4j cypher-shell -u neo4j -p \"$(docker inspect intelhub-neo4j --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NEO4J_AUTH=neo4j/ | head -1 | sed 's|NEO4J_AUTH=neo4j/||')\" "
+            "\"MATCH (e:Entity) WHERE e.name STARTS WITH 'Accept9Smoke' DETACH DELETE e\""
+        )
+    except Exception:
+        pass  # best-effort; don't fail the test on cleanup hiccup
     return drained, (
         f"enqueued={enqueued} pending_before={pending_before} "
         f"pending_after_30s={pending_after}"
