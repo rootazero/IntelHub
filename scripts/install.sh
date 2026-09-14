@@ -419,8 +419,13 @@ run_step fetch-code       step_fetch_code
 # Dispatch: `bash -s -- update` hands off to update.sh after the shared
 # preflight + fetch-code prologue. The install state machine already fast-
 # skips completed steps, so re-running the same update command is cheap.
+# `bash -s -- reset-key <name|all>` hands off to reset-key.sh — a one-shot
+# admin command that mints a fresh API key without touching install state.
 if [[ "${1:-}" == "update" ]]; then
     exec bash "$HOME_DIR/scripts/update.sh"
+fi
+if [[ "${1:-}" == "reset-key" ]]; then
+    exec bash "$HOME_DIR/scripts/reset-key.sh" "${@:2}"
 fi
 run_step bootstrap        step_bootstrap
 run_step versions         step_versions
@@ -444,6 +449,7 @@ if [[ "${SKIP_BACKFILLS:-0}" != "1" ]]; then
 fi
 
 LANIP=$(get_env "$HOME_DIR/compose/.env" LAN_IP)
+AGENT_KEY=$(grep -A3 '^=== agent ===' "$HOME_DIR/core/agent-keys.txt" 2>/dev/null | grep -o 'ihk_[a-f0-9]*' | head -1)
 CONSOLE_KEY=$(grep -A3 '^=== console ===' "$HOME_DIR/core/agent-keys.txt" 2>/dev/null | grep -o 'ihk_[a-f0-9]*' | head -1)
 cat <<EOF
 
@@ -453,9 +459,11 @@ cat <<EOF
 │  控制台    http://${LANIP}:8800/                              │
 │  雷达      控制台内 Global Radar 页                           │
 │  Grafana   http://${LANIP}:3001  (admin / 见 compose/.env)   │
+│  agent API key:   ${AGENT_KEY:-见 core/agent-keys.txt}
 │  console API key: ${CONSOLE_KEY:-见 core/agent-keys.txt}
 │  admin token:     core/admin-token.txt (0600)                │
 │  密钥文件:  core/secrets.env · compose/.env* (0600, 勿外传)  │
 └──────────────────────────────────────────────────────────────┘
 重跑同一命令可续装/补 key（REDO=keys 重答密钥问题）。
+忘记 key 时重置：bash scripts/reset-key.sh {agent|console|all}
 EOF

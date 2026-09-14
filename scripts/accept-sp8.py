@@ -192,5 +192,60 @@ for line in text.splitlines():
             pass
 check("MCP tools/list = 40 (28 + list_tools + tool_schema + investigate + 10 sp9)", len(tools) >= 38, f"count={len(tools)}")
 
+# 10. Reset-key infrastructure (idempotent: validates tooling + format +
+#     agent_id consistency, never rotates live keys). The actual rotation
+#     flow is exercised manually: see `bash scripts/reset-key.sh {agent|console|all}`.
+import re
+IHK_RE = re.compile(r"^ihk_[a-f0-9]{64}$")
+KEYS_FILE = "$HOME_DIR/core/agent-keys.txt".replace("$HOME_DIR", "/home/zou/IntelHub")
+keys_txt = vm(f"cat {KEYS_FILE} 2>/dev/null")
+def extract(name, blob):
+    # Line-walk: split on === name === header, read the next 3 non-empty lines.
+    aid = key = None
+    lines = blob.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip() == f"=== {name} ===":
+            for j in range(i + 1, min(i + 6, len(lines))):
+                if lines[j].startswith("agent_id:"):
+                    aid = lines[j].split(":", 1)[1].strip()
+                elif lines[j].startswith("api_key:"):
+                    key = lines[j].split(":", 1)[1].strip()
+            break
+    return (aid, key)
+agent_block = extract("agent", keys_txt)
+console_block = extract("console", keys_txt)
+check("agent-keys.txt: 'agent' block parses", agent_block is not None,
+      f"agent_id={agent_block[0] if agent_block else '?'}")
+check("agent-keys.txt: 'agent' key matches ihk_<64hex>", agent_block and bool(IHK_RE.match(agent_block[1])),
+      f"key={agent_block[1] if agent_block else '?'}")
+check("agent-keys.txt: 'console' block parses", console_block is not None,
+      f"agent_id={console_block[0] if console_block else '?'}")
+check("agent-keys.txt: 'console' key matches ihk_<64hex>", console_block and bool(IHK_RE.match(console_block[1])),
+      f"key={console_block[1] if console_block else '?'}")
+
+# reset-key.sh script: present, executable, refuses bad input cleanly.
+check("scripts/reset-key.sh exists + executable",
+      bool(vm("test -x /home/zou/IntelHub/scripts/reset-key.sh && echo OK")),
+      "missing or not executable")
+out = vm("INTELHUB_NONINTERACTIVE=1 bash /home/zou/IntelHub/scripts/reset-key.sh 2>&1; true")
+check("reset-key.sh rejects missing arg (exit code + 'usage' text)",
+      "usage" in out.lower() and "agent|console|all" in out, out[:120])
+out = vm("INTELHUB_NONINTERACTIVE=1 bash /home/zou/IntelHub/scripts/reset-key.sh bogus 2>&1; true")
+check("reset-key.sh rejects unknown name (exit code + clear error)",
+      "unknown name" in out, out[:120])
+
+# hub rotate-agent-key CLI: present + rejects unknown agent name with bad_request.
+out = vm("set -a; . /home/zou/IntelHub/core/hub.env; . /home/zou/IntelHub/core/secrets.env; set +a; "
+         "/home/zou/IntelHub/core/hub rotate-agent-key --name __no_such_agent__ 2>&1; true")
+check("hub rotate-agent-key rejects unprovisioned agent",
+      "not provisioned" in out, out[:120])
+
+# Live-key/agent_id parity between on-disk file and PG api_keys.
+if agent_block:
+    pg_agent_id = pg("SELECT agent_id::text FROM api_keys WHERE revoked = false "
+                     "AND agent_id = (SELECT agent_id FROM agents WHERE name = 'agent')")
+    check("PG api_keys: live 'agent' row matches agent-keys.txt agent_id",
+          pg_agent_id.strip() == agent_block[0], f"file={agent_block[0]} pg={pg_agent_id.strip()}")
+
 print(f"\n== {passed} passed, {failed} failed ==")
 sys.exit(1 if failed else 0)
