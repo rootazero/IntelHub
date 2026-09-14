@@ -7,6 +7,8 @@ import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
 import { KINDS, kindColor, sevRadius } from "../kindmeta";
+import { PROVIDERS, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
+import type { TileProvider, TilesMode } from "../basemap";
 
 interface GeoEvent {
   event_id: string;
@@ -29,60 +31,10 @@ const SEV_COLOR: Record<string, string> = {
 
 const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 168, "30d": 720 };
 
-type TilesMode = "stadia" | "carto" | "esri" | "offline";
-type TileProvider = "stadia" | "carto" | "esri";
-
-// Basemap chain. Three providers ordered by preference (best → worst):
-//   - CARTO dark_all: primary when a key is set. 5M tiles/month free for
-//     non-commercial use, key at carto.com/basemaps/apikey.
-//   - Esri Canvas/World_Dark_Gray_Base: always-available, no-auth second
-//     fallback. Grey (not true black) but reliable.
-//   - Stadia Maps (alidade_smooth_dark): last-resort third fallback when
-//     a key is set. 200K credits/month, non-commercial use permitted at
-//     stadiamaps.com/sign-up. Kept as final fallback only — its alidade
-//     style renders worse for our OSINT overlay density than CARTO.
-// Without either dark key the chain is just ["esri"] — grey only.
 // A burst of ≥4 tile errors (or no successful tile in the first 5s)
 // advances one tier; the last tier is the bundled offline GeoJSON.
-const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
-const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
-const PROVIDERS = {
-  stadia: {
-    url: `https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${STADIA_KEY}`,
-    options: {
-      attribution:
-        '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-      subdomains: "abcd",
-      maxZoom: 20,
-    },
-  },
-  carto: {
-    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
-    options: {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: "abcd",
-      maxZoom: 20,
-    },
-  },
-  esri: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-    options: {
-      attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, DeLorme, NAVTEQ',
-      maxZoom: 16,
-    },
-  },
-} as const;
-// Order: CARTO if keyed (best) → Esri (always, auth-free) → Stadia if keyed
-// (last-resort fallback). Esri is always present as a tier-2 anchor even
-// when both dark providers are key-ed, so a CARTO outage can't strand us
-// on Stadia's weaker rendering.
-const CHAIN: TileProvider[] = [
-  ...(CARTO_KEY ? (["carto"] as const) : []),
-  "esri",
-  ...(STADIA_KEY ? (["stadia"] as const) : []),
-];
-const PRIMARY = CHAIN[0];
+// Basemap providers and chain order are defined in ../basemap (single
+// source of truth shared with the command-deck MonitorMap).
 
 export default function Radar() {
   const { t } = useT();

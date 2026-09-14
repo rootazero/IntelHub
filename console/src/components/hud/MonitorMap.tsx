@@ -1,6 +1,7 @@
-// SP7 command-deck map — trimmed Radar: same 3-tier basemap failover chain
-// (CARTO key → Esri → bundled offline GeoJSON), 24h geo events as kind-colored
-// circleMarkers, click → detail card.
+// SP7 command-deck map — trimmed Radar: 24h geo events as kind-colored
+// circleMarkers, click → detail card. Basemap chain (CARTO → Esri → Stadia)
+// and providers are shared with Radar via ../basemap — this file only adds
+// the page-specific fourth tier (bundled offline GeoJSON) past the chain.
 //
 // Monitor-vs-Radar deltas:
 //   * Region POV (6 presets: world + 5 continents) — quick focus from the deck
@@ -19,6 +20,8 @@ import "leaflet/dist/leaflet.css";
 import { api } from "../../api";
 import { useT } from "../../i18n";
 import { kindColor, KIND_COLORS, sevRadius } from "../../kindmeta";
+import { PROVIDERS, CHAIN, PRIMARY } from "../../basemap";
+import type { TileProvider, TilesMode } from "../../basemap";
 
 interface GeoEvent {
   event_id: string;
@@ -38,31 +41,6 @@ const SEV_COLOR: Record<string, string> = {
   routine: "#ffd60a",
   info: "#38bdf8",
 };
-
-type TileProvider = "stadia" | "carto" | "esri";
-type TilesMode = TileProvider | "offline";
-
-const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
-const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
-const PROVIDERS = {
-  stadia: {
-    url: `https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png?api_key=${STADIA_KEY}`,
-    options: { attribution: "&copy; Stadia Maps &copy; OSM", subdomains: "abcd", maxZoom: 20 },
-  },
-  carto: {
-    url: `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
-    options: { attribution: "&copy; OSM &copy; CARTO", subdomains: "abcd", maxZoom: 20 },
-  },
-  esri: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-    options: { attribution: "&copy; Esri", maxZoom: 16 },
-  },
-} as const;
-const CHAIN: TileProvider[] =
-  STADIA_KEY ? ["stadia", "esri"]
-  : CARTO_KEY ? ["carto", "esri"]
-  : ["esri"];
-const PRIMARY = CHAIN[0];
 
 // Frame↔map contract: the map always shows the INHABITED world fitted exactly
 // into the card — longitude spans the full 359° so no repeated continent
