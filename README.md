@@ -2,6 +2,8 @@
 
 Agent-agnostic, MCP-native, Docker-first OSINT infrastructure on a single host.
 
+![IntelHub console — live signal plane: 22/28 collectors streaming, 145 events on the global radar, FRED/VIX/Comtrade indicators, market tickers, and a live alert stream.](docs/assets/console-hero.png)
+
 ## About
 
 IntelHub turns a fresh Linux VM into a self-contained OSINT workbench in one curl command. A Rust `hub-core` exposes the entire signal plane — evidence store, event bus, cost governance, 25+ native collectors, and a knowledge graph mirrored to Neo4j — through a single Model Context Protocol gateway that any agent can call. The web console gives humans the same view: a global radar map, an investigation workbench, a graph canvas, and live activity streams. Storage layers (Postgres, Redis, Neo4j, Qdrant) and sensors (SearXNG, Crawl4AI, SpiderFoot, Huginn) are Docker-first; only `hub-core` itself runs natively as a systemd unit. Every claim, finding, document, and source is traceable through an append-only audit log with per-agent budgets and policy levels. Install in ~10 minutes, update in place with backup-and-rollback semantics, and survive the loss of any single agent or cloud LLM.
