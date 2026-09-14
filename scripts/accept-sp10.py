@@ -514,6 +514,129 @@ def check_31_pg_minus_neo4j_entity_diff():
         return False, f"exception: {type(e).__name__}: {e}"
 
 
+# ---- shared helper for checks 32/33/34 (Neo4j HTTP query) ----
+def _neo4j_query(statement, params=None):
+    """Run a Cypher statement via the Neo4j HTTP endpoint through
+    docker-exec wget. Returns the `data` list from the response, or
+    raises on transport error. Used by mirror-coverage checks 32-34."""
+    import base64 as _b64
+    out = subprocess.run(
+        ["docker", "inspect", "intelhub-neo4j",
+         "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
+        capture_output=True, text=True, timeout=15,
+    ).stdout
+    pw = ""
+    for line in out.splitlines():
+        if line.startswith("NEO4J_AUTH=neo4j/"):
+            pw = line.split("=", 1)[1].split("/", 1)[1]
+            break
+    if not pw:
+        raise RuntimeError("NEO4J_AUTH not found")
+    body = json.dumps({"statements": [{
+        "statement": statement,
+        "parameters": params or {},
+    }]})
+    r = subprocess.run(
+        ["docker", "exec", "intelhub-neo4j",
+         "wget", "-qO-",
+         "--header=Content-Type: application/json",
+         "--header=Authorization: Basic " + _b64.b64encode(f"neo4j:{pw}".encode()).decode(),
+         "--post-data=" + body,
+         "http://localhost:7474/db/neo4j/tx/commit"],
+        capture_output=True, text=True, timeout=60,
+    )
+    data = json.loads(r.stdout or "{}")
+    if data.get("errors"):
+        raise RuntimeError(f"cypher error: {data['errors'][:1]}")
+    return data.get("results", [{}])[0].get("data", [])
+
+
+def check_32_claim_evidence_edges_mirrored():
+    """2026-09-14: every PG claim_evidence row must produce a Neo4j
+    Claim→Document edge (SUPPORTS or CONTRADICTS). Source of truth is
+    PG claim_evidence; backfill script writes the mirror ops."""
+    try:
+        pg_count = int(subprocess.run(
+            ["docker", "exec", "intelhub-postgres", "psql",
+             "-U", "intelhub", "-d", "intelhub", "-tAc",
+             "SELECT count(*) FROM claim_evidence"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout.strip())
+        s_rows = _neo4j_query(
+            "MATCH (:Claim)-[r:SUPPORTS]->(:Document) RETURN count(r)"
+        )
+        c_rows = _neo4j_query(
+            "MATCH (:Claim)-[r:CONTRADICTS]->(:Document) RETURN count(r)"
+        )
+        neo_count = (s_rows[0]["row"][0] if s_rows else 0) + (
+            c_rows[0]["row"][0] if c_rows else 0
+        )
+        if neo_count < pg_count:
+            return False, (
+                f"PG claim_evidence={pg_count}, Neo4j claim→doc edges={neo_count} "
+                f"(SUPPORTS={s_rows[0]['row'][0] if s_rows else 0} + "
+                f"CONTRADICTS={c_rows[0]['row'][0] if c_rows else 0}). "
+                f"Run scripts/backfill-neo4j-graph-mirror.py and wait ~30s."
+            )
+        return True, (
+            f"PG claim_evidence={pg_count}, Neo4j claim→doc edges={neo_count}"
+        )
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+
+
+def check_33_finding_evidence_edges_mirrored():
+    """2026-09-14: PG finding_evidence rows must produce Finding→Document
+    :SUPPORTS edges. finding_evidence is the canonical record; v2 doesn't
+    currently write to it, so this is pure backfill coverage."""
+    try:
+        pg_count = int(subprocess.run(
+            ["docker", "exec", "intelhub-postgres", "psql",
+             "-U", "intelhub", "-d", "intelhub", "-tAc",
+             "SELECT count(*) FROM finding_evidence"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout.strip())
+        rows = _neo4j_query(
+            "MATCH (:Finding)-[r:SUPPORTS]->(:Document) RETURN count(r)"
+        )
+        neo_count = rows[0]["row"][0] if rows else 0
+        if neo_count < pg_count:
+            return False, (
+                f"PG finding_evidence={pg_count}, Neo4j finding→doc edges={neo_count}. "
+                f"Run scripts/backfill-neo4j-graph-mirror.py and wait ~30s."
+            )
+        return True, f"PG finding_evidence={pg_count}, Neo4j={neo_count}"
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+
+
+def check_34_document_nodes_mirrored():
+    """2026-09-14: every PG document that's referenced by claim_evidence
+    or finding_evidence must have a Neo4j :Document node. Documents
+    that are unreferenced (pure embedding source) don't need a mirror
+    node — the graph canvas only shows docs that participate in
+    claim/finding relations."""
+    try:
+        pg_count = int(subprocess.run(
+            ["docker", "exec", "intelhub-postgres", "psql",
+             "-U", "intelhub", "-d", "intelhub", "-tAc",
+             "SELECT count(DISTINCT document_id) FROM ("
+             "  SELECT document_id FROM claim_evidence "
+             "  UNION SELECT document_id FROM finding_evidence) x"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout.strip())
+        rows = _neo4j_query("MATCH (d:Document) RETURN count(d)")
+        neo_count = rows[0]["row"][0] if rows else 0
+        if neo_count < pg_count:
+            return False, (
+                f"PG distinct referenced docs={pg_count}, Neo4j :Document={neo_count}. "
+                f"Run scripts/backfill-neo4j-graph-mirror.py and wait ~5 min for 1k docs."
+            )
+        return True, f"PG distinct referenced docs={pg_count}, Neo4j :Document={neo_count}"
+    except Exception as e:
+        return False, f"exception: {type(e).__name__}: {e}"
+
+
 CHECKS = [
     ("01 edges expose source_id/target_id", check_01_edges_have_ids),
     ("02 multi-hop path real source/target", check_02_multi_hop_source_target),
@@ -546,6 +669,9 @@ CHECKS = [
     ("29 layout (d3-force) + autoFit in bundle", check_29_layout_and_autofit_in_bundle),
     ("30 Neo4j Entity nodes all have entity_id", check_30_neo4j_entity_ids_backfilled),
     ("31 PG entities all have a Neo4j mirror", check_31_pg_minus_neo4j_entity_diff),
+    ("32 claim_evidence mirrored to Claim→Document edges", check_32_claim_evidence_edges_mirrored),
+    ("33 finding_evidence mirrored to Finding→Document edges", check_33_finding_evidence_edges_mirrored),
+    ("34 referenced documents have :Document nodes", check_34_document_nodes_mirrored),
 ]
 
 print(f"== SP10 acceptance ({len(CHECKS)} assertions) ==")
