@@ -1,11 +1,92 @@
 # IntelHub — OSINT Intelligence Hub
 
-Agent-agnostic, MCP-native, Docker-first intelligence infrastructure on a single
-host: Rust hub-core (MCP gateway / evidence store / event bus / policy & cost
-governance / **native monitor signal collectors**), containerized data + sensor
-plane, Prometheus/Grafana observability, and a built-in web console with a
-global radar map. (SP6: the signal layer moved from the Crucix container into
-hub-core itself — 9 built-in collectors + static chokepoint layer.)
+Agent-agnostic, MCP-native, Docker-first OSINT infrastructure on a single host.
+A Rust hub-core exposes the entire signal plane through one Model Context
+Protocol gateway: an evidence store, event bus, policy & cost governance,
+native signal collectors, a built-in web console with a global radar map,
+and a Prometheus/Grafana observability stack.
+
+---
+
+## What is IntelHub?
+
+IntelHub turns a fresh Debian/Ubuntu VM into a self-contained OSINT workbench
+in one curl command. It ingests from open sources (web crawls, social
+listings, OSINT monitors, market / climate / sanctions data), deduplicates and
+ranks what it finds, stores it with full evidence chains, and serves it back
+through MCP tools that any agent (pi, codex, custom) can call. The web console
+gives a human the same view: a global radar map, an investigation workbench,
+a graph canvas, and live activity streams.
+
+Everything runs on one host. No SaaS dependencies. The whole stack is
+containerized except `hub-core` itself, which is a native systemd unit (the
+single non-container service).
+
+## Key features
+
+- **One-line install** — `curl … | bash` on a fresh Debian/Ubuntu VM gets a
+  fully-working OSINT stack in ~10 minutes. Crash-safe: re-running the same
+  command resumes where you left off.
+- **MCP-native gateway** — every capability is exposed as an MCP tool. Any
+  MCP-compatible agent can call `hybrid_search`, `investigate`, `crawl_url`,
+  `create_claim`, etc. without bespoke integration.
+- **Native signal collectors** — climate (EONET, NOAA), radiation (EPA
+  RadNet), seismic (USGS), financial (FRED, Treasury, Finnhub, Comtrade, EIA),
+  sanctions (OFAC, USASpending), threats (ACLED, GDELT, Bluesky, Telegram,
+  X/Twitter, RSS), web (SearXNG, Crawl4AI). 25+ collectors, built into
+  hub-core itself (SP6+ — the old Crucix container is gone).
+- **Evidence + audit trail** — every claim, finding, document, and source is
+  traceable. Claims have audit rows, documents have reverse refs, findings
+  have evidence chains. The audit log is append-only.
+- **Cost & rate governance** — per-agent rate limits (Redis token bucket),
+  per-agent budgets (token / tool-call / embed), policy levels (admin token
+  required for L3 actions like component backups).
+- **Built-in web console** — React 19 + Vite, zh/en i18n. Includes a global
+  radar map with dark basemaps (CARTO primary → Esri fallback → Stadia last),
+  an investigation workbench, a knowledge graph canvas (filters + side
+  panels), live activity streams, audit/search/overview pages.
+- **Observability** — Prometheus + Grafana + cAdvisor + node-exporter,
+  scraping hub-core's `/metrics` and the docker stack. Pre-built Grafana
+  dashboards for monitor sweep history, budget burn, graph mirror
+  reconcile, cost records.
+- **Knowledge graph (Neo4j)** — entities / claims / findings mirrored to
+  Neo4j for graph queries (path finding, neighbors, subgraph extraction).
+  Reconcile worker keeps PG and Neo4j in sync.
+- **Hybrid search** — keyword (BM25 via Qdrant) + semantic (embeddings via
+  T8star / OpenAI-compatible endpoint), fused via Reciprocal Rank Fusion,
+  optional cross-encoder rerank (BAAI/bge-reranker-v2-m3, gated by
+  `HUB_RERANK_ENABLED`). Multi-hop Q&A via the `investigate(question)` tool
+  with rule-based + LLM-fallback planners.
+- **Crash-safe install + update** — every step is idempotent and recorded in
+  `~/IntelHub/.install-state`. Re-running the install command fast-skips
+  completed steps and resumes at the failure point. Secrets are write-once:
+  no re-run can clobber generated keys.
+
+## Architecture (one-line mental model)
+
+```
+Internet ──► native collectors ──► hub-core (Rust, systemd) ──► MCP tools
+                                       │                       │
+                                       ▼                       ▼
+                            Postgres + Redis + Neo4j       pi / codex
+                            + Qdrant (vectors)             web console
+                                       │
+                                       ▼
+                          Prometheus ─► Grafana dashboards
+```
+
+| Layer | Component | Role |
+|---|---|---|
+| Gateway | `hub-core` (Rust, native) | MCP server, REST API, auth, rate limits, policy, audit, cost tracking, native signal collectors |
+| Storage | Postgres + Redis + Neo4j + Qdrant | evidence store, rate-limit buckets, knowledge graph, vector search |
+| Sensors | SearXNG, Crawl4AI, SpiderFoot, Huginn | web search / crawl / OSINT bridges |
+| Observability | Grafana + Prometheus + cAdvisor + node-exporter | metrics, dashboards, host/container stats |
+| UI | `console/` (React 19 + Vite) | web console, served as static files by hub-core |
+
+The detailed spec — every component's role, schema, SP milestone, and
+deployment topology — lives in [`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md).
+
+---
 
 ## One-line install (Debian/Ubuntu, e.g. a fresh Proxmox VM)
 
@@ -13,13 +94,28 @@ hub-core itself — 9 built-in collectors + static chokepoint layer.)
 curl -fsSL https://raw.githubusercontent.com/rootazero/IntelHub/main/scripts/install.sh | bash
 ```
 
-The installer walks 13 idempotent steps (preflight → fetch code → host
-bootstrap → version pins → secrets → **interactive API-key prompts** → hub
-build → stack up → crucix build → console build → hub start → agent
-provisioning → health check). Every key prompt accepts Enter-to-skip with the
-degraded capability stated inline. If anything crashes, **re-run the same
-command**: completed steps fast-skip via `~/IntelHub/.install-state`, secrets
-are write-once, and the final health check re-validates everything.
+The installer walks 13 idempotent steps:
+
+1. **preflight** — check OS / docker / disk / RAM
+2. **fetch-code** — `git clone` (or tarball via `INTELHUB_TARBALL=…`)
+3. **bootstrap** — nftables LAN rules, ntp, sysctl
+4. **versions** — resolve pinned versions per component
+5. **secrets** — write `core/secrets.env`, `core/hub.env`, `compose/.env`
+6. **keys** — **interactive API-key prompts** via `/dev/tty` (each prompts
+   its feature + a stated "Enter-to-skip" degraded capability)
+7. **build-hub** — compile Rust binary in a pinned `rust:trixie` container
+8. **stack-up** — `docker compose up -d` for data + sensor + ui layers
+9. **build-crucix** — legacy alias kept for backward compat (no-op since SP6)
+10. **build-console** — `npm run build` in `node:22-trixie`, embeds map keys
+11. **start-hub** — enable + start `hub-core.service`
+12. **provision-agents** — mint agent + console API keys into
+    `core/agent-keys.txt`
+13. **verify** — health check (marks step undone on failure so a re-run
+    resumes there)
+
+Every step is recorded in `~/IntelHub/.install-state`. **Re-run the same
+command to resume**: completed steps fast-skip, secrets stay write-once, the
+final health check re-validates everything.
 
 ### Unattended install (CI / Terraform / pre-provisioned)
 
@@ -61,6 +157,51 @@ Override knobs: `SKIP_BACKUP=1` (skip the pre-upgrade backup, not recommended),
 `INTELHUB_ENV_FILE` (same semantics as install), `INTELHUB_HOME`,
 `INTELHUB_NONINTERACTIVE`.
 
+---
+
+## API key management
+
+IntelHub mints two API keys on first install:
+
+- **agent key** — used by MCP clients (pi, codex, custom agents) to call
+  tools. Show this in the install banner.
+- **console key** — used by the web console UI to talk to hub-core. Show
+  this in the install banner.
+
+Both keys are written to `core/agent-keys.txt` (mode `0600`), format
+`ihk_<64 hex chars>`. They are printed once in the install banner — **copy
+them now**, the banner is not re-shown.
+
+### Forgot a key? Rotate it.
+
+```bash
+bash scripts/reset-key.sh agent      # rotate the agent key
+bash scripts/reset-key.sh console    # rotate the console key
+bash scripts/reset-key.sh all        # rotate both
+```
+
+What this does:
+
+- Soft-revokes the old key in PG `api_keys` (kept for audit, queryable via
+  the DB). The previous key stops working **immediately** — hub-core hashes
+  and looks up keys on every request, so no restart is needed.
+- Mints a fresh key with the same `agent_id` (so MCP client identity is
+  preserved).
+- Updates `core/agent-keys.txt` atomically (write to sibling tempfile +
+  `os.replace`).
+- Prints the new key + a marked "revoked" old key.
+
+The script refuses to run without confirmation (or `INTELHUB_NONINTERACTIVE=1`).
+You can also invoke via the installer: `bash scripts/install.sh reset-key agent`.
+
+### Updates don't touch keys
+
+`step_provision_agents` is idempotent: if a key with that name already
+exists in `core/agent-keys.txt`, the step skips. Re-running `install.sh` or
+`bash scripts/install.sh update` will **never** rotate keys on its own.
+
+---
+
 ## Install + update overrides (cheat sheet)
 
 | Override | Effect |
@@ -74,12 +215,41 @@ Override knobs: `SKIP_BACKUP=1` (skip the pre-upgrade backup, not recommended),
 | `INTELHUB_TARBALL=<url>` | fetch code as tarball instead of `git clone` |
 | `INTELHUB_ENV_FILE=<file>` | preload keys before prompts (install or update) |
 | `SKIP_BACKUP=1` | update only — skip pre-upgrade backup (NOT recommended) |
+| `bash scripts/reset-key.sh <agent\|console\|all>` | rotate API keys |
+
+---
+
+## System requirements
+
+- **OS**: Debian 13 (trixie) or Ubuntu 22.04+ — the install script
+  preflight-checks and aborts on anything else.
+- **Hardware**: 4 vCPU / 8 GB RAM minimum (a Proxmox VM is the reference
+  shape). Plan for 16 GB if you'll be running heavy embedding / crawl jobs.
+- **Disk**: ~20 GB for the OS + docker stack + raw data + manifests.
+  Crawled HTML and snapshots grow fast — provision a separate data volume
+  if you intend to crawl heavily.
+- **Network**: outbound HTTPS to GitHub, Docker Hub, SearXNG upstream
+  engines, T8star / OpenAI-compatible embedding endpoint, optional
+  third-party data APIs (FRED, EIA, BLS, etc.).
+- **LAN**: a fixed IPv4 address on the LAN CIDR (the install script sets
+  up nftables rules allowing only this CIDR to reach hub-core's 8800 +
+  Grafana's 3001). Override with `INTELHUB_LAN`.
 
 ## Layout
 
 - `hub-core/` — Rust hub (native systemd service, directive §20 exception)
 - `compose/` — pinned multi-file compose stack (base/data/sensor/ui)
 - `console/` — React 19 + Vite console (zh/en i18n), served by hub-core
-- `scripts/` — install.sh plus build/deploy/health/acceptance tooling
-- `docs/superpowers/specs/` — design specs per sub-project
+- `scripts/` — install.sh, update.sh, reset-key.sh, plus build/deploy/
+  health/acceptance tooling
 - `manifests/` — component registry (versions, upgrade policy)
+- `OSINTIntelligenceHub.md` — full project spec (1700+ lines: every
+  component, schema, SP milestone, deployment topology)
+- `examples/` — `intelhub.env.example` for unattended install
+- `docs/superpowers/specs/` — per-sub-project design docs
+
+## Documentation
+
+- Full project spec: [`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)
+- Per-feature design docs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
+- 中文版 README: [`README.zh.md`](README.zh.md)
