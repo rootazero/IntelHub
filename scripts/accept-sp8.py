@@ -200,17 +200,26 @@ IHK_RE = re.compile(r"^ihk_[a-f0-9]{64}$")
 KEYS_FILE = "$HOME_DIR/core/agent-keys.txt".replace("$HOME_DIR", "/home/zou/IntelHub")
 keys_txt = vm(f"cat {KEYS_FILE} 2>/dev/null")
 def extract(name, blob):
-    # Line-walk: split on === name === header, read the next 3 non-empty lines.
+    # Walk to the `=== name ===` header that is followed by `name: <name>`
+    # (proves it's the correct block — tolerates stray duplicate headers from
+    # past edits). Then read agent_id + api_key from the next 5 lines.
     aid = key = None
     lines = blob.splitlines()
     for i, line in enumerate(lines):
-        if line.strip() == f"=== {name} ===":
-            for j in range(i + 1, min(i + 6, len(lines))):
-                if lines[j].startswith("agent_id:"):
-                    aid = lines[j].split(":", 1)[1].strip()
-                elif lines[j].startswith("api_key:"):
-                    key = lines[j].split(":", 1)[1].strip()
-            break
+        if line.strip() != f"=== {name} ===":
+            continue
+        # Confirm the next non-blank line is `name: <name>` so we don't pick up
+        # a stale empty header from a half-written file.
+        for j in range(i + 1, min(i + 6, len(lines))):
+            if lines[j].strip().startswith("name:"):
+                if lines[j].split(":", 1)[1].strip() == name:
+                    for k in range(i + 1, min(i + 8, len(lines))):
+                        if lines[k].startswith("agent_id:"):
+                            aid = lines[k].split(":", 1)[1].strip()
+                        elif lines[k].startswith("api_key:"):
+                            key = lines[k].split(":", 1)[1].strip()
+                    return (aid, key)
+                break  # wrong-name block, keep searching
     return (aid, key)
 agent_block = extract("agent", keys_txt)
 console_block = extract("console", keys_txt)
