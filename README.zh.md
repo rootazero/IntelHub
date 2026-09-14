@@ -80,7 +80,7 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 | UI | `console/`（React 19 + Vite） | Web 控制台，作为静态文件由 hub-core 提供 |
 
 每个组件的详细职责、schema、SP 里程碑、部署拓扑见
-[`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)。
+`OSINTIntelligenceHub.md`。
 
 ---
 
@@ -238,8 +238,8 @@ bash scripts/reset-key.sh all        # 同时重置两个
 
 ## 文档
 
-- 完整项目规范：[`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)
-- 各功能设计文档：[`docs/superpowers/specs/`](docs/superpowers/specs/)
+- 完整项目规范：`OSINTIntelligenceHub.md`
+- 各功能设计文档：`docs/superpowers/specs/`
 - English version: [`README.md`](README.md)
 
 ## 运维
