@@ -92,7 +92,7 @@ Internet ──► native collectors ──► hub-core (Rust, systemd) ──�
 | UI | `console/` (React 19 + Vite) | web console, served as static files by hub-core |
 
 The detailed spec — every component's role, schema, SP milestone, and
-deployment topology — lives in [`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md).
+deployment topology — lives in `OSINTIntelligenceHub.md`.
 
 ---
 
@@ -269,8 +269,8 @@ exists in `core/agent-keys.txt`, the step skips. Re-running `install.sh` or
 
 ## Documentation
 
-- Full project spec: [`OSINTIntelligenceHub.md`](OSINTIntelligenceHub.md)
-- Per-feature design docs: [`docs/superpowers/specs/`](docs/superpowers/specs/)
+- Full project spec: `OSINTIntelligenceHub.md`
+- Per-feature design docs: `docs/superpowers/specs/`
 - 中文版 README: [`README.zh.md`](README.zh.md)
 
 ## Operating
