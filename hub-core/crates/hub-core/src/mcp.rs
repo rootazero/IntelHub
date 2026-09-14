@@ -243,12 +243,43 @@ pub struct FindSupportingClaimsArgs {
     pub limit: Option<i64>,
 }
 
-#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Deserialize)]
 pub struct FindContradictingClaimsArgs {
     /// Contradictions touching this claim UUID (mutually exclusive with entity_id)
     pub claim_id: Option<String>,
     /// Contradictions touching any claim about this entity UUID (mutually exclusive with claim_id)
     pub entity_id: Option<String>,
+}
+
+// 2026-09-15 fix (A-003): JSON Schema `oneOf` XOR so the schema actually
+// matches the description. Auto-derived schema had both fields optional
+// with no constraint, contradicting the "Exactly one must be supplied"
+// doc — clients trusting the schema sent empty payloads and got a runtime
+// error, while clients sending both payloads silently got ambiguous results.
+impl schemars::JsonSchema for FindContradictingClaimsArgs {
+    fn schema_name() -> std::borrow::Cow<'static, str> { "FindContradictingClaimsArgs".into() }
+    fn json_schema(_gen: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "object",
+            "description": "Contradictions touching a claim (by claim_id) OR any claim about an entity (by entity_id). Exactly one must be supplied (XOR).",
+            "properties": {
+                "claim_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Claim UUID (XOR with entity_id)"
+                },
+                "entity_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "Entity UUID (XOR with claim_id)"
+                }
+            },
+            "oneOf": [
+                { "required": ["claim_id"] },
+                { "required": ["entity_id"] }
+            ]
+        })
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -1474,11 +1505,19 @@ impl HubMcp {
         self.gate(&ctx, "find_contradicting_claims").await?;
         let claim_id = parse_uuid_opt(&args.claim_id, "claim_id")?;
         let entity_id = parse_uuid_opt(&args.entity_id, "entity_id")?;
-        if claim_id.is_none() && entity_id.is_none() {
-            return Err(McpError::invalid_params(
-                "claim_id or entity_id required",
+        // 2026-09-15 fix (A-003): enforce XOR at runtime in addition to the
+        // JSON Schema `oneOf`. Defense in depth — protects against clients
+        // (or MCP proxies) that ignore the schema constraint.
+        match (claim_id.is_some(), entity_id.is_some()) {
+            (false, false) => return Err(McpError::invalid_params(
+                "find_contradicting_claims requires exactly one of claim_id or entity_id (XOR)",
                 None,
-            ));
+            )),
+            (true, true) => return Err(McpError::invalid_params(
+                "find_contradicting_claims requires exactly one of claim_id or entity_id, not both (XOR)",
+                None,
+            )),
+            _ => {}
         }
         let out = match crate::graph_queries::find_contradicting_claims(
             &self.state, claim_id, entity_id,
