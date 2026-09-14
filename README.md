@@ -10,7 +10,7 @@ and a Prometheus/Grafana observability stack.
 
 ## What is IntelHub?
 
-IntelHub turns a fresh Debian/Ubuntu VM into a self-contained OSINT workbench
+IntelHub turns a fresh Linux VM into a self-contained OSINT workbench
 in one curl command. It ingests from open sources (web crawls, social
 listings, OSINT monitors, market / climate / sanctions data), deduplicates and
 ranks what it finds, stores it with full evidence chains, and serves it back
@@ -24,7 +24,7 @@ single non-container service).
 
 ## Key features
 
-- **One-line install** — `curl … | bash` on a fresh Debian/Ubuntu VM gets a
+- **One-line install** — `curl … | bash` on a fresh Linux VM gets a
   fully-working OSINT stack in ~10 minutes. Crash-safe: re-running the same
   command resumes where you left off.
 - **MCP-native gateway** — every capability is exposed as an MCP tool. Any

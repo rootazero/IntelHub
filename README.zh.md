@@ -11,7 +11,7 @@ hub-core 通过统一的 Model Context Protocol 网关暴露整个信号层：�
 
 ## IntelHub 是什么？
 
-IntelHub 让一台全新的 Debian/Ubuntu 虚拟机通过一行 curl 命令变成一个自给自足的
+IntelHub 让一台全新的 Linux 虚拟机通过一行 curl 命令变成一个自给自足的
 OSINT 工作台。它从公开来源（网页爬取、社交媒体、OSINT 监控器、市场/气候/制裁数据）
 采集信号，去重并排序后，把每条结论带完整证据链落地存储，再通过 MCP 工具暴露给任何
 agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的视图：全球雷达地图、
@@ -22,7 +22,7 @@ agent（pi、codex、自定义）调用。Web 控制台给人类提供同样的�
 
 ## 核心特性
 
-- **一键安装** — 在全新的 Debian/Ubuntu VM 上 `curl … | bash`，约 10 分钟即可获得
+- **一键安装** — 在全新的 Linux VM 上 `curl … | bash`，约 10 分钟即可获得
   一个完整可用的 OSINT 栈。崩溃安全：再次执行同一命令自动从断点续装。
 - **MCP 原生网关** — 每个能力都作为 MCP 工具暴露。任何 MCP 兼容 agent 都可直接调用
   `hybrid_search`、`investigate`、`crawl_url`、`create_claim` 等，无需定制集成。每次
