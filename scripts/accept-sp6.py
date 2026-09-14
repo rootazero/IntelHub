@@ -7,7 +7,6 @@ secret migration, crucix excision, restart recovery, retention hygiene.
 Usage: accept-sp6.py <agent-api-key> [base-url]
 """
 import json
-import subprocess
 import os
 import sys
 import time
@@ -16,10 +15,15 @@ import urllib.error
 
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://10.10.10.41:8800"
 KEY = sys.argv[1]
-# SSH alias for VM-side checks. Override with INTELHUB_SSH=IntelHub-test
-# when running acceptance against the 415 test VM (default: production).
-SSH_HOST = os.environ.get("INTELHUB_SSH", "IntelHub")
+# SSH destination when running from a remote machine (auto-detected by
+# scripts/_remote.py). Override with INTELHUB_SSH=IntelHub-test when
+# running against the 415 test VM.
 passed = failed = 0
+
+# Shared ssh-or-local helpers (auto-route: ssh on remote Mac, docker exec
+# on the hub VM itself — sentinel $INTELHUB_HOME/core/hub decides).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _remote import sh as vm, pg, redis  # noqa: E402
 
 
 def check(name, cond, detail=""):
@@ -44,19 +48,8 @@ def req(path, key=KEY, timeout=15):
             return e.code, {}
 
 
-def vm(cmd):
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", SSH_HOST, cmd],
-        capture_output=True, text=True, timeout=60,
-    ).stdout.strip()
-
-
-PSQL = 'DBURL=$(grep "^DATABASE_URL=" /home/zou/IntelHub/core/hub.env | cut -d= -f2-); U=$(echo $DBURL | sed -E "s|.*://([^:]+):.*|\\1|"); docker exec intelhub-postgres psql -U "$U" -d intelhub -t -A -c'
-REDIS = 'docker exec intelhub-redis redis-cli --no-auth-warning -a $(grep "^REDIS_PASSWORD=" /home/zou/IntelHub/compose/.env | cut -d= -f2)'
-
-
 def pg1(sql):
-    out = vm(f'{PSQL} "{sql}"')
+    out = pg(sql)
     return out.splitlines()[-1].strip() if out else ""
 
 
@@ -68,7 +61,7 @@ check("health components.monitor present", "monitor" in health.get("components",
       ",".join(health.get("components", {}).keys()))
 
 # 2. collector health cells (redis)
-cells = vm(f"{REDIS} HKEYS hub:monitor:health").split()
+cells = redis("HKEYS", "hub:monitor:health").split()
 check("collector health cells >= 8", len(cells) >= 8, ",".join(sorted(cells)))
 
 # 2b. SP8 batch-A sources visible on the health board (any state — they just
@@ -85,7 +78,7 @@ check("SP8-C social collectors present (bluesky/telegram-watch/x)",
 # 3. keyless collectors ok
 states = {}
 for c in cells:
-    v = vm(f"{REDIS} HGET hub:monitor:health {c}")
+    v = redis("HGET", "hub:monitor:health", c)
     states[c] = '"state":"ok"' in v.replace(" ", "")
 keyless_ok = [c for c in ["usgs", "noaa", "gdelt", "rss", "opensky", "radiation"] if states.get(c)]
 check("keyless collectors ok >= 4", len(keyless_ok) >= 4, ",".join(keyless_ok))
@@ -101,7 +94,7 @@ check("FIRMS events present (key migrated)", n.isdigit() and int(n) > 0, f"firms
 # 6. ACLED collector visible on the health board (user decision 2026-09: keep
 # the error displayed so the pending account tier isn't forgotten; hourly
 # retries self-heal on approval). Any state is fine — presence is the check.
-v = vm(f"{REDIS} HGET hub:monitor:health acled")
+v = redis("HGET", "hub:monitor:health", "acled")
 check("ACLED collector ran (health cell present)", len(v) > 0, v[:100])
 
 # 7. chokepoint static layer + retention hygiene
@@ -126,7 +119,7 @@ check("secrets.env holds FIRMS+ACLED keys", sec.strip() == "2", sec)
 vm("sudo systemctl restart hub-core")
 time.sleep(45)  # startup + staggered first sweeps (fast sources: usgs/noaa 5min cadence, first run immediate)
 code, h2 = req("/api/v1/health")
-fresh = vm(f"{REDIS} HGET hub:monitor:health usgs")
+fresh = redis("HGET", "hub:monitor:health", "usgs")
 check("hub-core restart → monitor collector fresh", code == 200 and '"state":"ok"' in fresh.replace(" ", ""), fresh[:100])
 
 # 11. radar serves monitor events end-to-end
