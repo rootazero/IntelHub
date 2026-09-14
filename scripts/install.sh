@@ -48,6 +48,10 @@ FORCE="${FORCE:-}"
 RUN_USER="$(id -un)"
 CHANGED_HUB_ENV=0
 
+# Detect host OS family (deb | rpm) — shared with bootstrap-host.sh.
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/os-detect.sh"
+
 say()  { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m    !! %s\033[0m\n' "$*"; }
 die()  { printf '\033[31m!! %s\033[0m\n' "$*" >&2; exit 1; }
@@ -105,18 +109,19 @@ prompt_key() { # prompt_key <VAR> <description> <skip-consequence> → echoes va
 
 # ------------------------------------------------------------------ steps ---
 step_preflight() {
-  [[ -r /etc/os-release ]] || die "cannot identify OS"
-  . /etc/os-release
-  case "${ID:-}" in
-    debian|ubuntu) ;;
-    *) die "unsupported OS '${ID:-?}' — IntelHub targets Debian/Ubuntu (set INTELHUB_FORCE_OS=1 to override)" ;;
-  esac
-  command -v curl  >/dev/null || die "curl missing: apt-get install -y curl"
+  [[ "$OS_SUPPORTED" == "1" ]] || {
+    if [[ "${INTELHUB_FORCE_OS:-0}" == "1" ]]; then
+      warn "forcing through on OS_ID='${OS_ID}' (family='${OS_FAMILY}') per INTELHUB_FORCE_OS=1"
+    else
+      die "unsupported OS family '${OS_FAMILY}' (ID='${OS_ID}'). IntelHub supports Debian (deb) and RHEL (rpm) families — set INTELHUB_FORCE_OS=1 to override."
+    fi
+  }
+  command -v curl  >/dev/null || die "curl missing: ${PKG_INSTALL:-pkg manager} curl"
   command -v git   >/dev/null || warn "git not installed yet — bootstrap will install it"
   command -v openssl >/dev/null || die "openssl missing"
   sudo -n -v 2>/dev/null || warn "sudo requires password or tty; NOPASSWD+tty-free setup recommended (see step_bootstrap)"
   mkdir -p "$HOME_DIR"
-  echo "    os=${PRETTY_NAME:-$ID} user=$RUN_USER home=$HOME_DIR"
+  echo "    os=${OS_PRETTY} family=${OS_FAMILY} user=$RUN_USER home=$HOME_DIR"
 }
 
 step_fetch_code() {
