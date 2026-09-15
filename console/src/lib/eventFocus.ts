@@ -1,16 +1,22 @@
 // Shared event-focus utility — one source of truth for "open the event's
-// detail + fly the map to it" behavior. Called from three sites:
+// detail + fly the map to it" behavior. Called from:
 //   1. Radar deep-link effect (/radar?event=<id> from Monitor Command Deck)
-//   2. Radar circleMarker click handler (the page-2 fix for "click but no
-//      focus")
-//   3. (future) MonitorMap click handler — when its markers are out of
-//      the current viewport, the user wants the same flyTo behavior
+//   2. Radar circleMarker click handler
+//   3. (future) MonitorMap click handler — for consistent behavior across
+//      both pages that show the geo_events map.
 //
-// All three converge on the same `focusOnEvent()` call so the visual
+// All callers converge on the same `focusOnEvent()` call so the visual
 // experience is consistent: drawer/card opens, map pans with a 1.2s
-// animation, the event lands near the viewport center at city-level
-// zoom. Pending settle timers in either page's map-init effect get
-// the `claim` ref set so they don't snap the view back mid-animation.
+// animation, the event lands near the viewport center at continent zoom
+// (5 — preserves context: surrounding events, geography, kind-coloring
+// of the area). City-level zoom (9) was rejected because it isolated the
+// event from its neighborhood, and required a new "back to global"
+// button to recover — which we don't want. The existing ⌂ reset button
+// in <MapControls> is wired to useMapView's reset() which flyToBounds
+// REGIONS.world, so it's already a one-click return to global view.
+//
+// Pending settle timers in either page's map-init effect get the
+// `claim` ref set so they don't snap the view back mid-animation.
 //
 // The utility is intentionally NOT a hook — pages own their mapRef and
 // setSelected state. A hook would either need to plumb the ref through
@@ -20,10 +26,9 @@
 // no React, easy to reason about.
 
 import type { Map as LMap } from "leaflet";
-import { REGIONS } from "../mapControls";
 
-/** Zoom level when focusing on an event (city-level). */
-export const EVENT_FOCUS_ZOOM = 9;
+/** Zoom level when focusing on an event (continent level). */
+export const EVENT_FOCUS_ZOOM = 5;
 /** FlyTo animation duration, in seconds. */
 export const EVENT_FOCUS_DURATION = 1.2;
 
@@ -62,26 +67,6 @@ export function focusOnEvent(
   options.setSelected?.(event);
   if (!map) return;
   map.flyTo([event.lat, event.lon], EVENT_FOCUS_ZOOM, {
-    animate: true,
-    duration: EVENT_FOCUS_DURATION,
-  });
-}
-
-/**
- * Close the detail panel and return the map to the world view.
- * Mirror of `focusOnEvent` — same animation contract, opposite direction.
- *
- * We fly to `REGIONS.world` (not just `setView` instantly) so the user
- * perceives a "zoom out" motion that matches the "zoom in" feel of
- * focusing on an event.
- */
-export function resetToGlobal(
-  map: LMap | null | undefined,
-  options: { setSelected?: (e: FocusableEvent | null) => void } = {},
-): void {
-  options.setSelected?.(null);
-  if (!map) return;
-  map.flyToBounds(REGIONS.world, {
     animate: true,
     duration: EVENT_FOCUS_DURATION,
   });

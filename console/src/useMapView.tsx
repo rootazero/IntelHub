@@ -40,7 +40,16 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
     if (!m) return;
     m.setZoom(m.getZoom() - ZOOM_STEP);
   }, []);
-  const reset = useCallback(() => setRegion("world"), []);
+  // Reset is unconditional: after focusOnEvent() zooms the map to a
+  // continent but leaves the `region` state as "world", a plain
+  // setRegion("world") would be a no-op (state already === "world").
+  // We flyToBounds directly so the click always returns the user to
+  // world view, regardless of whether the page's region state agrees.
+  const reset = useCallback(() => {
+    const m = mapRef.current;
+    if (m) m.flyToBounds(REGIONS.world, { animate: true, duration: 0.6 });
+    setRegion("world");
+  }, []);
 
   const value = useMemo<MapViewCtx>(
     () => ({ region, setRegion, attach, zoomIn, zoomOut, reset }),

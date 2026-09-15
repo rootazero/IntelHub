@@ -8,7 +8,7 @@ import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
 import { KINDS, kindColor, sevRadius } from "../kindmeta";
-import { focusOnEvent, resetToGlobal } from "../lib/eventFocus";
+import { focusOnEvent } from "../lib/eventFocus";
 import { PROVIDERS, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
 import type { TileProvider, TilesMode } from "../basemap";
 import { REGIONS } from "../mapControls";
@@ -368,16 +368,7 @@ export default function Radar() {
               <span className="font-semibold" style={{ color: SEV_COLOR[selected.severity] ?? SEV_COLOR.info }}>
                 {en("severity", selected.severity).toUpperCase()} · {en("kind", selected.kind)}
               </span>
-              <div className="flex items-center gap-1">
-                <button
-                  className="text-dim hover:text-ink"
-                  onClick={() => resetToGlobal(mapRef.current, { setSelected })}
-                  title={t("radar.backToGlobal")}
-                >
-                  ⤺
-                </button>
-                <button className="text-dim hover:text-ink" onClick={() => setSelected(null)} title="Close">✕</button>
-              </div>
+              <button className="text-dim hover:text-ink" onClick={() => setSelected(null)} title="Close">✕</button>
             </div>
             <div className="mb-1 font-medium">{selected.title}</div>
             <div className="mb-2 text-dim">
