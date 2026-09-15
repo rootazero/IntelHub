@@ -2,6 +2,9 @@
 //! systemd EnvironmentFile). Non-secret defaults are sensible for the
 //! IntelHub deployment documented in the SP2A spec.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub listen_addr: String,
@@ -262,4 +265,119 @@ fn env_list(var: &str) -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Caller identity tier. Used in `agents.tier` and applied by `apply_tier_filter`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    Free,
+    Paid,
+    Admin,
+}
+
+impl Tier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Tier::Free => "free",
+            Tier::Paid => "paid",
+            Tier::Admin => "admin",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "free" => Some(Tier::Free),
+            "paid" => Some(Tier::Paid),
+            "admin" => Some(Tier::Admin),
+            _ => None,
+        }
+    }
+}
+
+/// License classification. Decoupled from Tier so a paid-API source could
+/// theoretically still be Open-licensed (rare; reserved for future cases).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseClass {
+    Open,           // public domain, ODbL, CC-BY, MIT-style
+    FairUse,        // fair-use bounded; redistribution restricted
+    Restricted,     // paid API; redistribution prohibited
+    NonCommercial,  // CC-BY-NC or equivalent; blocks commercial use
+}
+
+impl LicenseClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LicenseClass::Open => "open",
+            LicenseClass::FairUse => "fair-use",
+            LicenseClass::Restricted => "restricted",
+            LicenseClass::NonCommercial => "non-commercial",
+        }
+    }
+}
+
+/// Per-monitor metadata. Source of truth for tier/license/staleness.
+#[derive(Debug, Clone, Copy)]
+pub struct MonitorMeta {
+    pub tier_required: Tier,
+    pub license_class: LicenseClass,
+    pub data_age_hours: u32,
+    pub doc_url: &'static str,
+}
+
+/// Returns the per-monitor metadata map. Once-initialized, lock-free reads.
+///
+/// The license/tier classification here is the **single source of truth**.
+/// `monitor/mod.rs` registry, SQL migrations' backfill, REST/MCP handlers,
+/// and the `/api/v1/sources` endpoint all derive from this map.
+pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
+    static CACHE: OnceLock<HashMap<&'static str, MonitorMeta>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut m: HashMap<&'static str, MonitorMeta> = HashMap::with_capacity(32);
+
+        // US-gov / UN / WHO — public domain
+        m.insert("usgs",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://earthquake.usgs.gov/earthquides/feed/v1.0/geojson.php" });
+        m.insert("noaa",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://www.weather.gov/documentation/services-web-api" });
+        m.insert("epa",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.epa.gov/enviro/web-services" });
+        m.insert("eonet",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://eonet.gsfc.nasa.gov/api/v3/" });
+        m.insert("who",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.who.int/" });
+        m.insert("climateseries", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/" });
+        m.insert("radiation",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://www.epa.gov/radnet" });
+
+        // US-gov economic data — public domain
+        m.insert("firms",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 3,  doc_url: "https://firms.modaps.eosdis.nasa.gov/api/" });
+        m.insert("bls",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.bls.gov/developers/" });
+        m.insert("fred",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://fred.stlouisfed.org/docs/api/" });
+        m.insert("treasury",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://home.treasury.gov/developers" });
+        m.insert("comtrade",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 720,doc_url: "https://comtrade.un.org/data/doc/api" });
+        m.insert("usaspending",   MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.usaspending.gov/disbursement/Transparency" });
+        m.insert("gscpi",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 720,doc_url: "https://www.newyorkfed.org/markets/global-supply-chain-pressure-index" });
+        m.insert("sec_edgar",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://efts.sec.gov/LATEST/search-index" });
+        m.insert("ofac",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://sanctionssearch.ofac.treas.gov/" });
+
+        // ODbL / CC-BY
+        m.insert("gdelt",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://blog.gdeltproject.org/gdelt-2-0-english-translation-api/" });
+        m.insert("acled",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://acleddata.com/api-documentation/" });
+        m.insert("reliefweb",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://reliefweb.int/help/api" });
+        m.insert("kiwisdr",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "http://kiwisdr.com/" });
+        m.insert("nvd",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://nvd.nist.gov/developers" });
+        m.insert("cisakev",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog" });
+        m.insert("osv",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://google.github.io/osv.dev/" });
+        m.insert("opensanctions", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.opensanctions.org/api/" });
+
+        // Paid APIs — redistributability restricted
+        m.insert("x",             MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://developer.twitter.com/en/docs/twitter-api" });
+        m.insert("bluesky",       MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://docs.bsky.app/docs/api" });
+        m.insert("finintel",      MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://finnhub.io/docs/api" });
+        m.insert("markets",       MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://financialmodelingprep.com/developer/docs/" });
+
+        // Fair-use (free tier, redistribution limited)
+        m.insert("telegram",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 1, doc_url: "https://core.telegram.org/api" });
+        m.insert("rss",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 1, doc_url: "internal://rss-aggregator" });
+        m.insert("textclass",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open,      data_age_hours: 0, doc_url: "internal://textclass" });
+
+        // Admin-only — NC clause (per prior wontfix analysis)
+        m.insert("opensky",       MonitorMeta { tier_required: Tier::Admin, license_class: LicenseClass::NonCommercial, data_age_hours: 1, doc_url: "https://opensky-network.org/apidoc/" });
+
+        m
+    })
 }
