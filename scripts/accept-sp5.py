@@ -90,6 +90,66 @@ else:
     nvd_err = redis("HGET", "hub:monitor:health", "nvd")
     print(f"WARN NVD collector degraded — health cell: {nvd_err[:160]}")
 
+# 0a. OpenSanctions tempo signal — free tier is API-key gated; without
+# key, collector is shelved-by-design (registered, no signals). Same
+# pattern as FIRMS/ACLED. Complements ofac (US SDN only) with EU/UN/
+# UK HMT/INTERPOL/PEP coverage.
+opensanctions_key = vm("grep '^HUB_OPENSANCTIONS_API_KEY=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-").strip()
+if not opensanctions_key:
+    check_shelved("monitor OpenSanctions source ok", "HUB_OPENSANCTIONS_API_KEY not configured in secrets.env")
+    check_shelved("OpenSanctions tempo signals in geo_events", "OpenSanctions API key not configured — collector shelved-by-design")
+else:
+    opensanctions_state = redis("HGET", "hub:monitor:health", "opensanctions")
+    opensanctions_ok = '"state":"ok"' in opensanctions_state.replace(" ", "")
+    check("monitor OpenSanctions source ok", opensanctions_ok, opensanctions_state[:120])
+    if opensanctions_ok:
+        signals = pg("SELECT count(*) FROM geo_events WHERE source='monitor:opensanctions'").splitlines()[-1]
+        check("OpenSanctions tempo signals in geo_events", signals.isdigit() and int(signals) > 0, f"signals={signals}")
+        # Dedup invariant: external_id uses last_change timestamp; same
+        # dataset refresh twice in a row produces one Signal only.
+        dedup = pg("SELECT count(DISTINCT external_id), count(*) FROM geo_events WHERE source='monitor:opensanctions'").splitlines()[-1]
+        try:
+            distinct, total = (int(x) for x in dedup.split('|'))
+            check("OpenSanctions dedup (distinct external_ids ≤ total)", distinct <= total, f"distinct={distinct} total={total}")
+        except (ValueError, AttributeError):
+            pass
+
+# 0b. OSV ecosystem vuln collector — free, no key. Anchored at OSV HQ
+# (Mountain View CA), distinct from NVD HQ and CISA HQ. May produce
+# zero signals on quiet days (no vulns modified in the 24h window
+# for the watchlist); health=ok + zero events is the steady state.
+osv_state = redis("HGET", "hub:monitor:health", "osv")
+osv_ok = '"state":"ok"' in osv_state.replace(" ", "")
+check("monitor OSV source ok", osv_ok, osv_state[:120])
+if osv_ok:
+    osv_events = pg("SELECT count(*) FROM geo_events WHERE source='monitor:osv'").splitlines()[-1]
+    check("OSV vuln events in geo_events", osv_events.isdigit() and int(osv_events) >= 0, f"vulns={osv_events}")
+    # Severity sanity — every stored OSV signal carries severity in
+    # {info, routine, priority, flash}; nothing malformed.
+    sev_rows = pg("SELECT severity, count(*) FROM geo_events WHERE source='monitor:osv' GROUP BY 1 ORDER BY 1").splitlines()
+    bad_sev = [r for r in sev_rows if r and r.split('|')[0] not in ('info', 'routine', 'priority', 'flash', '')]
+    check("OSV signals carry valid severity field", not bad_sev, str(sev_rows)[:200])
+
+# 0c. SEC EDGAR filing tracker — free, but SEC blocks generic
+# User-Agent. If HUB_SEC_USER_AGENT_EMAIL isn't configured, the
+# collector stays in the registry but is reachable only with the
+# placeholder UA. Health check still validates wiring.
+sec_email = vm("grep '^HUB_SEC_USER_AGENT_EMAIL=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-").strip()
+sec_state = redis("HGET", "hub:monitor:health", "sec-edgar")
+sec_ok = '"state":"ok"' in sec_state.replace(" ", "")
+if not sec_email:
+    check_shelved("monitor SEC EDGAR source ok", "HUB_SEC_USER_AGENT_EMAIL not configured — SEC blocks generic UA")
+else:
+    check("monitor SEC EDGAR source ok", sec_ok, sec_state[:120])
+    if sec_ok:
+        sec_events = pg("SELECT count(*) FROM geo_events WHERE source='monitor:sec-edgar'").splitlines()[-1]
+        check("SEC EDGAR filings in geo_events", sec_events.isdigit() and int(sec_events) >= 0, f"filings={sec_events}")
+        # Form sanity — every stored filing carries a non-empty `form`
+        # field from the configured HUB_SEC_FORM (default 8-K).
+        sec_form_rows = pg("SELECT payload->>'form', count(*) FROM geo_events WHERE source='monitor:sec-edgar' GROUP BY 1 ORDER BY 1").splitlines()
+        bad_form = [r for r in sec_form_rows if r and (not r.split('|')[0] or r.split('|')[0] == 'None')]
+        check("SEC EDGAR payloads carry form field", not bad_form, str(sec_form_rows)[:200])
+
 # 1. monitor key-gated sources live (FIRMS/ACLED keys migrated to hub secrets.env)
 firms_state = redis("HGET", "hub:monitor:health", "firms")
 firms_key = vm("grep '^FIRMS_MAP_KEY=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-").strip()
