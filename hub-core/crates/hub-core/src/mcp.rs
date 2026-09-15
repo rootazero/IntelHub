@@ -36,6 +36,8 @@ fn agent_of_ext(ext: &Extensions) -> AgentIdentity {
             name: "unknown".to_string(),
             key_id: Uuid::nil(),
             admin: false,
+            tier: crate::config::Tier::Free,
+            key_prefix: String::new(),
         })
 }
 
