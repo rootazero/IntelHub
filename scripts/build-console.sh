@@ -40,6 +40,22 @@ VITE_CARTO_KEY="$(resolve_key VITE_CARTO_KEY CARTO_BASEMAP_KEY)"
 if [[ -z "${VITE_STADIA_KEY:-}" ]] && [[ -z "${VITE_CARTO_KEY:-}" ]]; then
   echo "WARN: no dark basemap key found (Stadia or CARTO) — console will use the Esri fallback (grey, not black). Sign up free at stadiamaps.com or carto.com/basemaps/apikey." >&2
 fi
+
+# Regenerate series_catalog.json from the just-built hub-core binary.
+# This is the source of truth for HUD gauges and other frontend
+# series references; npm run build inlines it. Fail loudly if the
+# binary doesn't exist or the dump command fails — a missing catalog
+# would silently break gauges (regression: 2026-09-15 HUD bug).
+if [[ ! -x "$HUB_DIR/core/hub" ]]; then
+  echo "==> ABORT: $HUB_DIR/core/hub missing — run scripts/build-hub.sh first." >&2
+  exit 1
+fi
+if ! "$HUB_DIR/core/hub" dump-series-catalog > "$HUB_DIR/console/src/lib/series_catalog.json"; then
+  echo "==> ABORT: dump-series-catalog failed; console would build with stale catalog." >&2
+  exit 1
+fi
+echo "==> series catalog: $(grep -c '"normalized_id"' "$HUB_DIR/console/src/lib/series_catalog.json") entries"
+
 docker run --rm \
   -e VITE_STADIA_KEY="${VITE_STADIA_KEY:-}" \
   -e VITE_CARTO_KEY="${VITE_CARTO_KEY:-}" \

@@ -14,6 +14,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{normalize, Source};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
@@ -59,6 +60,11 @@ impl SeriesCollector for ClimateSeries {
 /// `year month decimal_date average deseasonalized ndays sdev unc`.
 /// Missing rows carry average = -99.99.
 pub fn parse_co2(body: &str) -> Vec<Observation> {
+    // Storage key from catalog (single source of truth).
+    let series_key = match normalize(Source::Noaa, "CO2_MLO") {
+        Some(n) => n,
+        None => return Vec::new(), // catalog mismatch — fail open (parser will return empty)
+    };
     let mut out: Vec<Observation> = body
         .lines()
         .filter(|l| !l.starts_with('#'))
@@ -74,7 +80,7 @@ pub fn parse_co2(body: &str) -> Vec<Observation> {
             }
             let d = NaiveDate::from_ymd_opt(y, m, 1)?.and_hms_opt(0, 0, 0)?;
             Some(Observation::new(
-                "noaa:CO2_MLO_PPM",
+                series_key,
                 DateTime::from_naive_utc_and_offset(d, Utc),
                 ppm,
             ))
@@ -86,6 +92,10 @@ pub fn parse_co2(body: &str) -> Vec<Observation> {
 /// GISTEMP CSV: title line, header `Year,Jan,...,Dec,...`, monthly cols
 /// 1..=12 as °C anomaly vs 1951-1980; missing months are `***`.
 pub fn parse_gistemp(body: &str) -> Vec<Observation> {
+    let series_key = match normalize(Source::Nasa, "GISTEMP") {
+        Some(n) => n,
+        None => return Vec::new(),
+    };
     let mut out: Vec<Observation> = body
         .lines()
         .filter(|l| l.chars().next().is_some_and(|c| c.is_ascii_digit()))
@@ -96,7 +106,7 @@ pub fn parse_gistemp(body: &str) -> Vec<Observation> {
                 let v: f64 = f.get(m)?.trim().parse().ok()?; // "***" → skip
                 let d = NaiveDate::from_ymd_opt(year, m as u32, 1)?.and_hms_opt(0, 0, 0)?;
                 Some(Observation::new(
-                    "nasa:GISTEMP_ANOM_C",
+                    series_key,
                     DateTime::from_naive_utc_and_offset(d, Utc),
                     v,
                 ))

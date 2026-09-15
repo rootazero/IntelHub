@@ -49,6 +49,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/entities/{id}", get(console_entity))
         .route("/api/v1/agents/activity", get(console_agents_activity))
         .route("/api/v1/audit", get(console_audit))
+        .route("/api/v1/series", get(list_series))
         .route("/api/v1/tasks", get(console_tasks))
         .route("/api/v1/investigations/{id}/workspace", get(console_workspace))
         // SP5
@@ -1221,4 +1222,71 @@ async fn graph_evidence(
         Ok(v) => Json(v).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")),
     }
+}
+
+// ---------- SP-series-catalog: GET /api/v1/series ----------
+
+#[derive(Debug, Deserialize)]
+struct SeriesQuery {
+    source: Option<String>,
+    unit: Option<String>,
+}
+
+/// Returns the static series catalog. No auth required — this is
+/// metadata only (descriptors, no values). MCP agents, frontend
+/// authors, and external tools discover series IDs here.
+///
+/// Optional filters:
+///   ?source=fred       — limit to one source
+///   ?unit=Percent      — limit to one unit
+async fn list_series(Query(q): Query<SeriesQuery>) -> Json<Value> {
+    use crate::series::{Source, Unit, CATALOG};
+
+    let src_filter = q.source.as_deref().and_then(|s| match s {
+        "fred" => Some(Source::Fred),
+        "eia" => Some(Source::Eia),
+        "treasury" => Some(Source::Treasury),
+        "comtrade" => Some(Source::Comtrade),
+        "gscpi" => Some(Source::Gscpi),
+        "nasa" => Some(Source::Nasa),
+        "noaa" => Some(Source::Noaa),
+        "quote" => Some(Source::Quote),
+        "sentiment" => Some(Source::Sentiment),
+        _ => None,
+    });
+    let unit_filter = q.unit.as_deref().and_then(|u| match u {
+        "Percent" => Some(Unit::Percent),
+        "Usd" => Some(Unit::Usd),
+        "Bbl" => Some(Unit::Bbl),
+        "K" => Some(Unit::K),
+        "YoyPct" => Some(Unit::YoyPct),
+        "SpotUsdBbl" => Some(Unit::SpotUsdBbl),
+        "AnomC" => Some(Unit::AnomC),
+        "Ppm" => Some(Unit::Ppm),
+        "Index" => Some(Unit::Index),
+        "Count" => Some(Unit::Count),
+        "Symbol" => Some(Unit::Symbol),
+        _ => None,
+    });
+
+    let filtered: Vec<_> = CATALOG
+        .iter()
+        .filter(|d| src_filter.is_none_or(|s| d.source == s))
+        .filter(|d| unit_filter.is_none_or(|u| d.unit == u))
+        .map(|d| {
+            json!({
+                "source": d.source.prefix(),
+                "upstream_id": d.upstream_id,
+                "normalized_id": d.normalized_id,
+                "display_name": d.display_name,
+                "unit": format!("{:?}", d.unit),
+                "description": d.description,
+            })
+        })
+        .collect();
+
+    Json(json!({
+        "count": filtered.len(),
+        "series": filtered,
+    }))
 }
