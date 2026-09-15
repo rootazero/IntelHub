@@ -11,6 +11,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{build_dynamic, Source, Unit};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
@@ -132,7 +133,7 @@ pub fn parse_fmp_bars(body: &str, symbol: &str) -> Vec<Observation> {
             let dt = DateTime::from_naive_utc_and_offset(d.and_hms_opt(0, 0, 0)?, Utc);
             let close = b.get("close")?.as_f64()?;
             Some(
-                Observation::new(format!("quote:{symbol}"), dt, close).payload(serde_json::json!({
+                Observation::new(build_dynamic(Source::Quote, symbol, Unit::Symbol), dt, close).payload(serde_json::json!({
                     "open": b.get("open").and_then(|x| x.as_f64()),
                     "high": b.get("high").and_then(|x| x.as_f64()),
                     "low": b.get("low").and_then(|x| x.as_f64()),
@@ -156,7 +157,7 @@ pub fn parse_finnhub_quote(body: &str, symbol: &str) -> Option<Observation> {
     let ts = v.get("t").and_then(|t| t.as_i64()).unwrap_or_else(|| Utc::now().timestamp());
     let dt = DateTime::from_timestamp(ts, 0).unwrap_or_else(Utc::now);
     Some(
-        Observation::new(format!("quote:{symbol}"), dt, c).payload(serde_json::json!({
+        Observation::new(build_dynamic(Source::Quote, symbol, Unit::Symbol), dt, c).payload(serde_json::json!({
             "open": v.get("o").and_then(|x| x.as_f64()),
             "high": v.get("h").and_then(|x| x.as_f64()),
             "low": v.get("l").and_then(|x| x.as_f64()),

@@ -26,6 +26,7 @@ pub mod rerank;
 pub mod investigate;
 pub mod planner_llm;
 pub mod sensors;
+pub mod series;
 pub mod server;
 pub mod spiderfoot;
 pub mod state;

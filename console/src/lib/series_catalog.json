@@ -1,0 +1,29 @@
+{
+  "count": 24,
+  "series": [
+    { "source": "fred", "upstream_id": "DGS10", "normalized_id": "fred:DGS10_PCT", "display_name": "10Y %", "unit": "Percent", "description": "10-year Treasury constant maturity rate" },
+    { "source": "fred", "upstream_id": "DGS2", "normalized_id": "fred:DGS2_PCT", "display_name": "2Y %", "unit": "Percent", "description": "2-year Treasury constant maturity rate" },
+    { "source": "fred", "upstream_id": "T10Y2Y", "normalized_id": "fred:T10Y2Y", "display_name": "2s10s", "unit": "Percent", "description": "10-year minus 2-year Treasury spread" },
+    { "source": "fred", "upstream_id": "FEDFUNDS", "normalized_id": "fred:FEDFUNDS_PCT", "display_name": "Fed Funds", "unit": "Percent", "description": "Effective federal funds rate" },
+    { "source": "fred", "upstream_id": "UNRATE", "normalized_id": "fred:UNRATE_PCT", "display_name": "Unemployment", "unit": "Percent", "description": "Civilian unemployment rate" },
+    { "source": "fred", "upstream_id": "PAYEMS", "normalized_id": "fred:PAYEMS_K", "display_name": "NFP", "unit": "K", "description": "All employees, total nonfarm (thousands)" },
+    { "source": "fred", "upstream_id": "ICSA", "normalized_id": "fred:ICSA", "display_name": "IC Claims", "unit": "Count", "description": "Initial claims, seasonally adjusted" },
+    { "source": "fred", "upstream_id": "CPIAUCSL", "normalized_id": "fred:CPIAUCSL_YOY", "display_name": "CPI YoY", "unit": "YoyPct", "description": "CPI all urban consumers, year-over-year percent change" },
+    { "source": "fred", "upstream_id": "AWHE", "normalized_id": "fred:AWHE_YOY_PCT", "display_name": "Wages YoY", "unit": "YoyPct", "description": "Average hourly earnings, year-over-year percent change" },
+    { "source": "fred", "upstream_id": "VIXCLS", "normalized_id": "fred:VIXCLS", "display_name": "VIX", "unit": "Index", "description": "CBOE Volatility Index (VIX close)" },
+    { "source": "fred", "upstream_id": "BAMLH0A0HYM2", "normalized_id": "fred:HY_OAS_PCT", "display_name": "HY OAS", "unit": "Percent", "description": "ICE BofA US High Yield Index option-adjusted spread" },
+    { "source": "eia", "upstream_id": "RWTC", "normalized_id": "eia:WTI_SPOT_USD_BBL", "display_name": "WTI $", "unit": "SpotUsdBbl", "description": "WTI spot price, USD per barrel (EIA facet RWTC)" },
+    { "source": "eia", "upstream_id": "RBRTE", "normalized_id": "eia:BRENT_SPOT_USD_BBL", "display_name": "Brent $", "unit": "SpotUsdBbl", "description": "Brent spot price, USD per barrel (EIA facet RBRTE)" },
+    { "source": "treasury", "upstream_id": "TOTAL_DEBT", "normalized_id": "treasury:TOTAL_DEBT_USD", "display_name": "Total Debt", "unit": "Usd", "description": "Total US public debt outstanding, USD" },
+    { "source": "treasury", "upstream_id": "AVG_RATE_MARKETABLE", "normalized_id": "treasury:AVG_RATE_MARKETABLE_PCT", "display_name": "Avg Rate", "unit": "Percent", "description": "Average interest rate on marketable Treasury debt" },
+    { "source": "gscpi", "upstream_id": "index", "normalized_id": "gscpi:index", "display_name": "GSCPI", "unit": "Index", "description": "Geopolitical Supply Chain Pressure Index" },
+    { "source": "nasa", "upstream_id": "GISTEMP", "normalized_id": "nasa:GISTEMP_ANOM_C", "display_name": "Temp Anomaly", "unit": "AnomC", "description": "GISTEMP global temperature anomaly, Celsius" },
+    { "source": "noaa", "upstream_id": "CO2_MLO", "normalized_id": "noaa:CO2_MLO_PPM", "display_name": "CO2 ppm", "unit": "Ppm", "description": "Mauna Loa CO2 concentration, ppm" },
+    { "source": "comtrade", "upstream_id": "CN.exp.semiconductors_usd", "normalized_id": "comtrade:CN.exp.semiconductors_usd", "display_name": "CN semi exports", "unit": "Symbol", "description": "China semiconductor exports, USD" },
+    { "source": "comtrade", "upstream_id": "TW.exp.semiconductors_usd", "normalized_id": "comtrade:TW.exp.semiconductors_usd", "display_name": "TW semi exports", "unit": "Symbol", "description": "Taiwan semiconductor exports, USD" },
+    { "source": "comtrade", "upstream_id": "KR.exp.semiconductors_usd", "normalized_id": "comtrade:KR.exp.semiconductors_usd", "display_name": "KR semi exports", "unit": "Symbol", "description": "Korea semiconductor exports, USD" },
+    { "source": "comtrade", "upstream_id": "US.imp.crude_usd", "normalized_id": "comtrade:US.imp.crude_usd", "display_name": "US crude imports", "unit": "Symbol", "description": "US crude oil imports, USD" },
+    { "source": "comtrade", "upstream_id": "CN.imp.gold_usd", "normalized_id": "comtrade:CN.imp.gold_usd", "display_name": "CN gold imports", "unit": "Symbol", "description": "China gold imports, USD" },
+    { "source": "comtrade", "upstream_id": "DE.exp.arms_usd", "normalized_id": "comtrade:DE.exp.arms_usd", "display_name": "DE arms exports", "unit": "Symbol", "description": "Germany arms exports, USD" }
+  ]
+}

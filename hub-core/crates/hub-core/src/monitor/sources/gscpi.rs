@@ -17,7 +17,7 @@ use super::super::{Ctx, SeriesCollector};
 
 const CSV_URL: &str =
     "https://www.newyorkfed.org/medialibrary/research/interactives/data/gscpi/gscpi_interactive_data.csv";
-const SERIES_KEY: &str = "gscpi:index";
+const SERIES_KEY: &str = "gscpi:index"; // legacy alias; see series::normalize(Source::Gscpi, "index")
 /// How many trailing months to (idempotently) upsert per sweep.
 const KEEP: usize = 24;
 

@@ -8,30 +8,45 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{normalize, Source};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
 use super::super::{Ctx, SeriesCollector};
 
-/// (fred series id, hub series name, keep last N points per sweep)
-const SERIES: &[(&str, &str, usize)] = &[
-    ("VIXCLS", "fred:VIXCLS", 5),
-    ("DGS10", "fred:DGS10_PCT", 5),
-    ("DGS2", "fred:DGS2_PCT", 5),
-    ("T10Y2Y", "fred:T10Y2Y", 5),
-    ("FEDFUNDS", "fred:FEDFUNDS_PCT", 3),
-    ("UNRATE", "fred:UNRATE_PCT", 3),
-    ("BAMLH0A0HYM2", "fred:HY_OAS_PCT", 5),
+/// Daily series. Storage key is derived from the catalog via
+/// `series::normalize(Source::Fred, upstream_id)` — the table below is the
+/// list of upstream FRED series IDs to fetch, NOT the storage names.
+const SERIES: &[(&str, usize)] = &[
+    ("VIXCLS", 5),
+    ("DGS10", 5),
+    ("DGS2", 5),
+    ("T10Y2Y", 5),
+    ("FEDFUNDS", 3),
+    ("UNRATE", 3),
+    ("BAMLH0A0HYM2", 5),
 ];
 
 /// Slow series (weekly/monthly) need the 500d lookback, not the 45d daily
 /// window — BLS-via-FRED mirrors (bls.gov Akamai-bans every datacenter
 /// exit we have, so the native API is unreachable; same data, same source).
-const SLOW_SERIES: &[(&str, &str, usize)] = &[
-    ("PAYEMS", "fred:PAYEMS_K", 3),     // nonfarm payrolls, thousands
-    ("ICSA", "fred:ICSA", 12),          // initial jobless claims, weekly
-    ("CES0500000003", "__AWHE__", 14),  // avg hourly earnings → YoY below
+///
+/// CPIAUCSL and AWHE are sent through `yoy()` to compute year-over-year
+/// percent change before storage. The catalog still maps them to the
+/// canonical storage names `fred:CPIAUCSL_YOY` and `fred:AWHE_YOY_PCT`.
+const SLOW_SERIES: &[(&str, SeriesKind, usize)] = &[
+    ("PAYEMS", SeriesKind::Level, 3),     // nonfarm payrolls, thousands
+    ("ICSA", SeriesKind::Level, 12),       // initial jobless claims, weekly
+    ("CPIAUCSL", SeriesKind::Yoy, 3),      // CPI index → YoY%
+    ("AWHE", SeriesKind::Yoy, 3),          // avg hourly earnings → YoY%
 ];
+
+enum SeriesKind {
+    /// Store raw observation values (parse_observations).
+    Level,
+    /// Compute YoY% before storage (yoy). Catalog maps to `*_YOY[_PCT]` storage key.
+    Yoy,
+}
 
 pub struct Fred;
 
@@ -51,7 +66,7 @@ impl SeriesCollector for Fred {
             let mut all: Vec<Observation> = Vec::new();
             // Daily series: short window. Monthly CPI needs 13-month lookback.
             let daily_start = (Utc::now() - chrono::Duration::days(45)).format("%Y-%m-%d");
-            for (fid, hub_name, keep) in SERIES {
+            for (fid, keep) in SERIES {
                 let url = format!(
                     "https://api.stlouisfed.org/fred/series/observations?series_id={fid}\
                      &api_key={key}&file_type=json&observation_start={daily_start}"
@@ -59,27 +74,24 @@ impl SeriesCollector for Fred {
                 match ctx.http.get(&url).send().await {
                     Ok(r) if r.status().is_success() => {
                         let body = r.text().await.unwrap_or_default();
+                        // Storage key from catalog — single source of truth.
+                        let hub_name = match normalize(Source::Fred, fid) {
+                            Some(n) => n,
+                            None => {
+                                tracing::error!(series = fid, "fred: upstream_id not in catalog; add to series.rs");
+                                continue;
+                            }
+                        };
                         all.extend(parse_observations(&body, hub_name, *keep));
                     }
                     Ok(r) => tracing::warn!(series = fid, status = %r.status(), "fred http"),
                     Err(e) => tracing::warn!(series = fid, error = %e, "fred fetch"),
                 }
             }
-            // CPI → YoY% (index levels are meaningless to readers).
-            let cpi_start = (Utc::now() - chrono::Duration::days(500)).format("%Y-%m-%d");
-            let url = format!(
-                "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL\
-                 &api_key={key}&file_type=json&observation_start={cpi_start}"
-            );
-            if let Ok(r) = ctx.http.get(&url).send().await {
-                if r.status().is_success() {
-                    let body = r.text().await.unwrap_or_default();
-                    all.extend(yoy(&body, "fred:CPIAUCSL_YOY", 3));
-                }
-            }
             // Slow BLS-mirror series (500d window): payrolls/claims as levels,
-            // hourly earnings as YoY% (same lesson as CPI — levels mislead).
-            for (fid, hub_name, keep) in SLOW_SERIES {
+            // CPI/wages as YoY% (same lesson — index levels mislead).
+            let cpi_start = (Utc::now() - chrono::Duration::days(500)).format("%Y-%m-%d");
+            for (fid, kind, keep) in SLOW_SERIES {
                 let url = format!(
                     "https://api.stlouisfed.org/fred/series/observations?series_id={fid}\
                      &api_key={key}&file_type=json&observation_start={cpi_start}"
@@ -87,10 +99,16 @@ impl SeriesCollector for Fred {
                 match ctx.http.get(&url).send().await {
                     Ok(r) if r.status().is_success() => {
                         let body = r.text().await.unwrap_or_default();
-                        if *hub_name == "__AWHE__" {
-                            all.extend(yoy(&body, "fred:AWHE_YOY_PCT", 3));
-                        } else {
-                            all.extend(parse_observations(&body, hub_name, *keep));
+                        let hub_name = match normalize(Source::Fred, fid) {
+                            Some(n) => n,
+                            None => {
+                                tracing::error!(series = fid, "fred: upstream_id not in catalog; add to series.rs");
+                                continue;
+                            }
+                        };
+                        match kind {
+                            SeriesKind::Level => all.extend(parse_observations(&body, hub_name, *keep)),
+                            SeriesKind::Yoy => all.extend(yoy(&body, hub_name, *keep)),
                         }
                     }
                     Ok(r) => tracing::warn!(series = fid, status = %r.status(), "fred http"),

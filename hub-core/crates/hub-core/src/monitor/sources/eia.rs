@@ -7,15 +7,14 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{normalize, Source};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
 use super::super::{Ctx, SeriesCollector};
 
-const FACETS: &[(&str, &str)] = &[
-    ("RWTC", "eia:WTI_SPOT_USD_BBL"),
-    ("RBRTE", "eia:BRENT_SPOT_USD_BBL"),
-];
+/// EIA v2 facet IDs. Storage key derived from `series::normalize(Source::Eia, facet)`.
+const FACETS: &[&str] = &["RWTC", "RBRTE"];
 
 pub struct Eia;
 
@@ -33,7 +32,7 @@ impl SeriesCollector for Eia {
                 return Ok((0, 0));
             };
             let mut all = Vec::new();
-            for (facet, hub_name) in FACETS {
+            for facet in FACETS {
                 let url = format!(
                     "https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key={key}\
                      &frequency=daily&data[0]=value&facets[series][]={facet}\
@@ -42,6 +41,13 @@ impl SeriesCollector for Eia {
                 match ctx.http.get(&url).send().await {
                     Ok(r) if r.status().is_success() => {
                         let body = r.text().await.unwrap_or_default();
+                        let hub_name = match normalize(Source::Eia, facet) {
+                            Some(n) => n,
+                            None => {
+                                tracing::error!(series = facet, "eia: facet not in catalog; add to series.rs");
+                                continue;
+                            }
+                        };
                         all.extend(parse(&body, hub_name));
                     }
                     Ok(r) => tracing::warn!(facet, status = %r.status(), "eia http"),
