@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::config::Tier;
 use crate::error::{HubError, Result};
 use crate::types::EvidenceEvent;
 
@@ -75,10 +76,10 @@ pub async fn rotate_agent_key(pg: &PgPool, name: &str) -> Result<(Uuid, String)>
 }
 
 /// Resolve a presented bearer key to (agent_id, key_id, name).
-pub async fn resolve_key(pg: &PgPool, presented: &str) -> Result<Option<(Uuid, Uuid, String)>> {
+pub async fn resolve_key(pg: &PgPool, presented: &str) -> Result<Option<(Uuid, Uuid, String, String)>> {
     let hash = crate::auth::hash_key(presented);
     let row = sqlx::query(
-        "SELECT k.agent_id, k.key_id, a.name FROM api_keys k \
+        "SELECT k.agent_id, k.key_id, a.name, a.tier FROM api_keys k \
          JOIN agents a ON a.agent_id = k.agent_id \
          WHERE k.key_hash = $1 AND k.revoked = false",
     )
@@ -87,8 +88,42 @@ pub async fn resolve_key(pg: &PgPool, presented: &str) -> Result<Option<(Uuid, U
     .await?;
     Ok(row.map(|r| {
         use sqlx::Row;
-        (r.get::<Uuid, _>(0), r.get::<Uuid, _>(1), r.get::<String, _>(2))
+        (
+            r.get::<Uuid, _>(0),
+            r.get::<Uuid, _>(1),
+            r.get::<String, _>(2),
+            r.get::<String, _>(3),
+        )
     }))
+}
+
+/// Set an agent's tier. Returns the agent_id. Errors if the agent does
+/// not exist or the supplied `tier` string is invalid.
+///
+/// Note: this does NOT enforce who is allowed to call set-tier. The CLI
+/// dispatcher (set_tier_cli) is the privilege gate; the DB function is
+/// a primitive.
+pub async fn update_agent_tier(
+    pool: &sqlx::PgPool,
+    name: &str,
+    tier: Tier,
+) -> anyhow::Result<uuid::Uuid> {
+    let tier_str = tier.as_str();
+
+    // `agents` PK column is `agent_id` (migration 0001_init.sql), not `id`.
+    let agent_id: Option<uuid::Uuid> = sqlx::query_scalar(
+        "UPDATE agents SET tier = $1 WHERE name = $2 RETURNING agent_id"
+    )
+    .bind(tier_str)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+
+    let agent_id = agent_id.ok_or_else(|| {
+        anyhow::anyhow!("agent '{name}' not found")
+    })?;
+
+    Ok(agent_id)
 }
 
 // ---------- investigations ----------

@@ -31,6 +31,21 @@ async fn main() -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("usage: hub rotate-agent-key --name <name>"))?;
             hub_core::admin::rotate_agent_key_cli(&cfg, &name).await
         }
+        Some("set-tier") => {
+            // hub set-tier <agent-name> <free|paid|admin>
+            // Privileged: only the host operator can run this (filesystem
+            // permission on the binary + secrets.env). Writes an audit row.
+            let usage = "usage: core/hub set-tier <agent-name> <free|paid|admin>";
+            let name = args.get(2).cloned().unwrap_or_else(|| {
+                eprintln!("{usage}");
+                std::process::exit(2);
+            });
+            let tier = args.get(3).cloned().unwrap_or_else(|| {
+                eprintln!("{usage}");
+                std::process::exit(2);
+            });
+            hub_core::admin::set_tier_cli(&cfg, &name, &tier).await
+        }
         _ => {
             let state = Arc::new(AppState::new(cfg).await?);
             hub_core::server::serve(state).await
