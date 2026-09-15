@@ -1,6 +1,38 @@
 //! MCP Gateway: rmcp Streamable HTTP. Agent-neutral capability tools
 //! (directive §32). Identity is read from request extensions (inserted by
 //! the auth middleware — unspoofable); every call is recorded in tool_calls.
+//!
+//! ## Tier-isolation posture (PR1 quant-readability — Ruling 11)
+//!
+//! `access::apply_tier_filter` may only ever rewrite SQL that reads the
+//! `geo_events` table — the one table that carries `tier_required`. **None of
+//! this module's read tools touch `geo_events`**, so none of them take a tier
+//! predicate; appending `tier_required = 'free'` to their queries would
+//! reference a non-existent column and 500 the tool.
+//!
+//! | handler | backing store | tier filter |
+//! |---|---|---|
+//! | `keyword_search`  | `documents` (PG FTS, `store::keyword_search`) | n/a |
+//! | `hybrid_search`   | `documents` + Qdrant embeddings (`store`/`vector`) | n/a |
+//! | `semantic_search` | Qdrant embeddings + `documents` hydration | n/a |
+//! | `query_entity`    | Neo4j graph (`graph::query_entity`) | n/a (Cypher) |
+//! | `find_path`       | Neo4j graph (`graph_queries::find_path`) | n/a (Cypher) |
+//! | `investigate`     | `store::keyword_search` + graph reads | n/a (same stores) |
+//!
+//! The only read path that returns `geo_events` rows is REST
+//! `GET /api/v1/radar/events`, which is tier-filtered in `api.rs` /
+//! `console.rs` via `access::filter_query_by_tier` (Task 6). Because MCP has
+//! no `geo_events` surface at all, a free agent cannot obtain a paid-tier
+//! `geo_events` row through MCP by construction — the isolation goal is met
+//! without a per-handler filter.
+//!
+//! Residual surface (deferred to PR2): documents *derived* from a geo_event
+//! by `store::seed_from_geo_event` (`radar://event/<uuid>`, console
+//! "convert to investigation") embed the event payload in `content_text` and
+//! are searchable. They carry no tier marker today (`documents` has no
+//! `tier_required` column and `metadata` is `{}`), so PR2 should denormalize
+//! the tier onto `documents` and filter there. Do not paper over it with a
+//! URL-pattern join in this module.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -1310,6 +1342,11 @@ impl HubMcp {
     /// evidence chain. Each step gets its own sub-trace-id so the parent
     /// trace can walk the planner's individual searches via
     /// /api/v1/traces/{step_trace_id}.
+    ///
+    /// Tier note: every internal step (`investigate::execute`) reads either
+    /// `documents` (`store::keyword_search`), Neo4j (`graph::query_entity`,
+    /// `graph_queries::find_path`), or `findings` — never `geo_events`. So
+    /// there is no tier predicate to thread through (see module docs).
     #[tool(description = "Investigate a question: rule-based planner runs hybrid search + entity lookup + graph traversal + existing-claims lookup, returns synthesized evidence chain. Each step is its own sub-trace.")]
     async fn investigate(
         &self,
