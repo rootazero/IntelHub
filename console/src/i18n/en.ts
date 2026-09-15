@@ -126,7 +126,6 @@ export const en = {
     creating: "creating…",
     toInvestigation: "Create Investigation",
     deepLinkMissing: "event $id not in current 24h view — try 7d",
-    backToGlobal: "Back to global view",
   },
   system: {
     healthCenter: "Health Center — hub-core v{version}",

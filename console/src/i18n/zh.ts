@@ -127,7 +127,6 @@ export const zh: Dict = {
     creating: "创建中…",
     toInvestigation: "转为调查",
     deepLinkMissing: "事件 $id 不在当前 24h 视图中—试试 7d",
-    backToGlobal: "返回全局视图",
   },
   system: {
     healthCenter: "健康中心 — hub-core v{version}",
