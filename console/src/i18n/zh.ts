@@ -126,6 +126,7 @@ export const zh: Dict = {
     retryOnline: "重试在线",
     creating: "创建中…",
     toInvestigation: "转为调查",
+    deepLinkMissing: "事件 $id 不在当前 24h 视图中—试试 7d",
   },
   system: {
     healthCenter: "健康中心 — hub-core v{version}",

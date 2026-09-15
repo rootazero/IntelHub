@@ -2,6 +2,7 @@
 // Dual basemap: CARTO dark tiles by default; on tile failure burst or first
 // load timeout, falls back to the bundled offline world vector layer.
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
@@ -54,6 +55,12 @@ export default function Radar() {
   const [sev, setSev] = useState("");
   const [kind, setKind] = useState("");
   const [creating, setCreating] = useState(false);
+  // Deep-link: /radar?event=<id> arrives from the Monitor Command Deck's
+  // "open in Radar" button. After focus, we strip the query so the user
+  // owns the URL and a manual refresh doesn't re-center.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkEventId = searchParams.get("event");
+  const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
   const failCount = useRef(0);
   const tileProvider = useRef<TileProvider>(PRIMARY);
   const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
@@ -207,6 +214,27 @@ export default function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [window_, sev]);
 
+  // Deep-link focus: when /radar?event=<id> arrives, find the event in
+  // the current `events` list, open the right drawer, and flyTo it. Strip
+  // the query immediately so a refresh or a subsequent click doesn't
+  // re-trigger the flyTo (and so the URL is clean for sharing).
+  useEffect(() => {
+    if (!deepLinkEventId) return;
+    if (events.length === 0) return; // wait for first load
+    const ev = events.find((e) => e.event_id === deepLinkEventId);
+    setSearchParams({}, { replace: true }); // strip ?event= regardless
+    if (!ev) {
+      setDeepLinkMissing(deepLinkEventId);
+      return;
+    }
+    setDeepLinkMissing(null);
+    setSelected(ev);
+    // City-level zoom (9). Animated so the user perceives the navigation
+    // (the original Monitor click → here journey ends with a visual
+    // arrival at the event, not a silent URL flip).
+    mapRef.current?.flyTo([ev.lat, ev.lon], 9, { animate: true, duration: 1.2 });
+  }, [deepLinkEventId, events.length, setSearchParams]);
+
   // SSE: refetch on new sweep ingestion
   useEffect(() => {
     const stop = streamEvents((ev) => {
@@ -282,6 +310,21 @@ export default function Radar() {
         </select>
         <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
         <span className="ml-auto flex items-center gap-2">
+          {deepLinkMissing && (
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 mono text-[10px] text-amber-300"
+              title="Try a wider time window (7d) from the dropdown above if the event is older than the default 24h."
+            >
+              {t("radar.deepLinkMissing", { id: deepLinkMissing.slice(0, 8) })}
+              <button
+                onClick={() => setDeepLinkMissing(null)}
+                className="ml-1 text-amber-200 hover:text-amber-100"
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </span>
+          )}
           {!STADIA_KEY && !CARTO_KEY && (
             <span
               className="rounded bg-rose-500/15 px-1.5 py-0.5 mono text-[10px] text-rose-400"
