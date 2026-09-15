@@ -118,6 +118,12 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::gdelt::Gdelt),
         Box::new(sources::opensky::OpenSky),
         Box::new(sources::rss::Rss),
+        // SP8-E compliance/financial plane expansion: SEC EDGAR EFTS
+        // for material-event filings (default form=8-K). Fills the gap
+        // finintel (finnhub + stocktwits) and fd.rs (financialdatasets.ai)
+        // leave open: the canonical SEC filing record itself. Free, no
+        // key, only requires User-Agent contact email (secrets.env).
+        Box::new(sources::sec_edgar::SecEdgar),
         Box::new(sources::radiation::Radiation),
         // ACLED stays visible on the health board even while its account tier
         // is pending (user decision 2026-09: hiding = forgetting). Hourly
@@ -132,8 +138,18 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // complements cisakev (actively-exploited subset only). Same
         // honest-DC-metro anchoring pattern.
         Box::new(sources::nvd::Nvd),
+        // SP8-E cyber plane expansion: OSV.dev (open-source ecosystem
+        // vuln DB) complements NVD (general CVE) and cisakev (KEV). Same
+        // kind=cyber, distinct anchor (Mountain View CA vs Gaithersburg
+        // MD vs Washington DC). Free, no key.
+        Box::new(sources::osv::Osv),
         // SP8 batch-B expansion: sanctions tempo + federal contracts + RadNet.
         Box::new(sources::ofac::Ofac),
+        // SP8-E compliance plane expansion: OpenSanctions tempo signal
+        // complements ofac (US SDN only). Same kind=sanction, same DC
+        // anchor, dedup on dataset last_change timestamp. Shelved-by-design
+        // when HUB_OPENSANCTIONS_API_KEY unset (free tier is key-gated).
+        Box::new(sources::opensanctions::OpenSanctions),
         Box::new(sources::usaspending::UsaSpending),
         Box::new(sources::epa::Epa),
         // SP8-C social plane: Bluesky (free official API) + Telegram public

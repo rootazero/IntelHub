@@ -105,6 +105,25 @@ pub struct Config {
     /// key set, ceiling rises to 50 req/30s. Free, request at
     /// https://nvd.nist.gov/developers/request-an-api-key.
     pub monitor_nvd_api_key: Option<String>,
+    /// OpenSanctions API key (secrets.env, optional). Free tier is
+    /// key-gated; without it the opensanctions collector stays
+    /// shelved-by-design. Apply at
+    /// https://www.opensanctions.org/api/ (free for open-data use).
+    pub monitor_opensanctions_api_key: Option<String>,
+    /// OSV watchlist (env override). Each entry is
+    /// "ecosystem:package" — e.g. "PyPI:django,npm:lodash". When empty,
+    /// the built-in DEFAULT_WATCH in osv.rs is used (12 packages
+    /// common to OSINT infrastructure).
+    pub monitor_osv_watch: Vec<String>,
+    /// SEC EDGAR EFTS form filter (secrets.env, optional). Default "8-K"
+    /// (current reports = material events). Other useful values: "10-K"
+    /// (annual reports), "10-Q" (quarterly), "4" (insider Form 4
+    /// transactions), "DEF 14A" (proxy statements).
+    pub monitor_sec_form: String,
+    /// SEC EDGAR User-Agent contact email (secrets.env). Required per
+    /// SEC fair-access policy. Falls back to a generic placeholder
+    /// when unset — operators should set this to a real contact.
+    pub monitor_sec_user_agent_email: Option<String>,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -214,6 +233,10 @@ impl Config {
             monitor_acled_password: std::env::var("ACLED_PASSWORD").ok().filter(|s| !s.is_empty()),
             monitor_reliefweb_appname: std::env::var("RELIEFWEB_APPNAME").ok().filter(|s| !s.is_empty()),
             monitor_nvd_api_key: std::env::var("HUB_NVD_API_KEY").ok().filter(|s| !s.is_empty()),
+            monitor_opensanctions_api_key: std::env::var("HUB_OPENSANCTIONS_API_KEY").ok().filter(|s| !s.is_empty()),
+            monitor_osv_watch: env_list("HUB_OSV_WATCH"),
+            monitor_sec_form: env_or("HUB_SEC_FORM", "8-K"),
+            monitor_sec_user_agent_email: std::env::var("HUB_SEC_USER_AGENT_EMAIL").ok().filter(|s| !s.is_empty()),
             fred_api_key: std::env::var("FRED_API_KEY").ok().filter(|s| !s.is_empty()),
             comtrade_api_key: std::env::var("COMTRADE_API_KEY").ok().filter(|s| !s.is_empty()),
             bls_api_key: std::env::var("BLS_API_KEY").ok().filter(|s| !s.is_empty()),
