@@ -125,6 +125,7 @@ export const en = {
     retryOnline: "retry online",
     creating: "creating…",
     toInvestigation: "Create Investigation",
+    deepLinkMissing: "event $id not in current 24h view — try 7d",
   },
   system: {
     healthCenter: "Health Center — hub-core v{version}",
