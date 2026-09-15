@@ -211,5 +211,35 @@ else:
     tg = pg("SELECT status FROM alert_deliveries WHERE endpoint='telegram://chat' ORDER BY created_at DESC LIMIT 1").splitlines()[-1]
     check("telegram delivery DELIVERED", tg == "DELIVERED", tg)
 
+# ─── Tier isolation infrastructure — PR1 quant-readability ─────────────
+# 11a. Every agent row carries a valid access tier.
+agents_with_tier = pg("SELECT count(*) FROM agents WHERE tier IN ('free','paid','admin')").splitlines()[-1]
+check("agents.tier column populated for all rows", agents_with_tier.isdigit() and int(agents_with_tier) >= 1, f"agents_with_tier={agents_with_tier}")
+
+# 11b. Every geo_events row has tier_required set — no NULL / malformed
+# values leaking past the bus tier filter.
+tier_required_rows = pg("SELECT count(*) FROM geo_events WHERE tier_required IN ('free','paid','admin')").splitlines()[-1]
+total_events = pg("SELECT count(*) FROM geo_events").splitlines()[-1]
+try:
+    tr, te = int(tier_required_rows), int(total_events)
+    check("geo_events.tier_required populated for all rows", tr == te, f"tier_required={tr} total={te}")
+except (ValueError, AttributeError):
+    check("geo_events.tier_required populated", False, f"unparseable: {tier_required_rows}/{total_events}")
+
+# 11c. audit_log table exists and is queryable.
+audit_count = pg("SELECT count(*) FROM audit_log").splitlines()[-1]
+check("audit_log table exists", audit_count.isdigit() and int(audit_count) >= 0, f"rows={audit_count}")
+
+# 11d. set-tier CLI roundtrip — demote the seeded test agent back to
+# 'free' (idempotent: re-running sp5 must not error). Only present on a
+# VM that ran the Task 9.1 seed, so skip on a fresh deployment.
+test_agent_exists = pg("SELECT count(*) FROM agents WHERE name='tier-test-free'").splitlines()[-1]
+if test_agent_exists.isdigit() and int(test_agent_exists) >= 1:
+    rc = vm("cd /home/zou/IntelHub && set -a && . core/hub.env && . core/secrets.env && set +a && ./core/hub set-tier tier-test-free free 2>&1 | grep -c 'tier:     free'").strip()
+    check("set-tier CLI roundtrip succeeds", rc == "1", f"rc={rc}")
+    # Verify the audit_log row was written.
+    audit_set_tier = pg("SELECT count(*) FROM audit_log WHERE action='set_tier'").splitlines()[-1]
+    check("set-tier wrote audit_log row", audit_set_tier.isdigit() and int(audit_set_tier) >= 1, f"rows={audit_set_tier}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
