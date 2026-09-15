@@ -15,6 +15,7 @@
 // No filter UI (Radar page is the deep view); all interactive elements here are
 // "what's where" not "what to look at".
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { api } from "../../api";
@@ -316,9 +317,9 @@ export default function MonitorMap({
             </pre>
           )}
           <div className="hud-map-detail-actions">
-            <a className="hud-btn" href="#/radar" title={t("hud.openInRadar")}>
+            <Link className="hud-btn" to={{ pathname: "/radar", search: `?event=${encodeURIComponent(selected.event_id)}` }} title={t("hud.openInRadar")}>
               ⤴ {t("hud.openInRadar")}
-            </a>
+            </Link>
           </div>
         </div>
       )}
