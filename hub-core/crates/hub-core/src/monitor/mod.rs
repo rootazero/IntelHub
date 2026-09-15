@@ -128,6 +128,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::reliefweb::ReliefWeb),
         Box::new(sources::who::Who),
         Box::new(sources::cisakev::CisaKev),
+        // SP8-E cyber plane expansion: NVD 2.0 (full CVE corpus w/ CVSS v3)
+        // complements cisakev (actively-exploited subset only). Same
+        // honest-DC-metro anchoring pattern.
+        Box::new(sources::nvd::Nvd),
         // SP8 batch-B expansion: sanctions tempo + federal contracts + RadNet.
         Box::new(sources::ofac::Ofac),
         Box::new(sources::usaspending::UsaSpending),

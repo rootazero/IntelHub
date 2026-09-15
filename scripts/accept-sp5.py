@@ -69,6 +69,27 @@ def vm_json(cmd, timeout=90):
 
 print("== SP5 acceptance ==")
 
+# 0. NVD CVE collector — public-domain US Gov feed, no key required
+# (optional HUB_NVD_API_KEY bumps rate limit; degrades gracefully when
+# missing). Complements cisakev: full CVE corpus vs actively-exploited.
+nvd_state = redis("HGET", "hub:monitor:health", "nvd")
+nvd_ok = '"state":"ok"' in nvd_state.replace(" ", "")
+check("monitor NVD source ok", nvd_ok, nvd_state[:120])
+if nvd_ok:
+    nvd_events = pg("SELECT count(*) FROM geo_events WHERE source='monitor:nvd'").splitlines()[-1]
+    check("NVD CVE events in geo_events", nvd_events.isdigit() and int(nvd_events) > 0, f"cve={nvd_events}")
+    # Severity distribution sanity check — filter pulls HIGH+CRITICAL only,
+    # so the table should contain only those two severity values across all
+    # stored NVD signals.
+    sev_rows = pg("SELECT payload->>'cvss_severity', count(*) FROM geo_events WHERE source='monitor:nvd' GROUP BY 1 ORDER BY 1").splitlines()
+    bad = [r for r in sev_rows if r and r.split('|')[0] not in ('HIGH', 'CRITICAL', '')]
+    check("NVD payloads carry cvss_severity HIGH/CRITICAL only", not bad, str(sev_rows)[:200])
+else:
+    # Surface the failure mode rather than silently passing — operators
+    # need to know if NVD API itself went down vs our collector wiring.
+    nvd_err = redis("HGET", "hub:monitor:health", "nvd")
+    print(f"WARN NVD collector degraded — health cell: {nvd_err[:160]}")
+
 # 1. monitor key-gated sources live (FIRMS/ACLED keys migrated to hub secrets.env)
 firms_state = redis("HGET", "hub:monitor:health", "firms")
 firms_key = vm("grep '^FIRMS_MAP_KEY=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-").strip()
