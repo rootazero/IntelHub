@@ -100,6 +100,11 @@ pub struct Config {
     pub monitor_acled_email: Option<String>,
     pub monitor_acled_password: Option<String>,
     pub monitor_reliefweb_appname: Option<String>,
+    /// NVD 2.0 API key (secrets.env, optional). None = 5 req/30s ceiling
+    /// (sufficient for a 6h cadence on the HIGH+CRITICAL filter). With
+    /// key set, ceiling rises to 50 req/30s. Free, request at
+    /// https://nvd.nist.gov/developers/request-an-api-key.
+    pub monitor_nvd_api_key: Option<String>,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -208,6 +213,7 @@ impl Config {
             monitor_acled_email: std::env::var("ACLED_EMAIL").ok().filter(|s| !s.is_empty()),
             monitor_acled_password: std::env::var("ACLED_PASSWORD").ok().filter(|s| !s.is_empty()),
             monitor_reliefweb_appname: std::env::var("RELIEFWEB_APPNAME").ok().filter(|s| !s.is_empty()),
+            monitor_nvd_api_key: std::env::var("HUB_NVD_API_KEY").ok().filter(|s| !s.is_empty()),
             fred_api_key: std::env::var("FRED_API_KEY").ok().filter(|s| !s.is_empty()),
             comtrade_api_key: std::env::var("COMTRADE_API_KEY").ok().filter(|s| !s.is_empty()),
             bls_api_key: std::env::var("BLS_API_KEY").ok().filter(|s| !s.is_empty()),
