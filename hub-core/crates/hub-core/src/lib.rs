@@ -1,5 +1,6 @@
 //! hub-core: IntelHub Hub Core library (SP2A data/tool plane + SP2B governance/write plane + SP3 console API).
 
+pub mod access;
 pub mod admin;
 pub mod alerts;
 pub mod auth;
