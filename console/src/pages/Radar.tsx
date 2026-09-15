@@ -69,6 +69,14 @@ export default function Radar() {
   // before the init RAF has set the view → 'Set map center and zoom first'
   // error, React unmounts the whole tree.
   const skipFirstRegion = useRef(true);
+  // Deep-link coordination: when /radar?event=<id> lands, the deep-link
+  // effect calls mapRef.flyTo(event) with a 1.2s animation. The map-init
+  // effect also schedules a 300ms 'settle' setTimeout that fitBounds(world)
+  // {animate:false} — if events arrive faster than 300ms (typical), the
+  // settle fires MID-animation and snaps the map back to world view.
+  // Fix: deep-link sets this to true BEFORE calling flyTo, and the settle
+  // timeout's fit() checks the flag and no-ops if it's been claimed.
+  const deepLinkFocused = useRef(false);
 
   // ---- map init (once) ----
   useEffect(() => {
@@ -89,6 +97,9 @@ export default function Radar() {
     attach(map);
     const fit = () => {
       map.invalidateSize();
+      // If the deep-link already focused the map on an event, the settle
+      // fit would snap back to world view mid-animation. Skip.
+      if (deepLinkFocused.current) return;
       if ((divRef.current?.clientWidth ?? 0) > 0) map.fitBounds(REGIONS[region], { animate: false });
     };
     const raf = requestAnimationFrame(fit);
@@ -229,6 +240,9 @@ export default function Radar() {
     }
     setDeepLinkMissing(null);
     setSelected(ev);
+    // Mark before flyTo so the map-init's 300ms settle timer (if pending)
+    // sees the claim and no-ops its fitBounds(world).
+    deepLinkFocused.current = true;
     // City-level zoom (9). Animated so the user perceives the navigation
     // (the original Monitor click → here journey ends with a visual
     // arrival at the event, not a silent URL flip).
