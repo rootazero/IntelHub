@@ -299,7 +299,7 @@ New migration `0014_audit_log.sql`:
 CREATE TABLE audit_log (
     id BIGSERIAL PRIMARY KEY,
     ts TIMESTAMPTZ NOT NULL DEFAULT now(),
-    agent_id UUID REFERENCES agents(id),
+    agent_id UUID REFERENCES agents(agent_id),
     api_key_prefix TEXT NOT NULL,    -- first 12 chars of the key, not the secret
     action TEXT NOT NULL,            -- e.g. 'tier_mismatch_query'
     source_attempted TEXT,

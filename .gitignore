@@ -9,3 +9,4 @@ console/tsconfig.tsbuildinfo
 .env.crucix
 __pycache__/
 *.pyc
+.superpowers/
