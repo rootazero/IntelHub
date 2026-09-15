@@ -12,6 +12,18 @@
 
 **Note on migration numbering:** The spec referenced `0012_*.sql` through `0015_*.sql` for PR1. Main has since merged `0012_change_log_mirror.sql`, `0013_finding_entities.sql`, `0014_dedup_entity_aliases.sql`. **PR1's migrations are `0015_*.sql`, `0016_*.sql`, `0017_*.sql`.** PR3 will be `0018_quant_history.sql`. Spec text retained; numbering only shifted.
 
+**Note on `core/hub` env sourcing (Ruling 5):** systemd supplies env to the hub-core service, not to bare `./core/hub` CLI invocations. Every `core/hub` call in this plan MUST source env first:
+```bash
+set -a && . core/hub.env && . core/secrets.env && set +a
+```
+Without this, calls fail `password authentication failed` (no DB password in env). Implemented in Steps 8.4, 12.6, 13.8, 11d.
+
+**Note on `build-hub.sh` migration embedding (Ruling 6):** `sqlx::migrate!` in `hub-core/crates/hub-core/src/admin.rs:8` uses `include_dir` with no `build.rs`, so a Rust-only-no-change rebuild can ship stale migrations. Before `bash scripts/build-hub.sh`, force re-embed:
+```bash
+ssh <vm> 'touch /home/zou/IntelHub/hub-core/crates/hub-core/src/admin.rs'
+```
+Implemented in Steps 12.3, 13.5. Future fix (out of PR1 scope): add `rerun-if-changed=../../migrations/*.sql` to a build.rs.
+
 ---
 
 ## Global Constraints
@@ -965,10 +977,14 @@ Build the binary:
 cargo build --release -p hub
 ```
 
-Run on the 415 test VM (after rsync):
+Run on the 415 test VM (after rsync, env sourced per Ruling 5):
 
 ```bash
-ssh -o BatchMode=yes IntelHub-test '/home/zou/IntelHub/core/hub set-tier pi free'
+ssh -o BatchMode=yes IntelHub-test '
+  cd /home/zou/IntelHub
+  set -a && . core/hub.env && . core/secrets.env && set +a
+  ./core/hub set-tier pi free
+'
 ```
 
 Expected output:
@@ -1440,7 +1456,7 @@ check("audit_log table exists", audit_count.isdigit() and int(audit_count) >= 0,
 # 'tier-test-free' exists (it would only exist on 415 after Task 9.1).
 test_agent_exists = pg("SELECT count(*) FROM agents WHERE name='tier-test-free'").splitlines()[-1]
 if test_agent_exists.isdigit() and int(test_agent_exists) >= 1:
-    rc = vm("cd /home/zou/IntelHub && ./core/hub set-tier tier-test-free free 2>&1 | grep -c 'tier:     free'").strip()
+    rc = vm("cd /home/zou/IntelHub && set -a && . core/hub.env && . core/secrets.env && set +a && ./core/hub set-tier tier-test-free free 2>&1 | grep -c 'tier:     free'").strip()
     check("set-tier CLI roundtrip succeeds", rc == "1", f"rc={rc}")
     # Verify the audit_log row was written
     audit_set_tier = pg("SELECT count(*) FROM audit_log WHERE action='set_tier'").splitlines()[-1]
@@ -1510,7 +1526,7 @@ ssh -o BatchMode=yes IntelHub-test '
 
 Expected: 3 "applying ..." lines, all exit 0.
 
-- [ ] **Step 12.3: Clean cargo cache + rebuild**
+- [ ] **Step 12.3: Clean cargo cache + rebuild (touch admin.rs first per Ruling 6)**
 
 ```bash
 ssh -o BatchMode=yes IntelHub-test '
@@ -1521,11 +1537,12 @@ ssh -o BatchMode=yes IntelHub-test '
 '
 ssh -o BatchMode=yes IntelHub-test '
   cd /home/zou/IntelHub
+  touch hub-core/crates/hub-core/src/admin.rs
   bash scripts/build-hub.sh 2>&1 | grep -E "^error|^==> built" | head -3
 '
 ```
 
-Expected: `cleaned`, then `==> built: /home/zou/IntelHub/core/hub` (no `error` lines).
+Expected: `cleaned`, then `==> built: /home/zou/IntelHub/core/hub` (no `error` lines). The `touch admin.rs` forces cargo to re-embed the migrations (Ruling 6).
 
 - [ ] **Step 12.4: Restart hub-core**
 
@@ -1543,11 +1560,12 @@ Expected: `active`.
 sleep 60
 ```
 
-- [ ] **Step 12.6: Seed test agents + verify CLI**
+- [ ] **Step 12.6: Seed test agents + verify CLI (env sourced per Ruling 5)**
 
 ```bash
 ssh -o BatchMode=yes IntelHub-test '
   cd /home/zou/IntelHub
+  set -a && . core/hub.env && . core/secrets.env && set +a
   ./core/hub create-agent --name tier-test-free >/tmp/agent-free.txt 2>&1
   ./core/hub create-agent --name tier-test-paid >/tmp/agent-paid.txt 2>&1
   ./core/hub create-agent --name tier-test-admin >/tmp/agent-admin.txt 2>&1
@@ -1714,7 +1732,7 @@ ssh -o BatchMode=yes IntelHub '
 
 Expected: 3 "applying ..." lines, all exit 0.
 
-- [ ] **Step 13.5: Clean cargo cache + build on 410**
+- [ ] **Step 13.5: Clean cargo cache + build on 410 (touch admin.rs per Ruling 6)**
 
 ```bash
 ssh -o BatchMode=yes IntelHub '
@@ -1725,6 +1743,7 @@ ssh -o BatchMode=yes IntelHub '
 '
 ssh -o BatchMode=yes IntelHub '
   cd /home/zou/IntelHub
+  touch hub-core/crates/hub-core/src/admin.rs
   bash scripts/build-hub.sh 2>&1 | grep -E "^error|^==> built" | head -3
   bash scripts/build-console.sh 2>&1 | tail -1
 '
@@ -1748,11 +1767,12 @@ Expected: `active`.
 sleep 60
 ```
 
-- [ ] **Step 13.8: Seed test agents + verify CLI on 410**
+- [ ] **Step 13.8: Seed test agents + verify CLI on 410 (env sourced per Ruling 5)**
 
 ```bash
 ssh -o BatchMode=yes IntelHub '
   cd /home/zou/IntelHub
+  set -a && . core/hub.env && . core/secrets.env && set +a
   ./core/hub create-agent --name tier-test-free >/tmp/agent-free.txt 2>&1
   ./core/hub create-agent --name tier-test-paid >/tmp/agent-paid.txt 2>&1
   ./core/hub create-agent --name tier-test-admin >/tmp/agent-admin.txt 2>&1
