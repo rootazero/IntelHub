@@ -227,5 +227,28 @@ check("REST /signals/watchlist", code == 200 and wl.get("count", 0) >= 15, f"cou
 bad = pg1("SELECT count(*) FROM signal_observations WHERE series NOT LIKE '%:%'")
 check("all series names namespaced", bad == "0", bad)
 
+# 11. series catalog endpoint (SP-series-catalog, 2026-09-15)
+code, cat = req("/api/v1/series")
+check("REST /api/v1/series returns catalog", code == 200 and cat.get("count", 0) >= 24,
+      f"count={cat.get('count')}")
+all_resolve = True
+if code == 200:
+    series = cat.get("series", [])
+    catalog_ids = {s["normalized_id"] for s in series}
+    latest_ids = {s["series"] for s in latest.get("series", []) if ":" in s["series"]}
+    # Comtrade series are catalogued; quote/sentiment are dynamic (build_dynamic).
+    # Only static-source IDs need to be in the catalog.
+    static_ids = {x for x in latest_ids if not x.startswith(("quote:", "sentiment:"))}
+    missing = static_ids - catalog_ids
+    all_resolve = not missing
+    check("all static signal_observations.series resolve via catalog",
+          all_resolve, f"missing={sorted(missing)[:3]}")
+# 11b. ?source filter
+code, fred_only = req("/api/v1/series?source=fred")
+check("/api/v1/series?source=fred filters correctly",
+      code == 200 and all(s["source"] == "fred" for s in fred_only.get("series", []))
+      and fred_only.get("count", 0) >= 10,
+      f"count={fred_only.get('count')}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)

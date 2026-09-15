@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{build_dynamic, Source, Unit};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
@@ -280,7 +281,7 @@ async fn stocktwits_sentiment(state: &AppState, ctx: &Ctx, symbol: &str) -> Resu
     } else {
         "neutral"
     };
-    let obs = Observation::new(format!("sentiment:{symbol}"), Utc::now(), (ratio * 1000.0).round() / 1000.0)
+    let obs = Observation::new(build_dynamic(Source::Sentiment, symbol, Unit::Index), Utc::now(), (ratio * 1000.0).round() / 1000.0)
         .payload(serde_json::json!({
             "bull": bull, "bear": bear, "regime": regime, "source": "stocktwits",
         }));

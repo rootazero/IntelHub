@@ -15,6 +15,7 @@ import DeltaPanel, { type DeltaRow } from "../components/hud/DeltaPanel";
 import EventStream from "../components/hud/EventStream";
 import MonitorMap from "../components/hud/MonitorMap";
 import NewsTicker from "../components/hud/NewsTicker";
+import { requireByNormalizedId } from "../lib/series_catalog";
 
 interface LatestRow {
   series: string;
@@ -30,12 +31,15 @@ interface AlertRow {
   created_at: string;
 }
 
+// GAUGES look up series IDs from the static catalog. If a series is
+// renamed or removed upstream, `requireByNormalizedId` throws at build
+// time — the gauge won't silently render empty.
 const GAUGES: { series: string; label: string; warnAbove?: number; warnBelow?: number }[] = [
-  { series: "fred:VIXCLS", label: "VIX", warnAbove: 30 },
-  { series: "fred:DGS10_PCT", label: "10Y %" },
-  { series: "fred:T10Y2Y", label: "2s10s", warnBelow: 0 },
-  { series: "fred:HY_OAS_PCT", label: "HY OAS" },
-  { series: "eia:WTI_SPOT_USD_BBL", label: "WTI $" },
+  { series: requireByNormalizedId("fred:VIXCLS").normalized_id, label: "VIX", warnAbove: 30 },
+  { series: requireByNormalizedId("fred:DGS10_PCT").normalized_id, label: "10Y %" },
+  { series: requireByNormalizedId("fred:T10Y2Y").normalized_id, label: "2s10s", warnBelow: 0 },
+  { series: requireByNormalizedId("fred:HY_OAS_PCT").normalized_id, label: "HY OAS" },
+  { series: requireByNormalizedId("eia:WTI_SPOT_USD_BBL").normalized_id, label: "WTI $" },
 ];
 
 const VISUALS_KEY = "intelhub.hud.visuals";

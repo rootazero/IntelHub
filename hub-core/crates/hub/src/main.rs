@@ -46,6 +46,13 @@ async fn main() -> Result<()> {
             });
             hub_core::admin::set_tier_cli(&cfg, &name, &tier).await
         }
+        Some("dump-series-catalog") => {
+            // hub dump-series-catalog > series_catalog.json
+            // Emits the static series catalog as JSON for the console
+            // build pipeline (build-console.sh calls this before npm run build).
+            // No DB / state — the catalog is a const slice.
+            hub_core::series::dump_catalog_json()
+        }
         _ => {
             let state = Arc::new(AppState::new(cfg).await?);
             hub_core::server::serve(state).await
