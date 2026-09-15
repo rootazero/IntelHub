@@ -11,6 +11,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::{HubError, Result};
+use crate::series::{normalize, Source};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
@@ -18,15 +19,15 @@ use super::super::{Ctx, SeriesCollector};
 
 const URL: &str = "https://comtradeapi.un.org/data/v1/get/C/A/HS";
 
-/// (reporter, commodity, flow, hub series name)
+/// (reporter, commodity, flow, upstream_id). Storage key derived from catalog.
 const SERIES: &[(&str, &str, &str, &str)] = &[
-    ("156", "8542", "X", "comtrade:CN.exp.semiconductors_usd"),
+    ("156", "8542", "X", "CN.exp.semiconductors_usd"),
     // Taiwan reports as "Other Asia, nes" (490), not 158 (live-probed).
-    ("490", "8542", "X", "comtrade:TW.exp.semiconductors_usd"),
-    ("410", "8542", "X", "comtrade:KR.exp.semiconductors_usd"),
-    ("842", "2709", "M", "comtrade:US.imp.crude_usd"),
-    ("156", "7108", "M", "comtrade:CN.imp.gold_usd"),
-    ("276", "93", "X", "comtrade:DE.exp.arms_usd"),
+    ("490", "8542", "X", "TW.exp.semiconductors_usd"),
+    ("410", "8542", "X", "KR.exp.semiconductors_usd"),
+    ("842", "2709", "M", "US.imp.crude_usd"),
+    ("156", "7108", "M", "CN.imp.gold_usd"),
+    ("276", "93", "X", "DE.exp.arms_usd"),
 ];
 
 pub struct Comtrade;
@@ -48,7 +49,7 @@ impl SeriesCollector for Comtrade {
             let period = (year - 5..year).map(|y| y.to_string()).collect::<Vec<_>>().join(",");
             let mut all: Vec<Observation> = Vec::new();
             let mut series_hit = 0usize;
-            for (i, (reporter, cmd, flow, name)) in SERIES.iter().enumerate() {
+            for (i, (reporter, cmd, flow, upstream_id)) in SERIES.iter().enumerate() {
                 // Free tier ≈ 1 req/s — rapid fire gets 429'd (observed live).
                 if i > 0 {
                     tokio::time::sleep(Duration::from_millis(1600)).await;
@@ -56,7 +57,16 @@ impl SeriesCollector for Comtrade {
                 let url = format!(
                     "{URL}?reporterCode={reporter}&period={period}&cmdCode={cmd}\
                      &flowCode={flow}&partnerCode=0&subscription-key={key}"
-                );                match ctx.http.get(&url).send().await {
+                );
+                // Storage key from catalog.
+                let name = match normalize(Source::Comtrade, upstream_id) {
+                    Some(n) => n,
+                    None => {
+                        tracing::error!(upstream = upstream_id, "comtrade: flow not in catalog; add to series.rs");
+                        continue;
+                    }
+                };
+                match ctx.http.get(&url).send().await {
                     Ok(r) if r.status().is_success() => {
                         let j: serde_json::Value = r.json().await.unwrap_or(serde_json::json!({}));
                         let n_before = all.len();
@@ -65,8 +75,8 @@ impl SeriesCollector for Comtrade {
                             series_hit += 1;
                         }
                     }
-                    Ok(r) => tracing::warn!(series = name, status = %r.status(), "comtrade http"),
-                    Err(e) => tracing::warn!(series = name, error = %e, "comtrade fetch"),
+                    Ok(r) => tracing::warn!(series = upstream_id, status = %r.status(), "comtrade http"),
+                    Err(e) => tracing::warn!(series = upstream_id, error = %e, "comtrade fetch"),
                 }
             }
             if all.is_empty() {

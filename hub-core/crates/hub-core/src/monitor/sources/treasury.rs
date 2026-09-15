@@ -7,6 +7,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use futures::future::BoxFuture;
 
 use crate::error::Result;
+use crate::series::{normalize, Source};
 use crate::state::AppState;
 
 use super::super::signals::Observation;
@@ -26,11 +27,26 @@ impl SeriesCollector for Treasury {
     fn collect<'a>(&'a self, state: &'a AppState, ctx: &'a Ctx) -> BoxFuture<'a, Result<(usize, usize)>> {
         Box::pin(async move {
             let mut all = Vec::new();
+            // Storage keys come from the catalog.
+            let total_debt = match normalize(Source::Treasury, "TOTAL_DEBT") {
+                Some(n) => n,
+                None => {
+                    tracing::error!("treasury: TOTAL_DEBT not in catalog; add to series.rs");
+                    return Ok((0, 0));
+                }
+            };
+            let avg_rate = match normalize(Source::Treasury, "AVG_RATE_MARKETABLE") {
+                Some(n) => n,
+                None => {
+                    tracing::error!("treasury: AVG_RATE_MARKETABLE not in catalog; add to series.rs");
+                    return Ok((0, 0));
+                }
+            };
             let debt_url = format!("{BASE}/debt_to_penny?sort=-record_date&page[size]=3");
             if let Ok(r) = ctx.http.get(&debt_url).send().await {
                 if r.status().is_success() {
                     let body = r.text().await.unwrap_or_default();
-                    all.extend(parse_rows(&body, "tot_pub_debt_out_amt", "treasury:TOTAL_DEBT_USD", None));
+                    all.extend(parse_rows(&body, "tot_pub_debt_out_amt", total_debt, None));
                 }
             }
             let rate_url = format!("{BASE}/avg_interest_rates?sort=-record_date&page[size]=10");
@@ -40,7 +56,7 @@ impl SeriesCollector for Treasury {
                     all.extend(parse_rows(
                         &body,
                         "avg_interest_rate_amt",
-                        "treasury:AVG_RATE_MARKETABLE_PCT",
+                        avg_rate,
                         Some("Total Marketable"),
                     ));
                 }
