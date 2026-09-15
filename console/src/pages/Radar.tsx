@@ -8,6 +8,7 @@ import "leaflet/dist/leaflet.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
 import { KINDS, kindColor, sevRadius } from "../kindmeta";
+import { focusOnEvent, resetToGlobal } from "../lib/eventFocus";
 import { PROVIDERS, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
 import type { TileProvider, TilesMode } from "../basemap";
 import { REGIONS } from "../mapControls";
@@ -239,14 +240,9 @@ export default function Radar() {
       return;
     }
     setDeepLinkMissing(null);
-    setSelected(ev);
-    // Mark before flyTo so the map-init's 300ms settle timer (if pending)
-    // sees the claim and no-ops its fitBounds(world).
-    deepLinkFocused.current = true;
-    // City-level zoom (9). Animated so the user perceives the navigation
-    // (the original Monitor click → here journey ends with a visual
-    // arrival at the event, not a silent URL flip).
-    mapRef.current?.flyTo([ev.lat, ev.lon], 9, { animate: true, duration: 1.2 });
+    // Shared utility — same behavior as the click handler, so the
+    // deep-link landing and a direct page-2 click feel identical.
+    focusOnEvent(mapRef.current, ev, { setSelected, claim: deepLinkFocused });
   }, [deepLinkEventId, events.length, setSearchParams]);
 
   // SSE: refetch on new sweep ingestion
@@ -271,7 +267,7 @@ export default function Radar() {
         fillColor: kindColor(e.kind),
         fillOpacity: e.severity === "info" ? 0.35 : 0.6,
       });
-      m.on("click", () => setSelected(e));
+      m.on("click", () => focusOnEvent(mapRef.current, e, { setSelected, claim: deepLinkFocused }));
       m.bindTooltip(`${en("kind", e.kind)} · ${e.title}`, { direction: "top" });
       m.addTo(lg);
     }
@@ -372,7 +368,16 @@ export default function Radar() {
               <span className="font-semibold" style={{ color: SEV_COLOR[selected.severity] ?? SEV_COLOR.info }}>
                 {en("severity", selected.severity).toUpperCase()} · {en("kind", selected.kind)}
               </span>
-              <button className="text-dim hover:text-ink" onClick={() => setSelected(null)}>✕</button>
+              <div className="flex items-center gap-1">
+                <button
+                  className="text-dim hover:text-ink"
+                  onClick={() => resetToGlobal(mapRef.current, { setSelected })}
+                  title={t("radar.backToGlobal")}
+                >
+                  ⤺
+                </button>
+                <button className="text-dim hover:text-ink" onClick={() => setSelected(null)} title="Close">✕</button>
+              </div>
             </div>
             <div className="mb-1 font-medium">{selected.title}</div>
             <div className="mb-2 text-dim">
