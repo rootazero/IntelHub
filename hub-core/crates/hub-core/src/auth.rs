@@ -34,8 +34,11 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<String> {
 /// Resolve identity for a presented key. No caching layer in SP2A — the
 /// lookup is a single indexed row read and Postgres absorbs it easily.
 pub async fn authenticate(state: &AppState, presented: &str) -> Option<AgentIdentity> {
-    let (agent_id, key_id, name) = crate::store::resolve_key(&state.pg, presented).await.ok()??;
-    Some(AgentIdentity { agent_id, name, key_id, admin: false })
+    let (agent_id, key_id, name, tier_str) =
+        crate::store::resolve_key(&state.pg, presented).await.ok()??;
+    let tier = crate::config::Tier::parse(&tier_str).unwrap_or(crate::config::Tier::Free);
+    let key_prefix = presented.chars().take(12).collect();
+    Some(AgentIdentity { agent_id, name, key_id, admin: false, tier, key_prefix })
 }
 
 /// Constant-time-ish comparison for the admin token (no early exit on mismatch).

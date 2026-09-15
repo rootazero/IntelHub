@@ -10,14 +10,26 @@
 //! We deliberately do NOT return 403, which would leak source existence.
 
 use chrono::Utc;
+use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::config::Tier;
+use crate::types::{AgentIdentity, BusEvent};
 
 /// Implemented by anything that carries a caller identity.
-pub trait TierAccess {
+///
+/// `Send + Sync` are required so `&dyn TierAccess` can be held across an
+/// `.await` inside handler futures (otherwise the axum `Handler` future
+/// becomes `!Send` and the route fails to register).
+pub trait TierAccess: Send + Sync {
     fn tier(&self) -> Tier;
+}
+
+impl TierAccess for AgentIdentity {
+    fn tier(&self) -> Tier {
+        self.tier
+    }
 }
 
 /// Rewrites a SQL fragment so a `free` caller only sees `free` rows,
@@ -88,6 +100,100 @@ pub async fn audit_on_reject(
             "audit_on_reject failed: {e}"
         );
     }
+}
+
+// ---------- tier resolution helpers (REST + MCP) ----------
+
+/// Tier hierarchy: `admin > paid > free`.
+pub fn tier_allows(caller: Tier, required: Tier) -> bool {
+    fn rank(t: Tier) -> u8 {
+        match t {
+            Tier::Free => 0,
+            Tier::Paid => 1,
+            Tier::Admin => 2,
+        }
+    }
+    rank(caller) >= rank(required)
+}
+
+/// Best-effort extraction of the monitor source name from an actor string
+/// (`hub:monitor:x`, `monitor:x`) or a bare payload source (`x`).
+fn candidate_source(raw: &str) -> &str {
+    raw.rsplit(':').next().unwrap_or(raw)
+}
+
+/// `true` when `raw` (actor / source string) is readable by a caller at
+/// `tier`. Non-monitor sources (e.g. `agent:pi`) are always allowed — tier
+/// isolation only governs `geo_events` monitor sources.
+pub fn source_allowed(caller: Tier, raw: &str) -> bool {
+    match crate::config::monitor_metadata().get(candidate_source(raw)) {
+        Some(meta) => tier_allows(caller, meta.tier_required),
+        None => true,
+    }
+}
+
+/// Post-filter a bus `BusEvent` (SSE stream) for a caller tier.
+pub fn bus_event_allowed(caller: Tier, ev: &BusEvent) -> bool {
+    let payload_src = ev.payload.get("source").and_then(|s| s.as_str());
+    source_allowed(caller, payload_src.unwrap_or(&ev.actor))
+}
+
+/// Post-filter the `{count, items}` JSON returned by `store::recent_events`.
+/// Bus events carry their monitor source in `payload.source` (falling back to
+/// the `actor` string); rows above the caller's tier are dropped and `count`
+/// recomputed. The `events` bus table has no `tier_required` column, so this
+/// is a Rust-side filter rather than a SQL rewrite.
+pub fn filter_bus_items(value: &mut Value, tier: Tier) {
+    let Some(items) = value.get_mut("items").and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    items.retain(|item| {
+        let payload_src = item.pointer("/payload/source").and_then(|s| s.as_str());
+        let actor = item.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+        source_allowed(tier, payload_src.unwrap_or(actor))
+    });
+    let n = items.len();
+    value["count"] = serde_json::json!(n);
+}
+
+/// Resolves the caller's tier, rewrites `base_sql` via `apply_tier_filter`,
+/// and writes an `audit_log` row when the caller explicitly attempted a
+/// source above their tier. Returns the filtered SQL.
+///
+/// `base_sql` MUST end with its WHERE clause (no ORDER BY / LIMIT / GROUP BY):
+/// `apply_tier_filter` appends the tier predicate at the very end.
+pub async fn filter_query_by_tier(
+    pool: &PgPool,
+    caller: &dyn TierAccess,
+    agent_id: Uuid,
+    api_key_prefix: &str,
+    base_sql: &str,
+    source_attempted: Option<&str>,
+    request_path: &str,
+    trace_id: Option<Uuid>,
+) -> String {
+    let tier = caller.tier();
+    let filtered = apply_tier_filter(base_sql, tier);
+
+    if let Some(src) = source_attempted {
+        if let Some(meta) = crate::config::monitor_metadata().get(candidate_source(src)) {
+            if !tier_allows(tier, meta.tier_required) {
+                audit_on_reject(
+                    pool,
+                    agent_id,
+                    api_key_prefix,
+                    "tier_mismatch_query",
+                    Some(src),
+                    Some(request_path),
+                    trace_id,
+                    true,
+                )
+                .await;
+            }
+        }
+    }
+
+    filtered
 }
 
 #[cfg(test)]

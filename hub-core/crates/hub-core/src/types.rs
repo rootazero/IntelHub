@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::config::Tier;
+
 /// Unified Evidence Event envelope (directive §50) — the single entry
 /// shape for all content before any AI analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,12 @@ pub struct AgentIdentity {
     /// True when the request also carried a valid X-Admin-Token (SP2B Level 3).
     /// The token itself is never logged; only this derived flag is audited.
     pub admin: bool,
+    /// Caller tier resolved from `agents.tier` at authentication time.
+    /// Synthetic identities (console aggregates, MCP fallback) default to Free.
+    pub tier: Tier,
+    /// First 12 chars of the presented API key. Used solely for `audit_log`
+    /// attribution (`api_key_prefix`); never the full secret.
+    pub key_prefix: String,
 }
 
 /// Trace context for a single MCP/HTTP request.

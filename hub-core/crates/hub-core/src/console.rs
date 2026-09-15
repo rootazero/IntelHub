@@ -7,10 +7,11 @@ use uuid::Uuid;
 
 use crate::error::Result;
 use crate::state::AppState;
+use crate::types::AgentIdentity;
 
 // ---------- §25 overview aggregate ----------
 
-pub async fn overview(state: &AppState) -> Result<Value> {
+pub async fn overview(state: &AppState, tier: crate::config::Tier) -> Result<Value> {
     let health = crate::api::system_health(state).await;
 
     let (active_inv,): (i64,) =
@@ -81,6 +82,8 @@ pub async fn overview(state: &AppState) -> Result<Value> {
             name: name.clone(),
             key_id: Uuid::nil(),
             admin: false,
+            tier: crate::config::Tier::Free,
+            key_prefix: String::new(),
         };
         let bs = crate::cost::budget_state(state, &identity).await?;
         agent_items.push(json!({
@@ -90,11 +93,15 @@ pub async fn overview(state: &AppState) -> Result<Value> {
     }
 
     // SP6 §26: native monitor signal layer status + fresh geo event count.
-    let (geo_24h,): (i64,) = sqlx::query_as(
+    // Tier isolation: a free/paid caller must not even see the count of
+    // geo_events above their tier.
+    let geo_sql = crate::access::apply_tier_filter(
         "SELECT count(*) FROM geo_events WHERE ingested_at > now() - interval '24 hours'",
-    )
-    .fetch_one(&state.pg)
-    .await?;
+        tier,
+    );
+    let (geo_24h,): (i64,) = sqlx::query_as(&geo_sql)
+        .fetch_one(&state.pg)
+        .await?;
     // Per-source health cells written by the monitor scheduler (Redis hash).
     let health_map: Option<std::collections::HashMap<String, String>> = state
         .redis_timed(redis::cmd("HGETALL").arg("hub:monitor:health").clone(), 2000)
@@ -403,6 +410,8 @@ pub async fn agents_activity(state: &AppState) -> Result<Value> {
             name: name.clone(),
             key_id: Uuid::nil(),
             admin: false,
+            tier: crate::config::Tier::Free,
+            key_prefix: String::new(),
         };
         let bs = crate::cost::budget_state(state, &identity).await?;
         out.push(json!({
@@ -611,6 +620,8 @@ pub async fn radar_events(
     source: Option<&str>,
     kind: Option<&str>,
     limit: i64,
+    caller: &AgentIdentity,
+    trace_id: Option<Uuid>,
 ) -> Result<Value> {
     let from_ts = from
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -639,6 +650,21 @@ pub async fn radar_events(
             text_binds.push((clause, v.to_string()));
         }
     }
+    // Tier isolation — rewrite while `sql` still ends at its WHERE clause
+    // (`apply_tier_filter` appends the tier predicate at the end). ORDER BY /
+    // LIMIT are appended afterwards so the SQL stays valid. A source above
+    // the caller's tier yields zero rows plus an audit_log row.
+    let mut sql = crate::access::filter_query_by_tier(
+        &state.pg,
+        caller,
+        caller.agent_id,
+        &caller.key_prefix,
+        &sql,
+        source,
+        "/api/v1/radar/events",
+        trace_id,
+    )
+    .await;
     sql.push_str(" ORDER BY occurred_at DESC");
     n += 1;
     sql.push_str(&format!(" LIMIT ${n}"));
