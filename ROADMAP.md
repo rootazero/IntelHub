@@ -172,6 +172,83 @@ OpenCorporates 是 OSINT 关系图谱的 entity 注册数据源，应挂入 Neo4
 
 ---
 
+### 3. OSINT Framework 三金 collector（OpenSanctions / OSV / SEC EDGAR）
+
+- **决策日期**：2026-09-15
+- **状态**：**全部已落地**（feat/osint-trio，main 部署，推）
+- **GitHub issue**：（未建——直接走 feature 分支交付）
+- **触发背景**：用户从 https://osintframework.com （lockfale/OSINT-Framework 仓库 1.1MB JSON tree，33 顶层类 / 1169 叶子节点）评估后选定三个互补性最强的真开源 feed。
+
+#### 核心结论
+
+OSINT Framework 本身是**元目录**（link tree），不是数据 feed，整体集成价值低。但 tree 里的具体 data source 链接里有三个跟 IntelHub 现有 28 个 monitor **零重叠**、**真开源 + 完整 API** 的高价值源——三金打包交付。
+
+#### 三金实现总结
+
+| Collector | 许可证 | API 限速 / key | IntelHub 写入 | 现有重复 |
+|---|---|---|---|---|
+| **OpenSanctions** | ODbL | 需 key（secrets.env），免费 | geo_events (kind=sanction, anchor=Treasury DC) | ofac（仅 SDN） |
+| **OSV.dev** | CC-BY 4.0 | 无 key，无限速 | geo_events (kind=cyber, anchor=OSV HQ Mountain View CA) | nvd/cisakev（不同范围） |
+| **SEC EDGAR** | US 公共领域 | 无 key，需 User-Agent 含 email | geo_events (kind=filing, anchor=SEC HQ Washington DC) | finintel/fd.rs（不覆盖 SEC filing 本身） |
+
+#### OpenSanctions — 制裁/PEP 全聚合
+
+- **是什么**：聚合 30+ 制裁/PEP/watchlist（OFAC SDN + EU CFSP + UN + UK HMT + INTERPOL + 各国 PEP）的 ODbL 数据库
+- **API**：GET /datasets/default → entity_count + last_change
+- **IntelHub 实现**：`monitor/sources/opensanctions.rs`，24h 间隔，emit 1 signal/天 based on dataset last_change dedup
+- **限制**：free tier 需 API key（注册 https://www.opensanctions.org/api/ ）—— 无 key 时 shelved-by-design（与 firms/reliefweb 同样模式）
+- **集成后状态**：✅ code shipped, ⏸️ 等待用户注册 + 配 HUB_OPENSANCTIONS_API_KEY
+
+#### OSV.dev — 开源生态 CVE
+
+- **是什么**：Google 维护的开源生态专向漏洞 DB（PyPI/npm/Go/crates.io/Maven/RubyGems 等 10+ ecosystem）
+- **API**：POST /v1/query（无 key，免费，无限速）
+- **IntelHub 实现**：`monitor/sources/osv.rs`，6h 间隔，watchlist（默认 12 包，可 HUB_OSV_WATCH override），client-side `modified` 时间戳过滤
+- **与 NVD 区别**：NVD 是通用 CVE，OSV 是包生态专向 + 含 ecosystem-specific 版本解析
+- **集成后状态**：✅ code shipped + live（415 首轮 fetched=1，sp5 全绿）
+
+#### SEC EDGAR — 美国上市公司 filing
+
+- **是什么**：SEC 官方全量 filing feed（10-K/10-Q/8-K/Form 4/DEF 14A 等）
+- **API**：EFTS full-text search（GET /LATEST/search-index，无 key，需 User-Agent）
+- **IntelHub 实现**：`monitor/sources/sec_edgar.rs`，6h 间隔，24h lookback，默认 form=8-K（material events，可 HUB_SEC_FORM override）
+- **缺口背景**：`finintel.rs` 是 finnhub + stocktwits，`fd.rs` 是 financialdatasets.ai，**都不覆盖 SEC filing 本身**——10-K/10-Q/8-K/13F/Form 4 这块原是真空
+- **集成后状态**：✅ code shipped + live（未配置 HUB_SEC_USER_AGENT_EMAIL 时 shelved；配置后 8-K filings 会进 geo_events）
+
+#### 三金设计选择
+
+| 决策 | 理由 |
+|---|---|
+| OpenSanctions **tempo signal**（per-day），不做 entity extraction | 对齐 ofac.rs 模式——per-entity 落 graph 平面是后续 MCP 工具阶段，不是 Radar 地图 |
+| OSV **client-side `modified` 过滤** | OSV 服务端无 severity filter；`modified` 字段是增量检测的唯一 stable signal |
+| SEC EDGAR **默认 form=8-K**（material events） | 8-K 是最高新闻价值子集；10-K/10-Q 季报节奏不快；Form 4 insider 高量高噪 |
+| 三金共用不同 anchor（同 DC 区但视觉可区分） | OSV HQ Mountain View CA / SEC HQ DC / Treasury DC + 已有 OFAC DC |
+| 都用 `&'static str` kind 名 | 与现有 Signal 约定兼容，不破坏 kind taxonomy |
+
+#### 重启 / 配置 checklist
+
+- **OpenSanctions**：用户去 https://www.opensanctions.org/api/ 注册 free tier → `echo 'HUB_OPENSANCTIONS_API_KEY=xxx' >> /home/zou/IntelHub/core/secrets.env` → restart hub-core。无需 rebuild。
+- **SEC EDGAR**：用户填 `HUB_SEC_USER_AGENT_EMAIL=your-email@domain.com` 到 secrets.env → restart。无需 rebuild。
+- **OSV**：默认 watchlist 已部署，无需配置。可通过 `HUB_OSV_WATCH=PyPI:requests,npm:lodash` override。
+
+#### 不选的（OSINT Framework 评估中显式拒绝）
+
+- **OSINT Framework tree 整体集成** — 元目录，不是 feed，console 嵌入价值低
+- **Hoaxy / PolitiFact / Snopes** — 无生产级 API
+- **ExploitDB / Packet Storm** — 漏洞利用代码，超出 IntelHub scope
+- **NHTSA Vehicle API** — niche 单国家车辆数据，与 OSINT 调查不交叉
+- **CourtListener / PACER** — niche 司法记录
+
+#### 调研笔记来源
+
+- OSINT Framework tree: https://github.com/lockfale/OSINT-Framework （public/arf.json，1112KB / 33 类 / 1169 叶子）
+- OpenSanctions API: https://www.opensanctions.org/api/ · https://www.opensanctions.org/datasets/default/
+- OSV API: https://api.osv.dev/v1/query · https://google.github.io/osv.dev/
+- SEC EDGAR EFTS: https://efts.sec.gov/LATEST/search-index · https://www.sec.gov/edgar/sec-api-documentation
+- Cargo clean force rebuild: `docker run --rm -v intelhub-hub-target:/target alpine sh -c 'rm -rf /target/release/.fingerprint /target/release/deps /target/release/build'`（避坑：rsync 后 cargo incremental cache 可能 stale）
+
+---
+
 ## 文档维护
 
 - 新增 wontfix 项：在下方加新章节，保持格式一致
