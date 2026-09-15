@@ -32,10 +32,10 @@ interface AlertRow {
 
 const GAUGES: { series: string; label: string; warnAbove?: number; warnBelow?: number }[] = [
   { series: "fred:VIXCLS", label: "VIX", warnAbove: 30 },
-  { series: "fred:DGS10", label: "10Y %" },
+  { series: "fred:DGS10_PCT", label: "10Y %" },
   { series: "fred:T10Y2Y", label: "2s10s", warnBelow: 0 },
-  { series: "fred:BAMLH0A0HYM2", label: "HY OAS" },
-  { series: "eia:WTI", label: "WTI $" },
+  { series: "fred:HY_OAS_PCT", label: "HY OAS" },
+  { series: "eia:WTI_SPOT_USD_BBL", label: "WTI $" },
 ];
 
 const VISUALS_KEY = "intelhub.hud.visuals";
