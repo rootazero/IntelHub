@@ -337,10 +337,10 @@ pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
         // US-gov / UN / WHO — public domain
         m.insert("usgs",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php" });
         m.insert("noaa",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://www.weather.gov/documentation/services-web-api" });
-        m.insert("epa",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.epa.gov/enviro/web-services" });
+        m.insert("epa-radnet",    MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.epa.gov/enviro/web-services" });
         m.insert("eonet",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://eonet.gsfc.nasa.gov/api/v3/" });
         m.insert("who",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.who.int/" });
-        m.insert("climateseries", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/" });
+        m.insert("climate",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.ncei.noaa.gov/access/monitoring/climate-at-a-glance/" });
         m.insert("radiation",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "https://www.epa.gov/radnet" });
 
         // US-gov economic data — public domain
@@ -352,7 +352,7 @@ pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
         m.insert("comtrade",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 720,doc_url: "https://comtrade.un.org/data/doc/api" });
         m.insert("usaspending",   MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.usaspending.gov/disbursement/Transparency" });
         m.insert("gscpi",         MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 720,doc_url: "https://www.newyorkfed.org/markets/global-supply-chain-pressure-index" });
-        m.insert("sec_edgar",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://efts.sec.gov/LATEST/search-index" });
+        m.insert("sec-edgar",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://efts.sec.gov/LATEST/search-index" });
         m.insert("ofac",          MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://sanctionssearch.ofac.treas.gov/" });
 
         // ODbL / CC-BY
@@ -361,7 +361,7 @@ pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
         m.insert("reliefweb",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://reliefweb.int/help/api" });
         m.insert("kiwisdr",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 1,  doc_url: "http://kiwisdr.com/" });
         m.insert("nvd",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://nvd.nist.gov/developers" });
-        m.insert("cisakev",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog" });
+        m.insert("cisa-kev",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog" });
         m.insert("osv",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://google.github.io/osv.dev/" });
         m.insert("opensanctions", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.opensanctions.org/api/" });
 
@@ -372,7 +372,7 @@ pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
         m.insert("markets",       MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://financialmodelingprep.com/developer/docs/" });
 
         // Fair-use (free tier, redistribution limited)
-        m.insert("telegram",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 1, doc_url: "https://core.telegram.org/api" });
+        m.insert("telegram-watch", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 1, doc_url: "https://core.telegram.org/api" });
         m.insert("rss",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 1, doc_url: "internal://rss-aggregator" });
 
         // Admin-only — NC clause (per prior wontfix analysis)
