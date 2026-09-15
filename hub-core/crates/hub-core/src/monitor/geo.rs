@@ -3,6 +3,7 @@
 
 use serde_json::json;
 
+use crate::config::monitor_metadata;
 use crate::state::AppState;
 
 use super::Signal;
@@ -13,6 +14,16 @@ pub async fn persist_signals(
     source: &str,
     signals: Vec<Signal>,
 ) -> crate::error::Result<usize> {
+    // PR1+PR2 tier isolation: every event emitted from a collector carries
+    // `tier_required` derived from `monitor_metadata()` (single source of
+    // truth from config.rs). Without this, PR1's SQL filter is INERT for
+    // real data — every new event defaults to tier_required='free' and the
+    // filter never excludes anything. See Ruling 14.
+    let tier_required = monitor_metadata()
+        .get(source)
+        .map(|m| m.tier_required.as_str())
+        .unwrap_or("free");
+
     let mut new = 0usize;
     for s in &signals {
         if !(-90.0..=90.0).contains(&s.lat) || !(-180.0..=180.0).contains(&s.lon) {
@@ -20,8 +31,8 @@ pub async fn persist_signals(
         }
         let src = format!("monitor:{source}");
         let res = sqlx::query(
-            "INSERT INTO geo_events (source, external_id, kind, title, lat, lon, severity, occurred_at, payload)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            "INSERT INTO geo_events (source, external_id, kind, title, lat, lon, severity, occurred_at, payload, tier_required)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
              ON CONFLICT (source, external_id) DO NOTHING",
         )
         .bind(&src)
@@ -33,6 +44,7 @@ pub async fn persist_signals(
         .bind(s.severity)
         .bind(s.occurred_at)
         .bind(&s.payload)
+        .bind(tier_required)
         .execute(&state.pg)
         .await;
         match res {

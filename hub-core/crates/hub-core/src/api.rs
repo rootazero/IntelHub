@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::state::AppState;
-use crate::types::AgentIdentity;
+use crate::types::{AgentIdentity, RequestTrace};
 use axum::Extension;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -372,18 +372,27 @@ async fn search(
 
 async fn events_sse(
     State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let rx = state.event_tx.subscribe();
-    let stream = futures::stream::unfold(rx, |mut rx| async move {
-        match rx.recv().await {
-            Ok(ev) => {
-                let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
-                Some((Ok(SseEvent::default().event(ev.event_type.clone()).data(data)), rx))
+    let tier = agent.tier;
+    let stream = futures::stream::unfold(rx, move |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(ev) => {
+                    // Tier isolation: never stream bus events for a monitor
+                    // source above the subscriber's tier.
+                    if !crate::access::bus_event_allowed(tier, &ev) {
+                        continue;
+                    }
+                    let data = serde_json::to_string(&ev).unwrap_or_else(|_| "{}".into());
+                    return Some((Ok(SseEvent::default().event(ev.event_type.clone()).data(data)), rx));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    return Some((Ok(SseEvent::default().event("LAGGED").data(format!("{n} events dropped"))), rx))
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
             }
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                Some((Ok(SseEvent::default().event("LAGGED").data(format!("{n} events dropped"))), rx))
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
         }
     });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(std::time::Duration::from_secs(25)).text("keepalive"))
@@ -391,12 +400,16 @@ async fn events_sse(
 
 async fn events_recent(
     State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
     Query(p): Query<ListParams>,
 ) -> Result<Json<Value>, Response> {
-    crate::store::recent_events(&state.pg, p.limit.unwrap_or(50).clamp(1, 200))
+    let mut events = crate::store::recent_events(&state.pg, p.limit.unwrap_or(50).clamp(1, 200))
         .await
-        .map(Json)
-        .map_err(hub_err)
+        .map_err(hub_err)?;
+    // The `events` bus table has no tier_required column; drop monitor bus
+    // events whose source exceeds the caller's tier and recompute `count`.
+    crate::access::filter_bus_items(&mut events, agent.tier);
+    Ok(Json(events))
 }
 
 // ---------- SP2B: alerts (§54) ----------
@@ -483,8 +496,11 @@ async fn component_action(
 
 // ---------- SP3: console API handlers (thin wrappers over console.rs) ----------
 
-async fn console_overview(State(state): State<Arc<AppState>>) -> Result<Json<Value>, Response> {
-    crate::console::overview(&state).await.map(Json).map_err(hub_err)
+async fn console_overview(
+    State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+) -> Result<Json<Value>, Response> {
+    crate::console::overview(&state, agent.tier).await.map(Json).map_err(hub_err)
 }
 
 #[derive(Debug, Deserialize)]
@@ -616,8 +632,11 @@ struct RadarParams {
 
 async fn console_radar_events(
     State(state): State<Arc<AppState>>,
+    Extension(agent): Extension<AgentIdentity>,
+    Extension(trace): Extension<RequestTrace>,
     Query(p): Query<RadarParams>,
 ) -> Result<Json<Value>, Response> {
+    let trace_id = Uuid::parse_str(&trace.trace_id).ok();
     crate::console::radar_events(
         &state,
         p.from.as_deref(),
@@ -626,6 +645,8 @@ async fn console_radar_events(
         p.source.as_deref(),
         p.kind.as_deref(),
         p.limit.unwrap_or(500).min(2000),
+        &agent,
+        trace_id,
     )
     .await
     .map(Json)
