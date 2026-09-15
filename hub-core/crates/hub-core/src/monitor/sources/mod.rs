@@ -18,6 +18,7 @@ pub mod gscpi;
 pub mod kiwisdr;
 pub mod markets;
 pub mod noaa;
+pub mod nvd;
 pub mod ofac;
 pub mod opensky;
 pub mod radiation;
