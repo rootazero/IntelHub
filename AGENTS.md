@@ -8,8 +8,8 @@
 |---|---|
 | **生产宿主机** | PVE40（Proxmox），VM 410（4 vCPU，8G RAM，balloon 0）。**生产环境，严禁测试** |
 | 生产 VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
-| **测试宿主机** | PVE40 节点上 VM 415（4 vCPU，8G RAM，UEFI，OVMF）。从模板 9000 (debian-13-cloud) 全量克隆 |
-| 测试 VM 地址 | `10.10.10.45`，ssh 别名 **`IntelHub-test`**（免密已配），用户 `zou` |
+| **测试宿主机** | PVE30 节点上 VM 315（4 vCPU，8G RAM，UEFI，OVMF）。从模板 9000 (debian-13-cloud) 全量克隆（用户/密钥/Mac 地址与原 415 保持一致） |
+| 测试 VM 地址 | `10.10.10.35`，ssh 别名 **`Debian-test`**（免密已配），用户 `zou` |
 | VM 部署目录 | `/home/zou/IntelHub`（rsync 目标 + 构建现场） |
 | Mac 主仓库 | `/Volumes/TBU/Workspace/IntelHub`（网络盘，有同步延迟） |
 | GitHub | `https://github.com/rootazero/IntelHub`（**PRIVATE**，push over HTTPS） |
@@ -18,7 +18,7 @@
 
 ## 开发流程（铁律）
 
-> **生产 / 测试隔离**：所有改动先在 **`IntelHub-test`** 验证通过，再合并到 main 并部署到 **`IntelHub`**。410 是生产服务，绝对不允许测试用——任何 `ssh IntelHub` 之前必须确认改动已在 415 验收全绿。
+> **生产 / 测试隔离**：所有改动先在 **`Debian-test`** 验证通过，再合并到 main 并部署到 **`IntelHub`**。410 是生产服务，绝对不允许测试用——任何 `ssh IntelHub` 之前必须确认改动已在 315 验收全绿。
 
 1. **worktree 隔离**：`cd /Volumes/TBU/Workspace/IntelHub && git worktree add ../IntelHub-<suffix> -b feat/<name>`（网络盘有同步延迟，紧接着操作前 `sleep 4`；失败的 worktree → `rm -rf ../IntelHub-<suffix> && git branch -D feat/<name> && git worktree prune`）
 2. 在 worktree 里改代码
@@ -116,33 +116,43 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 - **上游 API 探测一律从 VM 发**（采集器真实出口路径，走 openclash 代理），Mac 直测会得出错误结论
 - openclash 诊断：`ssh ImmortalWrt`（10.10.10.1）；runtime yaml 在 `/etc/openclash/`；controller 127.0.0.1:9090（secret 在 yaml 里）；切节点 `PUT /proxies/<urlencoded-group> {"name":X}`；日志 `/tmp/openclash.log`
 
-## 测试 VM 基础设施（VM 415 IntelHub-test）
+## 测试 VM 基础设施（VM 315 Debian-test）
 
-> 所有会话在动 410 之前必须用 415 验过；下面是后续会话直接拿来用的全部信息。
+> 所有会话在动 410 之前必须用 315 验过；下面是后续会话直接拿来用的全部信息。
+>
+> **2026-09-17 切换说明**：原 VM 415（pve40，10.10.10.45，alias `IntelHub-test`）已被替换为 VM 315（pve30，10.10.10.35，alias `Debian-test`）。用户/密码/SSH key/Mac 地址全部保持不变，只是换了一台更近的 Proxmox 节点。所有 `IntelHub-test` 引用改为 `Debian-test`，所有 `10.10.10.45` 改为 `10.10.10.35`，所有 `pve40` 改为 `pve30`。
 
 ### 创建与配置（首次会话已完成，复用即可）
 
 ```bash
-# 从模板 9000 (debian-13-cloud) 全量克隆（pve40 节点上）
-ssh root@10.10.10.40 'qm clone 9000 415 --name IntelHub-test --full true --storage local-lvm'
-ssh root@10.10.10.40 'qm set 415 --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
+# 从模板 9000 (debian-13-cloud) 全量克隆（pve30 节点上）
+ssh root@10.10.10.30 'qm clone 9000 315 --name Debian-tester --full true --storage local-lvm'
+ssh root@10.10.10.30 'qm set 315 --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
   --efidisk0 local-lvm:1,efitype=4m,ms-cert=2023k,pre-enrolled-keys=1,size=4M \
   --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
 
 # cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP
-ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
-  --ipconfig0 ip=10.10.10.45/24,gw=10.10.10.1'
-ssh root@10.10.10.40 'qm cloudinit update 415'
-ssh root@10.10.10.40 'qm start 415'
+ssh root@10.10.10.30 'qm set 315 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
+  --ipconfig0 ip=10.10.10.35/24,gw=10.10.10.1'
+ssh root@10.10.10.30 'qm cloudinit update 315'
+ssh root@10.10.10.30 'qm start 315'
 
 # VM 起来后装 qemu-guest-agent（agent 是 static unit，需手动 enable）
-ssh IntelHub-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent \
+ssh Debian-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent \
   && sudo systemctl enable --now qemu-guest-agent'
 ```
 
 ### SSH 别名（Mac `~/.ssh/config`）
 
 ```
+Host Debian-test
+    HostName 10.10.10.35
+    User zou
+    IdentityFile ~/.ssh/intelhub-test/id_ed25519
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile ~/.ssh/known_hosts Debian-test
+
+# IntelHub-test alias kept for reference (old VM 415 — pve40, 10.10.10.45 — is offline; can be removed if no longer needed)
 Host IntelHub-test
     HostName 10.10.10.45
     User zou
@@ -151,11 +161,11 @@ Host IntelHub-test
     UserKnownHostsFile ~/.ssh/known_hosts IntelHub-test
 ```
 
-### 测试 VM 专用密钥对（IntelHub-test 专用，不用于 410）
+### 测试 VM 专用密钥对（Debian-test 专用，不用于 410）
 
 - **路径**：`~/.ssh/intelhub-test/id_ed25519`（Mac 本地）
 - **公钥指纹**：`SHA256:1clCZK3NaxqR1lQhZQ/q2qSyzdwi99CKkDafWv9fr80`（comment: `intelhub-test-mac-pi`）
-- **私钥内容**（仅 415 测试用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 415 的 authorized_keys）：
+- **私钥内容**（仅 315 测试用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 315 的 authorized_keys）：
 
 ```
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -175,7 +185,7 @@ LXRlc3QtbWFjLXBp
 
 ### 已知边界
 
-- VM 415 **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
+- VM 315 **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
 - cloud-init 默认 **禁用密码登录**（`ssh_pwauth: false`）——cipassword 不会生效，必须靠 SSH key
 - qemu-guest-agent 包安装后服务是 **static unit**（`/usr/lib/systemd/system/qemu-guest-agent.service`），必须 `systemctl enable --now` 手动起
 - PVE 端 `qm guest cmd 415 ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/415/agent/ping`（pve30 代理）总是稳
