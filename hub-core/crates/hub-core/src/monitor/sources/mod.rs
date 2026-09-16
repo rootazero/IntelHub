@@ -58,3 +58,6 @@ pub mod openphish;
 pub mod shodan_internetdb;
 pub mod blocklist_de;
 pub mod spamhaus_drop;
+pub mod nominatim;
+pub mod ripestat;
+pub mod wayback;
