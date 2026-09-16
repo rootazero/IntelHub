@@ -56,7 +56,7 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 export default function Radar() {
   const { t } = useT();
   const en = useEnum();
-  const { region, attach, registerOnReset, setRegion } = useMapView();
+  const { region, attach, registerOnReset, registerOnRegionJump, setRegion } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<string, MlMarker>>(new Map());
   const divRef = useRef<HTMLDivElement>(null);
@@ -108,6 +108,11 @@ export default function Radar() {
     // Resize observer: MapLibre doesn't auto-resize when the container
     // size changes. Call map.resize() whenever the panel reflows.
     const ro = new ResizeObserver(() => map.resize());
+    // Region-button click = user wants to leave the focused event and
+    // explore the map. Close the right drawer so the map reclaims
+    // the screen space — the user just gave the map priority with
+    // their click, no point in keeping the drawer open over it.
+    const unregisterRegionJump = registerOnRegionJump(() => setSelected(null));
     ro.observe(divRef.current);
     // First-load timeout: if tiles are erroring after 5s, advance one
     // tier. The MapLibre 'error' event covers tile fetch failures.
@@ -149,6 +154,7 @@ export default function Radar() {
       clearTimeout(tm);
       ro.disconnect();
       unregisterReset();
+      unregisterRegionJump();
       attach(null);
       map.remove();
       mapRef.current = null;
