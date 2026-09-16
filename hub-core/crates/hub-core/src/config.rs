@@ -192,6 +192,12 @@ pub struct Config {
     /// domain (exact match, `%sub`, or `%.domain` wildcards). Default
     /// = 5 high-traffic critical-infra domains shipped in crtsh.rs.
     pub monitor_crtsh_watch: Vec<String>,
+    /// blocklist.de feed name (env, optional). Single string,
+    /// not CSV — one feed at a time. Default = `ssh` (SSH
+    /// brute-force attackers). Other useful feeds: `mail`,
+    /// `apache`, `ftp`, `bots`, `strongips`, `all`. See
+    /// https://lists.blocklist.de/lists/ for the full directory.
+    pub monitor_blocklist_de_feed: Option<String>,
     /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
@@ -350,6 +356,9 @@ impl Config {
                 .unwrap_or(false),
             monitor_shodan_internetdb_watch: env_list("HUB_SHODAN_INTERNETDB_WATCH"),
             monitor_crtsh_watch: env_list("HUB_CRTSH_WATCH"),
+            monitor_blocklist_de_feed: std::env::var("HUB_BLOCKLIST_DE_FEED")
+                .ok()
+                .filter(|s| !s.is_empty()),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
             monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),
