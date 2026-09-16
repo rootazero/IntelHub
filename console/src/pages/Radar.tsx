@@ -96,6 +96,11 @@ export default function Radar() {
     setTiles(PRIMARY);
     tileProvider.current = PRIMARY;
     attach(map);
+    // MapLibre computes visible tiles from the container size at the
+    // moment of style load. If the container is still 0×0 (e.g. layout
+    // not yet settled), no tile requests fire. map.resize() forces a
+    // re-measurement which kicks off the request queue.
+    requestAnimationFrame(() => map.resize());
     // When the ⌂ reset button is clicked (or any other consumer of
     // useMapView.reset()), also close the right drawer — the user is
     // explicitly leaving the focused event behind.
@@ -323,7 +328,14 @@ export default function Radar() {
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1">
-          <div ref={divRef} className="absolute inset-0" style={{ background: "#0a0e14" }} />
+          {/* MapLibre's CSS sets `.maplibregl-map { position: relative }`
+              which overrides our `absolute inset-0` on the same element.
+              Wrap with an outer div that handles the absolute positioning;
+              the inner div (which MapLibre manages) gets explicit
+              width/height. */}
+          <div className="absolute inset-0">
+            <div ref={divRef} style={{ width: "100%", height: "100%" }} />
+          </div>
           {/* map controls: top-right. Shared with MonitorMap via <MapControls>;
               one source of truth (region presets + zoom + reset). */}
           <MapControls className="radar-map-ctrl" />

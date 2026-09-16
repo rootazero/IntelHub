@@ -50,7 +50,10 @@ const SOURCES = {
   carto: () => ({
     type: "raster" as const,
     tiles: [
-      `https://{a-d}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
+      `https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
+      `https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
+      `https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
+      `https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=${CARTO_KEY}`,
     ],
     tileSize: 256,
     attribution: `${ATTRIBUTION.osm} ${ATTRIBUTION.carto}`,
@@ -82,7 +85,6 @@ function buildRasterStyle(provider: TileProvider): StyleSpecification {
         maxzoom: 22,
       },
     ],
-    glyphs: undefined,
   };
 }
 
