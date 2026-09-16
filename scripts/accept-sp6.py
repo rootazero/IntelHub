@@ -269,5 +269,38 @@ code, radar = req("/api/v1/radar/events?limit=100")
 srcs = {e.get("source", "") for e in radar.get("items", [])}
 check("radar events carry monitor: sources", any(s.startswith("monitor:") for s in srcs), ",".join(sorted(srcs))[:120])
 
+# ---- Globe P1: adsb + celestrak collectors ----
+# Runs after the §10 restart (hub-core bounce + 45s drain), so it validates
+# the collectors' post-restart first sweep, not just leftover state.
+# adsb.lol: cumulative Redis snapshot (TTL 300s, expiry = death detector);
+# the envelope went through a Task-5 redesign that dropped `regions_ok` in
+# favour of `last_tick` (work-queue cursor name) + `coverage`/`cycle_secs`.
+cell_adsb = redis("HGET", "hub:monitor:health", "adsb").strip()
+cell_cel = redis("HGET", "hub:monitor:health", "celestrak").strip()
+check("globe: adsb+celestrak health cells present",
+      cell_adsb not in ("", "nil") and cell_cel not in ("", "nil"),
+      f"adsb={cell_adsb[:40]} cel={cell_cel[:40]}")
+
+snap_raw = redis("GET", "hub:globe:aircraft")
+try:
+    snap = json.loads(snap_raw or "{}")
+except Exception:
+    snap = {}
+check("globe: aircraft snapshot fresh (count>100)",
+      int(snap.get("count", 0)) > 100,
+      f"count={snap.get('count', 0)} last_tick={snap.get('last_tick')}")
+
+n_sat = pg1("SELECT count(*) FROM satellites")
+fresh = pg1("SELECT count(*) FROM satellites WHERE fetched_at > now() - interval '12 hours'")
+check("globe: satellites catalog loaded",
+      n_sat.isdigit() and int(n_sat) > 400,
+      f"rows={n_sat} fresh12h={fresh}")
+
+st_a, body_a = req("/api/v1/globe/aircraft")
+st_s, body_s = req("/api/v1/globe/satellites")
+check("globe: /api/v1/globe/* endpoints 200",
+      st_a == 200 and "aircraft" in body_a and st_s == 200 and body_s.get("count", 0) > 400,
+      f"aircraft_http={st_a} satellites_http={st_s} sat_count={body_s.get('count')}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
