@@ -9,10 +9,12 @@
   },
   "dependencies": {
     "@antv/g6": "5.1.1",
+    "cesium": "^1.124.0",
     "maplibre-gl": "^4.7.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.0"
+    "react-router-dom": "^7.6.0",
+    "satellite.js": "^6.0.2"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",
@@ -22,6 +24,7 @@
     "playwright": "^1.63.0",
     "tailwindcss": "^4.1.7",
     "typescript": "~5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vite-plugin-cesium": "^1.2.23"
   }
 }
