@@ -6,7 +6,7 @@
 
 #[test]
 fn cost_records_has_trace_id_column() {
-    let sql = include_str!("../../../migrations/0009_trace_propagation.sql");
+    let sql = include_str!("../../../migrations/0010_trace_propagation.sql");
     assert!(sql.contains("ALTER TABLE cost_records"));
     assert!(sql.contains("ADD COLUMN IF NOT EXISTS trace_id UUID"));
     assert!(sql.contains("cost_records_trace_idx"));
@@ -14,7 +14,7 @@ fn cost_records_has_trace_id_column() {
 
 #[test]
 fn embedding_jobs_has_trace_id_column() {
-    let sql = include_str!("../../../migrations/0009_trace_propagation.sql");
+    let sql = include_str!("../../../migrations/0010_trace_propagation.sql");
     assert!(sql.contains("ALTER TABLE embedding_jobs"));
     assert!(sql.contains("embedding_jobs_trace_idx"));
 }

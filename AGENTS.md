@@ -94,7 +94,7 @@ done
 ```
 
 - **测试 VM 验收**：`KEY=$(ssh -o BatchMode=yes IntelHub-test '...')` + 同样的脚本
-- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 18 · sp7 24 · sp8 18 · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
+- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 25 passed + 2 shelved + 0 failed（共 27 项，4 项 globe 新增；shelved 不计 failure、退码只看 failed，410 上 shelved 项数量可能因 key 配置不同而变化） · sp7 24 · sp8 18 · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
 
 ## 健康检查速查
 

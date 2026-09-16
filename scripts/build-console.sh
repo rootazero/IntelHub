@@ -5,14 +5,17 @@
 set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Two optional dark basemap keys can be baked into the bundle:
-#   VITE_STADIA_KEY → Stadia Maps alidade_smooth_dark (primary choice)
-#   VITE_CARTO_KEY  → CARTO dark_all (legacy primary)
-# Without either key the chain starts at Esri (grey, not black).
+# Optional keys baked into the bundle:
+#   VITE_STADIA_KEY      → Stadia Maps alidade_smooth_dark (primary choice)
+#   VITE_CARTO_KEY       → CARTO dark_all (legacy primary)
+#   VITE_CESIUM_ION_KEY  → Cesium ion (globe terrain + imagery)
+#   VITE_GOOGLE_MAPS_KEY → Google Maps Photorealistic 3D Tiles
+# Without either basemap key the chain starts at Esri (grey, not black).
 #
 # Fallback chain per key so a missing console-build.env never silently
 # degrades the basemap: explicit env → core/console-build.env →
-# matching CARTO_BASEMAP_KEY / STADIA_API_KEY in core/secrets.env.
+# matching *_KEY in core/secrets.env (CARTO_BASEMAP_KEY / STADIA_API_KEY /
+# CESIUM_ION_KEY / GOOGLE_MAPS_API_KEY).
 # Order of precedence in the rendered chain: Stadia > CARTO > Esri.
 
 resolve_key() {
@@ -36,6 +39,8 @@ resolve_key() {
 
 VITE_STADIA_KEY="$(resolve_key VITE_STADIA_KEY STADIA_API_KEY)"
 VITE_CARTO_KEY="$(resolve_key VITE_CARTO_KEY CARTO_BASEMAP_KEY)"
+VITE_CESIUM_ION_KEY="$(resolve_key VITE_CESIUM_ION_KEY CESIUM_ION_KEY)"
+VITE_GOOGLE_MAPS_KEY="$(resolve_key VITE_GOOGLE_MAPS_KEY GOOGLE_MAPS_API_KEY)"
 
 if [[ -z "${VITE_STADIA_KEY:-}" ]] && [[ -z "${VITE_CARTO_KEY:-}" ]]; then
   echo "WARN: no dark basemap key found (Stadia or CARTO) — console will use the Esri fallback (grey, not black). Sign up free at stadiamaps.com or carto.com/basemaps/apikey." >&2
@@ -59,6 +64,8 @@ echo "==> series catalog: $(grep -c '"normalized_id"' "$HUB_DIR/console/src/lib/
 docker run --rm \
   -e VITE_STADIA_KEY="${VITE_STADIA_KEY:-}" \
   -e VITE_CARTO_KEY="${VITE_CARTO_KEY:-}" \
+  -e VITE_CESIUM_ION_KEY="${VITE_CESIUM_ION_KEY:-}" \
+  -e VITE_GOOGLE_MAPS_KEY="${VITE_GOOGLE_MAPS_KEY:-}" \
   -v "$HUB_DIR/console:/src" \
   -v intelhub-npm-cache:/root/.npm \
   -w /src node:22-trixie \
@@ -91,6 +98,12 @@ if [[ -d "$DIST_ASSETS" ]]; then
   if [[ -n "${VITE_CARTO_KEY:-}" ]] && ! grep -rqF "$VITE_CARTO_KEY" "$DIST_ASSETS" 2>/dev/null; then
     MISSING+=("VITE_CARTO_KEY")
   fi
+  if [[ -n "${VITE_CESIUM_ION_KEY:-}" ]] && ! grep -rqF "$VITE_CESIUM_ION_KEY" "$DIST_ASSETS" 2>/dev/null; then
+    MISSING+=("VITE_CESIUM_ION_KEY")
+  fi
+  if [[ -n "${VITE_GOOGLE_MAPS_KEY:-}" ]] && ! grep -rqF "$VITE_GOOGLE_MAPS_KEY" "$DIST_ASSETS" 2>/dev/null; then
+    MISSING+=("VITE_GOOGLE_MAPS_KEY")
+  fi
   if (( ${#MISSING[@]} > 0 )); then
     echo "==> ABORT: bundle built WITHOUT ${MISSING[*]} but core/console-build.env has them." >&2
     echo "    Likely cause: build ran on a host without these env vars (e.g. Mac dev)," >&2
@@ -103,10 +116,12 @@ fi
 # Forensic stamp — operator can spot a Mac-build after the fact even if
 # verify passed (e.g. on a host that legitimately has no keys configured,
 # the stamp records `stadia:false,carto:false` and the source hostname).
-printf '{"ts":"%s","host":"%s","stadia":%s,"carto":%s}\n' \
+printf '{"ts":"%s","host":"%s","stadia":%s,"carto":%s,"cesium_ion":%s,"google_maps":%s}\n' \
   "$(date -u +%FT%TZ)" "$(hostname -s 2>/dev/null || echo unknown)" \
   "$([[ -n "${VITE_STADIA_KEY:-}" ]] && echo true || echo false)" \
   "$([[ -n "${VITE_CARTO_KEY:-}" ]] && echo true || echo false)" \
+  "$([[ -n "${VITE_CESIUM_ION_KEY:-}" ]] && echo true || echo false)" \
+  "$([[ -n "${VITE_GOOGLE_MAPS_KEY:-}" ]] && echo true || echo false)" \
   > "$HUB_DIR/console/dist/.build-manifest.json"
 
 echo "==> console built: $HUB_DIR/console/dist"

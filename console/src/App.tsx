@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
 import { I18nProvider, LANGS, useT } from "./i18n";
@@ -19,6 +19,8 @@ import Agents from "./pages/Agents";
 import Audit from "./pages/Audit";
 import System from "./pages/System";
 
+const Globe = lazy(() => import("./pages/Globe"));
+
 const NAV = [
   ["/", "nav.monitor"],
   ["/overview", "nav.overview"],
@@ -33,6 +35,9 @@ const NAV = [
   ["/audit", "nav.audit"],
   ["/system", "nav.system"],
 ] as const;
+
+const navCls = ({ isActive }: { isActive: boolean }) =>
+  `block px-3 py-1.5 text-xs ${isActive ? "bg-accent/10 text-accent border-r-2 border-accent" : "text-dim hover:text-ink"}`;
 
 function LangSwitch() {
   const { lang, setLang } = useT();
@@ -145,17 +150,13 @@ function Shell() {
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           {NAV.map(([to, label]) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                `block px-3 py-1.5 text-xs ${isActive ? "bg-accent/10 text-accent border-r-2 border-accent" : "text-dim hover:text-ink"}`
-              }
-            >
+            <NavLink key={to} to={to} end={to === "/"} className={navCls}>
               {t(label)}
             </NavLink>
           ))}
+          <NavLink to="/globe" className={navCls}>
+            GLOBE
+          </NavLink>
         </div>
         <div className="flex items-center justify-between border-t border-edge px-3 py-2 text-[10px] text-dim mono">
           <span>hub 10.10.10.41:8800</span>
@@ -167,6 +168,14 @@ function Shell() {
           <Route path="/" element={<Monitor />} />
           <Route path="/overview" element={<Overview />} />
           <Route path="/radar" element={<Radar />} />
+          <Route
+            path="/globe"
+            element={
+              <Suspense fallback={<div className="p-4 text-dim">Loading globe…</div>}>
+                <Globe />
+              </Suspense>
+            }
+          />
           <Route path="/signals" element={<Signals />} />
           <Route path="/investigations" element={<Investigations />} />
           <Route path="/investigations/:id" element={<InvestigationWorkspace />} />
