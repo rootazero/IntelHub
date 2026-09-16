@@ -257,6 +257,16 @@ pub async fn system_health(state: &AppState) -> Value {
         ("misp_rfc5735",    24, "cyber"),
         ("misp_rfc6761",    24, "cyber"),
         ("tor_exit_details",12, "cyber"),
+        // OSINT Framework bridge 12 (2026-09-17): three free
+        // keyless collectors — romainmarcoux_malicious_ip
+        // (40K most-malicious IPs aggregator, metadata-
+        // pattern) + ihr_hegemony (IIJ Lab AS hegemony API
+        // for internet-topology shift detection — default
+        // watch Cloudflare + Akamai) + misp_second_level_tlds
+        // (MISP sentinel of 10,315 Mozilla-PSL 2nd-level TLDs).
+        ("romainmarcoux_malicious_ip", 24, "cyber"),
+        ("ihr_hegemony",               24, "cyber"),
+        ("misp_second_level_tlds",     24, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
