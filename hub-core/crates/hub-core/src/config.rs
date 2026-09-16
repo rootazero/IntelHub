@@ -216,6 +216,13 @@ pub struct Config {
     /// = 5 well-known hostnames shipped in wayback.rs so
     /// day-1 surfaces the archive-snapshot lookup flow.
     pub monitor_wayback_watch: Vec<String>,
+    /// RIPE stat as-overview ASN watchlist (env CSV). Each
+    /// entry is an AS number (without 'AS' prefix, e.g.
+    /// "13335" for Cloudflare). Default = 5 well-known ASes
+    /// (Cloudflare / Google / DigitalOcean / Amazon /
+    /// GitHub) shipped in ripe_as_overview.rs so day-1
+    /// surfaces the AS-holder attribution flow.
+    pub monitor_ripe_as_overview_watch: Vec<String>,
     /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
@@ -378,6 +385,7 @@ impl Config {
             monitor_nominatim_queries: env_list("HUB_NOMINATIM_QUERIES"),
             monitor_ripestat_watch: env_list("HUB_RIPESTAT_WATCH"),
             monitor_wayback_watch: env_list("HUB_WAYBACK_WATCH"),
+            monitor_ripe_as_overview_watch: env_list("HUB_RIPE_AS_OVERVIEW_WATCH"),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
             monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),
