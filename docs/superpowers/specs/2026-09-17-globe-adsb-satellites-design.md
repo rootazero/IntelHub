@@ -81,23 +81,24 @@ CREATE INDEX satellites_category_idx ON satellites(category);
 ### 2.2 Redis —— 航空快照
 
 ```
-hub:globe:aircraft   STRING  JSON blob   TTL 60s（单键覆盖写，读端透传）
+hub:globe:aircraft   STRING  JSON blob   TTL 300s（单键覆盖写，读端透传）
 ```
 
 ```json
 {
   "ts": "2026-09-17T08:00:10Z",
   "count": 4213,
-  "regions_ok": 10,
-  "coverage": "hotspots+mil",
+  "coverage": "hotspots+mil+squawk",
+  "cycle_secs": 210,
+  "last_tick": "mil",
   "aircraft": [
-    {"hex":"a1b2c3","flight":"UAL123  ","lat":31.2,"lon":121.4,
-     "alt_m":11278,"gs":452,"track":92,"squawk":"2000","cat":"A5","mil":false}
+    {"hex":"a1b2c3","flight":"UAL123","lat":31.2,"lon":121.4,
+     "alt_m":11278,"gs":452,"track":92,"squawk":"2000","mil":false,"age_s":45}
   ]
 }
 ```
 
-60s TTL = 采集器死亡探测器：快照过期即前端图层降级。
+300s TTL = 采集器死亡探测器：快照过期即前端图层降级。（2026-09-17 实施期修订：adsb.lol 实测可持续配额 ~2-5 req/min，原 11 端点×15s 设计超配 10×，改为轮转采集——见 §3.1。快照因此为累积式：10 分钟窗口内全部目击，逐机 `age_s` 如实标注数据龄期。）
 
 ### 2.3 显著事件 → geo_events（复用现有表，kind=`flight`）
 
@@ -131,23 +132,21 @@ GET /api/v1/globe/satellites?category=stations,military
 
 ### 3.1 `adsb.rs`
 
-- **上游**：adsb.lol v2 REST（免 key）
-  - `/v2/point/{lat}/{lon}/250` × 10 热点区（复用 opensky.rs HOTSPOTS 常量，250nm = API 单点上限）
-  - `/v2/mil` × 1（全球军机，天然全球覆盖，情报价值最高）
-- **节奏**：`interval() = 15s`；scheduler 无最小间隔限制（已验证 scheduler.rs），失败自动 30s→10min 指数退避
-- **并发（超越点）**：`futures::stream::buffer_unordered(4)` 并发 11 端点，tick 墙钟 ~5s→~1s；每请求仍受 Ctx 25s 超时帽保护
+- **上游**：adsb.lol v2 REST（免 key）。**实施期实测：可持续配额 ~2-5 req/min**（容量 4-8、回填 1 token/20-30s），因此采用**轮转采集**而非并发 fan-out：
+  - `interval() = 15s`，**每 tick 单请求**，工作队列 14 项轮转：`[mil, squawk/7700, squawk/7500, squawk/7600, point(热点×10)]`（全周期 3.5min ≈ 4 req/min，在配额内）
+  - point 查询复用 opensky.rs 的 HOTSPOTS 中心点（250nm 上限）；`/v2/squawk/{code}` 提供**全球**紧急代码覆盖（优于原热点内检测）
+  - 单请求失败即 Err → scheduler 退避 30s→10min 正好充当 429 冷却；成功才前进轮转位置
+- **累积快照**：Source 实例内 `Mutex<HashMap<hex,(AdsbPoint,seen_abs)>>`（registry 长存对象，跨 tick 存活），每成功 tick 合并新批（同 hex 保留最新目击）、剔除 >600s 未见、全量重写 Redis envelope（TTL 300s）
 - **tick 流程**：
   ```
-  并发拉取 → 按 hex 去重合并（保留最新 seen）→ classify_notable（纯函数）
-    ├─ squawk 7700 → flash Signal
-    ├─ squawk 7500/7600 → priority Signal
+  取队列项 → 单请求 → parse_ac_array → 累积合并 + 剔除 → 重写 envelope
+    ├─ squawk 7700 → flash Signal（全球）
+    ├─ squawk 7500/7600 → priority Signal（全球）
     ├─ mil 且落热点区 → routine Signal
     └─ 其余 → 无 Signal
-  → SETEX hub:globe:aircraft 60 <envelope>
   → Ok(signals)
   ```
-- **降级**：单区域失败 `continue`（`regions_ok` 递减，快照仍可用）；429/403 全局 `break` 本轮降级；整体失败 Err 交 scheduler
-- **P1 边界**：热点区 + 全球军机，不做全球民航全量（`/v2/all` 出口带宽不划算），envelope `coverage` 字段如实标注
+- **P1 边界**：热点区（3.5min 周期）+ 全球军机 + 全球紧急代码，不做全球民航全量，envelope `coverage`/`cycle_secs`/`age_s` 如实标注
 
 ### 3.2 `celestrak.rs`
 
@@ -199,8 +198,7 @@ VITE_CESIUM_ION_KEY  → Cesium World Terrain + Ion 影像
 
 | 故障点 | 行为 | 用户可见状态 |
 |---|---|---|
-| adsb.lol 单区域失败 | `continue` 跳过 | envelope `regions_ok < 10`，前端提示 |
-| adsb.lol 全挂 / 429 | tick Err → 退避 30s→10min | TTL 过期 →「ADS-B STALE」徽章 + 图层淡出 |
+| adsb.lol 单请求失败 / 429 | tick Err → scheduler 退避（= 429 冷却），轮转位置不动下轮重试 | envelope `last_tick` 停更；退避 >300s →「ADS-B STALE」徽章 + 图层淡出 |
 | CelesTrak 挂 | 退避；PG 保留上一期目录 | 面板显示 TLE 龄期，epoch > 48h 标灰 |
 | Redis 挂 | `redis_timed` 2s 超时 → tick Err → 退避 | 端点返 `{stale:true}` → 同上徽章 |
 | PG 挂 | celestrak 写库 Err → 退避 | 前端 localStorage 缓存 TLE；无缓存显示「目录不可用」 |
