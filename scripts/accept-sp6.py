@@ -121,6 +121,29 @@ check("OSINT Framework bridge collectors present (5/5)",
 osint_keyless = [c for c in ["etherscan", "defillama", "otx", "urlscan"] if states.get(c)]
 check("OSINT Framework keyless collectors ok >= 2", len(osint_keyless) >= 2, ",".join(osint_keyless))
 
+# 2d. Structured /api/v1/health.osint_bridge (added 2026-09-16). The console
+# Monitor page reads the same field, so this check guards both the data
+# shape and the structured fetch. Hardcoded list — adding a new bridge
+# collector is a deliberate Source-registry change, not a config flag.
+ob = health.get("osint_bridge", {})
+ob_collectors = ob.get("collectors", [])
+ob_names = {c.get("name") for c in ob_collectors if isinstance(c, dict)}
+check("OSINT bridge /api/v1/health surfaces 5 collectors (structured)",
+      len(ob_collectors) == 5 and ob_names == set(osint_bridge),
+      f"got={sorted(ob_names)}")
+# Per-collector cadence is exposed so the console can render "next sweep
+# ETA" without a separate config call. Verify the shape carries it.
+ob_with_cadence = [c for c in ob_collectors if isinstance(c, dict)
+                   and isinstance(c.get("cadence_hours"), int) and c["cadence_hours"] > 0]
+check("OSINT bridge collectors carry cadence_hours",
+      len(ob_with_cadence) == 5, f"missing-cadence={set(osint_bridge)-{c['name'] for c in ob_with_cadence}}")
+# Structured `ok` count — at least 4 of 5 must be in state=ok. GFW is
+# allowed to be absent/shelved by design (see gfw.rs docstring for the
+# self-heal trigger conditions).
+ob_ok = [c for c in ob_collectors if c.get("state") == "ok"]
+check("OSINT bridge structured ok >= 4/5 (GFW may shelve)", len(ob_ok) >= 4,
+      ",".join(f"{c['name']}={c.get('state')}" for c in ob_collectors))
+
 # 3. keyless collectors ok
 keyless_ok = [c for c in ["usgs", "noaa", "gdelt", "rss", "opensky", "radiation"] if states.get(c)]
 check("keyless collectors ok >= 4", len(keyless_ok) >= 4, ",".join(keyless_ok))
