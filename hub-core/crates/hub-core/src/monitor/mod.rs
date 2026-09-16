@@ -71,10 +71,17 @@ pub struct Ctx {
     pub http: reqwest::Client,
     pub config: Arc<crate::Config>,
     pub limiter: Arc<limiter::RateLimiter>,
+    /// Shared application state (PG, Redis, Neo4j, etc.). Added 2026-09-16
+    /// so Source impls that need DB access (e.g. OTX → create_claim bridge)
+    /// can write without going through the ingest path. NOT carried by
+    /// SeriesCollector-style collectors — those get `&AppState` directly via
+    /// `SeriesCollector::collect`. Series collectors stay cheap.
+    pub state: Arc<crate::AppState>,
 }
 
 impl Ctx {
-    pub fn new(config: Arc<crate::Config>) -> Result<Self> {
+    pub fn new(state: Arc<crate::AppState>) -> Result<Self> {
+        let config = state.config.clone();
         // Browser UA: Cloudflare (error 1010) bans bot-signature clients on
         // several collectors' upstreams (acleddata.com confirmed 2026-09 — a
         // browser UA passes, an honest "intelhub-monitor" UA gets 403'd).
@@ -86,6 +93,7 @@ impl Ctx {
             http,
             config,
             limiter: Arc::new(limiter::RateLimiter::new()),
+            state,
         })
     }
 }
@@ -192,6 +200,15 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // maritime transport cluster. Shelved by design when GFW_API_TOKEN
         // is unset (free token via globalfishingwatch.org/our-apis).
         Box::new(sources::gfw::Gfw),
+        // OSINT Framework bridge 2 (2026-09-16): Overpass (OpenStreetMap
+        // POI watcher) + Ahmia (tor hidden-service search) + OpenCorporates
+        // (global company registry). Overpass/Ahmia are keyless with
+        // graceful degradation on rate-limit; OpenCorp needs a free
+        // OPENCORP_API_TOKEN (shelved-by-design without). See each
+        // module's docstring for the exact self-heal trigger.
+        Box::new(sources::overpass::Overpass),
+        Box::new(sources::ahmia::Ahmia),
+        Box::new(sources::opencorp::Opencorp),
     ]
 }
 
