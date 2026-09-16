@@ -316,6 +316,19 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::misp_rfc5735::MispRfc5735),
         Box::new(sources::misp_rfc6761::MispRfc6761),
         Box::new(sources::tor_exit_details::TorExitDetails),
+        // OSINT Framework bridge 12 (2026-09-17): three free
+        // keyless collectors that fill OSINT Framework gaps —
+        // romainmarcoux_malicious_ip (40K most-malicious IPs
+        // aggregator, metadata-pattern) + ihr_hegemony (IIJ
+        // Lab REST API tracking AS customer-cone reach for
+        // internet-topology shift detection — default watch
+        // Cloudflare 13335 + Akamai 20940, 100+ dependents
+        // each) + misp_second_level_tlds (MISP sentinel of
+        // 10,315 Mozilla-PSL 2nd-level TLDs for OSINT false-
+        // positive suppression on hostname indicators).
+        Box::new(sources::romainmarcoux_malicious_ip::RomainmarcouxMaliciousIp),
+        Box::new(sources::ihr_hegemony::IhrHegemony::default()),
+        Box::new(sources::misp_second_level_tlds::MispSecondLevelTlds),
     ]
 }
 
