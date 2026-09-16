@@ -118,8 +118,8 @@ for c in cells:
     v = redis("HGET", "hub:monitor:health", c)
     states[c] = '"state":"ok"' in v.replace(" ", "")
 present = [c for c in osint_bridge if c in cells]
-check("OSINT Framework bridge collectors present (5/5)",
-      len(present) == 5, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
+check("OSINT Framework bridge collectors present (8/8)",
+      len(present) == 8, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
 # etherscan / defillama / otx / urlscan run keyless (free public endpoints),
 # so they should reach "ok" within a few cycles. GFW may stay in any state if
 # its token is missing — that's a known shelf, not a regression.
