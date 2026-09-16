@@ -160,6 +160,82 @@ pub async fn system_health(state: &AppState) -> Value {
             .unwrap_or(false)
     })
     .await;
+    // OSINT Framework bridge (2026-09-16): structured per-collector health
+    // for the 5 collectors that fill the osintframework.com gaps. Hardcoded
+    // list — adding a new bridge collector is a deliberate registry change,
+    // not a data-driven one. Each entry reads its Redis cell and surfaces
+    // cadence_hours so the console Monitor page and accept-sp6.py can render
+    // "next sweep ETA" without a separate config call. Cheap (~5 redis
+    // HGETs) and only runs as part of system_health().
+    let osint_bridge_collectors: &[(&str, u32, &str)] = &[
+        ("etherscan",  6, "financial"),
+        ("defillama",  4, "financial"),
+        ("otx",        4, "cyber"),
+        ("urlscan",    4, "cyber"),
+        ("gfw",       12, "transport"),
+    ];
+    let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
+    for (name, cadence_hours, kind) in osint_bridge_collectors {
+        let cell: Option<String> = state
+            .redis_timed(redis::cmd("HGET").arg("hub:monitor:health").arg(*name).clone(), 1500)
+            .await;
+        let entry = match cell {
+            Some(raw) => {
+                let parsed: Option<Value> = serde_json::from_str(&raw).ok();
+                let state_str = parsed
+                    .as_ref()
+                    .and_then(|p| p.get("state"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                let last_fetched = parsed
+                    .as_ref()
+                    .and_then(|p| p.get("last_fetched"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let last_new = parsed
+                    .as_ref()
+                    .and_then(|p| p.get("last_new"))
+                    .and_then(|x| x.as_i64())
+                    .unwrap_or(0);
+                let ts = parsed
+                    .as_ref()
+                    .and_then(|p| p.get("ts"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                json!({
+                    "name": name,
+                    "kind": kind,
+                    "cadence_hours": cadence_hours,
+                    "state": state_str,
+                    "last_fetched": last_fetched,
+                    "last_new": last_new,
+                    "ts": ts,
+                })
+            }
+            None => json!({
+                "name": name,
+                "kind": kind,
+                "cadence_hours": cadence_hours,
+                "state": "absent",
+                "last_fetched": 0,
+                "last_new": 0,
+                "ts": "",
+            }),
+        };
+        osint_bridge.push(entry);
+    }
+    let osint_bridge_present = osint_bridge.iter()
+        .filter(|c| c.get("state").and_then(|s| s.as_str()) == Some("ok"))
+        .count();
+    let osint_bridge = json!({
+        "summary": {
+            "present": osint_bridge_present,
+            "total": osint_bridge.len(),
+        },
+        "collectors": osint_bridge,
+    });
     let prometheus = probe(|| async {
         let url = format!("{}/-/healthy", state.config.prometheus_url);
         matches!(state.http.get(&url).send().await, Ok(r) if r.status().is_success())
@@ -187,6 +263,7 @@ pub async fn system_health(state: &AppState) -> Value {
             "prometheus": prometheus,
             "grafana": grafana,
         },
+        "osint_bridge": osint_bridge,
         "containers": containers,
     })
 }
