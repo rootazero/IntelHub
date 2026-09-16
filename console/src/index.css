@@ -23,6 +23,28 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--color-edge); border-radius: 4px; }
 
+/* Radar map container (post-2026-09-15 MapLibre migration). */
+.radar-map-wrap .maplibregl-map { background: #0a0e14; height: 100%; border-radius: 0 0 8px 8px; }
+.radar-map-wrap .maplibregl-canvas-container { background: #0a0e14; }
+.radar-marker {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  transition: transform 120ms ease-out, opacity 200ms;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.radar-marker:hover { transform: translate(-50%, -50%) scale(1.2); z-index: 10; }
+.radar-marker.radar-marker-flash {
+  animation: radar-marker-pulse 1.6s ease-in-out infinite;
+}
+@keyframes radar-marker-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 currentColor, 0 0 8px currentColor; }
+  50% { transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 0 0 6px transparent, 0 0 16px currentColor; }
+}
+
 /* Radar map controls (top-right): shared with the command-deck <MapControls>.
    Panel-style theme — no glassmorphic blur, just border + panel bg. */
 .radar-map-ctrl .map-ctrl-btn {
