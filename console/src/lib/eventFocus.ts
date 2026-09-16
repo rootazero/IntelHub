@@ -29,20 +29,20 @@ import type { Map as LMap } from "leaflet";
 
 /** Zoom level when focusing on an event (continent level). */
 export const EVENT_FOCUS_ZOOM = 5;
-/** FlyTo animation duration, in seconds. */
-export const EVENT_FOCUS_DURATION = 1.2;
 
-/** Minimum event shape required for the focus call. */
+/** Minimum event shape required for the focus call. Generic
+ *  parameter lets callers (Radar's GeoEvent, etc.) satisfy the
+ *  constraint without an index signature — TS structural typing
+ *  treats the index signature as the discriminator otherwise. */
 export interface FocusableEvent {
   lat: number;
   lon: number;
-  [k: string]: unknown;
 }
 
 /** Per-call side-effect options. */
-export interface FocusOptions {
+export interface FocusOptions<E extends FocusableEvent = FocusableEvent> {
   /** Set the page's selected-event state to the focused event. */
-  setSelected?: (e: FocusableEvent) => void;
+  setSelected?: (e: E) => void;
   /**
    * Set this ref to `true` to claim the view against any pending
    * map-init settle timers (see Ruling R14 / 2026-09-15 race fix).
@@ -58,16 +58,25 @@ export interface FocusOptions {
  * still happens, the map call is a no-op. The next mount that owns
  * a non-null mapRef should call this again from its own useEffect.
  */
-export function focusOnEvent(
+export function focusOnEvent<E extends FocusableEvent>(
   map: LMap | null | undefined,
-  event: FocusableEvent,
-  options: FocusOptions = {},
+  event: E,
+  options: FocusOptions<E> = {},
 ): void {
   if (options.claim) options.claim.current = true;
   options.setSelected?.(event);
   if (!map) return;
-  map.flyTo([event.lat, event.lon], EVENT_FOCUS_ZOOM, {
-    animate: true,
-    duration: EVENT_FOCUS_DURATION,
-  });
+  // setView(animate:false), not flyTo or setView(animate:true). Two
+  // Leaflet quirks drove this:
+  //   1. flyTo (and setView animate:true) called on a map that already
+  //      has another animation in flight silently no-ops — observed on
+  //      Radar where the deep-link flyTo worked on first arrival but a
+  //      marker click afterwards had no visual effect.
+  //   2. flyToBounds(REGIONS.world) — world bounds span -179..180 across
+  //      the antimeridian and Leaflet's fitBounds computes the same
+  //      view it already has, looking like a no-op.
+  // Instant snap is the right verb here: focus and reset are deliberate
+  // gestures, not ambient motion. The 300ms settle race in the deep-link
+  // effect is still guarded by `claim`.
+  map.setView([event.lat, event.lon], EVENT_FOCUS_ZOOM, { animate: false });
 }

@@ -19,6 +19,10 @@ type MapViewCtx = {
   zoomIn: () => void;
   zoomOut: () => void;
   reset: () => void;
+  /** Pages register a callback to run when the ⌂ button is clicked —
+   *  e.g. Radar closes its right drawer here so a 'back to global' click
+   *  also clears the focused event's detail panel. */
+  registerOnReset: (cb: () => void) => () => void;
 };
 
 const Ctx = createContext<MapViewCtx | null>(null);
@@ -26,6 +30,7 @@ const Ctx = createContext<MapViewCtx | null>(null);
 export function MapViewProvider({ children }: { children: React.ReactNode }) {
   const [region, setRegion] = useState<RegionKey>("world");
   const mapRef = useRef<LMap | null>(null);
+  const onResetRef = useRef<(() => void) | null>(null);
 
   const attach = useCallback((m: LMap | null) => {
     mapRef.current = m;
@@ -43,17 +48,29 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
   // Reset is unconditional: after focusOnEvent() zooms the map to a
   // continent but leaves the `region` state as "world", a plain
   // setRegion("world") would be a no-op (state already === "world").
-  // We flyToBounds directly so the click always returns the user to
-  // world view, regardless of whether the page's region state agrees.
+  // We setView directly so the click always returns the user to world
+  // view, regardless of whether the page's region state agrees.
+  // animate:false because Leaflet's flyTo/flyToBounds/animate:true
+  // silently no-ops when called after another animation (the well-
+  // known "second animation no-op" Leaflet bug). The ⌂ button is an
+  // explicit "give me world back" gesture; instant snap is the right
+  // verb.
   const reset = useCallback(() => {
     const m = mapRef.current;
-    if (m) m.flyToBounds(REGIONS.world, { animate: true, duration: 0.6 });
+    if (m) m.setView([25, 10], 2, { animate: false });
+    onResetRef.current?.();
     setRegion("world");
+  }, []);
+  const registerOnReset = useCallback((cb: () => void) => {
+    onResetRef.current = cb;
+    return () => {
+      if (onResetRef.current === cb) onResetRef.current = null;
+    };
   }, []);
 
   const value = useMemo<MapViewCtx>(
-    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset }),
-    [region, attach, zoomIn, zoomOut, reset],
+    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset, registerOnReset }),
+    [region, attach, zoomIn, zoomOut, reset, registerOnReset],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
