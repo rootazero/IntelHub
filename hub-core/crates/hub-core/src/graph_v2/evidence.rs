@@ -73,10 +73,10 @@ mod tests {
     /// refactor that changes the signature surfaces as a compile error in
     /// the integration harness rather than silently at the call sites.
     #[allow(dead_code)]
-    fn _sig_compiles(
-        ids: &[uuid::Uuid],
-        pool: &sqlx::PgPool,
-    ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> {
+    fn _sig_compiles<'a>(
+        ids: &'a [uuid::Uuid],
+        pool: &'a sqlx::PgPool,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> + use<'a> {
         super::validate_doc_ids(ids, pool)
     }
 
@@ -84,10 +84,10 @@ mod tests {
     /// the function shape and the static-string contract on `table` and
     /// `pk_col`.
     #[allow(dead_code)]
-    fn _fk_sig_compiles(
+    fn _fk_sig_compiles<'a>(
         id: uuid::Uuid,
-        pool: &sqlx::PgPool,
-    ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> {
+        pool: &'a sqlx::PgPool,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::HubError>> + use<'a> {
         super::validate_id_exists("claims", "claim_id", id, "claim_id", pool)
     }
 }

@@ -70,14 +70,14 @@ mod tests {
 
     /// Compile-time signature check.
     #[allow(dead_code)]
-    fn _sig_compiles(
+    fn _sig_compiles<'a>(
         a: uuid::Uuid,
         b: uuid::Uuid,
-        reason: &str,
-        actor: &str,
+        reason: &'a str,
+        actor: &'a str,
         task: Option<uuid::Uuid>,
-        pool: &sqlx::PgPool,
-    ) -> impl std::future::Future<Output = Result<i64, crate::error::HubError>> {
+        pool: &'a sqlx::PgPool,
+    ) -> impl std::future::Future<Output = Result<i64, crate::error::HubError>> + use<'a> {
         super::record(a, b, reason, actor, task, pool)
     }
 }
