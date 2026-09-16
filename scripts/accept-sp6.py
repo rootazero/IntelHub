@@ -79,6 +79,14 @@ check("health components.monitor present", "monitor" in health.get("components",
 cells = redis("HKEYS", "hub:monitor:health").split()
 check("collector health cells >= 8", len(cells) >= 8, ",".join(sorted(cells)))
 
+# 2a. populate per-collector state map once (used by sections 2b, 2c, and 3).
+# Captured after the first sweep completes; new collectors get their health
+# cell written on first fetch() success regardless of fetched count.
+states = {}
+for c in cells:
+    v = redis("HGET", "hub:monitor:health", c)
+    states[c] = '"state":"ok"' in v.replace(" ", "")
+
 # 2b. SP8 batch-A sources visible on the health board (any state — they just
 # started; gdelt-style upstream penalties must not fail acceptance)
 newA = [c for c in ["reliefweb", "who", "cisa-kev", "gscpi"] if c in cells]
@@ -90,11 +98,30 @@ check("SP8-C social collectors present (bluesky/telegram-watch/x)",
       all(c in cells for c in ["bluesky", "telegram-watch", "x"]),
       ",".join(c for c in ["bluesky", "telegram-watch", "x"] if c in cells))
 
-# 3. keyless collectors ok
-states = {}
+# 2c. OSINT Framework bridge (https://osintframework.com gap analysis 2026-09):
+# Etherscan (blockchain large-tx), DefiLlama (DeFi TVL anomaly), OTX (community
+# threat-intel), urlscan (live URL scans), GFW (vessel events). All five must be
+# present on the health board; the GFW one may be shelved when GFW_API_TOKEN
+# is missing (free signup, not deployed yet).
+#
+# Re-query cells and states here: the OSINT bridge collectors sit at the
+# tail of the source stagger (idx > 26 ⇒ ~80-93s before first sweep), so
+# the cells captured at script start pre-date their health cells.
+osint_bridge = ["etherscan", "defillama", "otx", "urlscan", "gfw"]
+cells = redis("HKEYS", "hub:monitor:health").split()
 for c in cells:
     v = redis("HGET", "hub:monitor:health", c)
     states[c] = '"state":"ok"' in v.replace(" ", "")
+present = [c for c in osint_bridge if c in cells]
+check("OSINT Framework bridge collectors present (5/5)",
+      len(present) == 5, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
+# etherscan / defillama / otx / urlscan run keyless (free public endpoints),
+# so they should reach "ok" within a few cycles. GFW may stay in any state if
+# its token is missing — that's a known shelf, not a regression.
+osint_keyless = [c for c in ["etherscan", "defillama", "otx", "urlscan"] if states.get(c)]
+check("OSINT Framework keyless collectors ok >= 2", len(osint_keyless) >= 2, ",".join(osint_keyless))
+
+# 3. keyless collectors ok
 keyless_ok = [c for c in ["usgs", "noaa", "gdelt", "rss", "opensky", "radiation"] if states.get(c)]
 check("keyless collectors ok >= 4", len(keyless_ok) >= 4, ",".join(keyless_ok))
 
