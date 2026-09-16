@@ -1,17 +1,29 @@
 // Radar (§26) — global signal map fed by hub geo_events (native monitor sweeps).
 // Dual basemap: CARTO dark tiles by default; on tile failure burst or first
 // load timeout, falls back to the bundled offline world vector layer.
+//
+// Post-2026-09-15: migrated from Leaflet to MapLibre GL JS.
+//   * HTML markers (custom div + new maplibregl.Marker) instead of
+//     L.circleMarker. Each marker is a separate DOM element, allowing
+//     full CSS control (pulse animation, dim filter, etc.).
+//   * fitBounds for region navigation is reliable on MapLibre — the
+//     old Leaflet "stuck-render" bug (commits cd8df25 and earlier)
+//     is gone. The deepLinkFocused ref-flag race workaround is also
+//     gone since the underlying bug no longer exists.
+//   * All coordinate-order gotchas (lat,lng vs lng,lat) are handled at
+//     the Leaflet-callback boundary — in this file we just speak
+//     [lng, lat] to MapLibre.
+
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import maplibregl, { Map as MlMap, Marker as MlMarker, type StyleSpecification } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
 import { KINDS, kindColor, sevRadius } from "../kindmeta";
 import { focusOnEvent } from "../lib/eventFocus";
-import { PROVIDERS, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
+import { buildStyle, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
 import type { TileProvider, TilesMode } from "../basemap";
-import { REGIONS } from "../mapControls";
 import { useMapView } from "../useMapView";
 import { MapControls } from "../components/MapControls";
 
@@ -45,9 +57,8 @@ export default function Radar() {
   const { t } = useT();
   const en = useEnum();
   const { region, attach, registerOnReset } = useMapView();
-  const mapRef = useRef<L.Map | null>(null);
-  const layerRef = useRef<L.LayerGroup | null>(null);
-  const baseRef = useRef<L.Layer | null>(null);
+  const mapRef = useRef<MlMap | null>(null);
+  const markersRef = useRef<Map<string, MlMarker>>(new Map());
   const divRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<GeoEvent[]>([]);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
@@ -63,170 +74,82 @@ export default function Radar() {
   const deepLinkEventId = searchParams.get("event");
   const [deepLinkMissing, setDeepLinkMissing] = useState<string | null>(null);
   const failCount = useRef(0);
-  const tileProvider = useRef<TileProvider>(PRIMARY);
-  const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
-  // skip the first run: the map-init effect below already fitBounds to
-  // REGIONS[region]; calling flyToBounds again here would hit Leaflet
-  // before the init RAF has set the view → 'Set map center and zoom first'
-  // error, React unmounts the whole tree.
-  const skipFirstRegion = useRef(true);
-  // Deep-link coordination: when /radar?event=<id> lands, the deep-link
-  // effect calls mapRef.flyTo(event) with a 1.2s animation. The map-init
-  // effect also schedules a 300ms 'settle' setTimeout that fitBounds(world)
-  // {animate:false} — if events arrive faster than 300ms (typical), the
-  // settle fires MID-animation and snaps the map back to world view.
-  // Fix: deep-link sets this to true BEFORE calling flyTo, and the settle
-  // timeout's fit() checks the flag and no-ops if it's been claimed.
-  const deepLinkFocused = useRef(false);
+  const tileProvider = useRef<TileProvider | "offline">(PRIMARY);
+  const styleSpec = useRef<StyleSpecification | null>(null);
 
   // ---- map init (once) ----
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
-    const map = L.map(divRef.current, {
-      center: [25, 10],
-      zoom: 2,
-      minZoom: 2,
+    const map = new maplibregl.Map({
+      container: divRef.current,
+      style: buildStyle(PRIMARY),
+      center: [10, 25],
+      zoom: 1.5,
+      minZoom: 1,
       maxZoom: 10,
-      worldCopyJump: true,
-      attributionControl: true,
-      // Default zoom widget would compete with <MapControls>; disable it
-      // and let the shared component render zoom + region in the top-right.
-      zoomControl: false,
+      attributionControl: { compact: true },
+      // We provide our own zoom widget via <MapControls>; the default
+      // zoom widget would compete with that, so suppress it.
     });
     mapRef.current = map;
-    layerRef.current = L.layerGroup().addTo(map);
+    styleSpec.current = buildStyle(PRIMARY);
+    setTiles(PRIMARY);
+    tileProvider.current = PRIMARY;
     attach(map);
     // When the ⌂ reset button is clicked (or any other consumer of
     // useMapView.reset()), also close the right drawer — the user is
     // explicitly leaving the focused event behind.
     const unregisterReset = registerOnReset(() => setSelected(null));
-    const fit = () => {
-      map.invalidateSize();
-      // If the deep-link already focused the map on an event, the settle
-      // fit would snap back to world view mid-animation. Skip.
-      if (deepLinkFocused.current) return;
-      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitBounds(REGIONS[region], { animate: false });
-    };
-    const raf = requestAnimationFrame(fit);
-    const settle = setTimeout(fit, 300);
-    addTileLayer(map, PRIMARY);
-
-    // first-load timeout: if tiles are erroring after 5s, advance one tier
-    const t = setTimeout(() => {
-      if (failCount.current > 0 && baseRef.current) failover();
+    // Resize observer: MapLibre doesn't auto-resize when the container
+    // size changes. Call map.resize() whenever the panel reflows.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(divRef.current);
+    // First-load timeout: if tiles are erroring after 5s, advance one
+    // tier. The MapLibre 'error' event covers tile fetch failures.
+    const tm = setTimeout(() => {
+      if (failCount.current > 0 && tileProvider.current !== "offline") {
+        const next = CHAIN[CHAIN.indexOf(tileProvider.current as TileProvider) + 1] as TileProvider | undefined;
+        if (next) switchProvider(next);
+        else void goOffline();
+      }
     }, 5000);
+    function switchProvider(next: TileProvider) {
+      const m = mapRef.current;
+      if (!m) return;
+      tileProvider.current = next;
+      styleSpec.current = buildStyle(next);
+      m.setStyle(buildStyle(next), { diff: false });
+      setTiles(next);
+      failCount.current = 0;
+    }
+    async function goOffline() {
+      const m = mapRef.current;
+      if (!m) return;
+      tileProvider.current = "offline";
+      m.setStyle(buildStyle("offline"), { diff: false });
+      setTiles("offline");
+    }
+    map.on("idle", () => { failCount.current = 0; });
+    map.on("error", (e) => {
+      // Tile fetch errors increment a counter; once it crosses the
+      // threshold, we advance the chain.
+      failCount.current += 1;
+      if (failCount.current >= 4) {
+        const next = CHAIN[CHAIN.indexOf(tileProvider.current as TileProvider) + 1] as TileProvider | undefined;
+        if (next) switchProvider(next);
+        else void goOffline();
+      }
+    });
     return () => {
-      clearTimeout(t);
-      clearTimeout(settle);
-      cancelAnimationFrame(raf);
+      clearTimeout(tm);
+      ro.disconnect();
       unregisterReset();
       attach(null);
+      map.remove();
+      mapRef.current = null;
     };
-    // region is intentionally NOT in deps — initial mount only; region
-    // changes are handled by a dedicated effect (smoother, separate animate).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Smooth region transition when user clicks a region button. We
-  // don't run this from a useEffect on the `region` state because
-  // Leaflet has a 'frozen viewBox' bug: the first 4-5 region changes
-  // (via either fitBounds or setView in a useEffect) update correctly,
-  // then the SVG viewBox stops responding even though the map_pane
-  // transform does change. The bug is not on a specific Leaflet
-  // method; both fitBounds and setView hit it. Repro is headless and
-  // consistent.
-  //
-  // Workaround: skip the useEffect entirely. The page-level region
-  // state is still the source of truth (so MapControls and
-  // MonitorMap stay in lockstep), but the actual map operation is
-  // performed by an imperative call from MapControls via
-  // useMapView.flyToRegion. The effect here only handles the FIRST
-  // fit (initial mount / re-mount on region change to "world") to
-  // keep startup behavior consistent.
-  useEffect(() => {
-    if (skipFirstRegion.current) { skipFirstRegion.current = false; return; }
-    const map = mapRef.current;
-    if (!map) return;
-    const bounds = REGIONS[region] as [[number, number], [number, number]];
-    const [[sLat, wLng], [nLat, eLng]] = bounds;
-    const center: L.LatLngExpression = [(sLat + nLat) / 2, (wLng + eLng) / 2];
-    const size = map.getSize();
-    const zoomX = Math.log2((size.x * 360) / ((eLng - wLng) * 256));
-    const zoomY = Math.log2((size.y * 180) / ((nLat - sLat) * 256));
-    const zoom = Math.max(1, Math.floor(Math.min(zoomX, zoomY)));
-    map.stop();
-    map.setView(center, zoom, { animate: false });
-  }, []); // mount only — see comment above
-
-  function addTileLayer(map: L.Map, provider: TileProvider) {
-    const p = PROVIDERS[provider];
-    const layer = L.tileLayer(p.url, p.options);
-    layer.on("tileerror", () => {
-      failCount.current += 1;
-      if (failCount.current >= 4) failover();
-    });
-    layer.on("tileload", () => {
-      failCount.current = 0;
-    });
-    baseRef.current = layer;
-    layer.addTo(map);
-    tileProvider.current = provider;
-    setTiles(provider);
-  }
-
-  // advance the basemap chain along CHAIN; last resort is offline GeoJSON
-  function failover() {
-    const map = mapRef.current;
-    if (!map) return;
-    const idx = CHAIN.indexOf(tileProvider.current);
-    const next = CHAIN[idx + 1] as TileProvider | undefined;
-    if (next) {
-      if (baseRef.current) {
-        map.removeLayer(baseRef.current);
-        baseRef.current = null;
-      }
-      failCount.current = 0;
-      addTileLayer(map, next);
-    } else {
-      void goOffline();
-    }
-  }
-
-  async function goOffline() {
-    const map = mapRef.current;
-    if (!map) return;
-    if (baseRef.current) {
-      map.removeLayer(baseRef.current);
-      baseRef.current = null;
-    }
-    if (!offlineGeo.current) {
-      try {
-        const r = await fetch("/world-110m.geo.json");
-        offlineGeo.current = (await r.json()) as GeoJSON.GeoJSON;
-      } catch {
-        return;
-      }
-    }
-    baseRef.current = L.geoJSON(offlineGeo.current, {
-      style: {
-        color: "#2a3b4d",
-        weight: 0.8,
-        fillColor: "#101820",
-        fillOpacity: 0.85,
-      },
-    });
-    baseRef.current.addTo(map);
-    setTiles("offline");
-  }
-
-  // manual retry: back to the top of the chain
-  function goOnline() {
-    const map = mapRef.current;
-    if (!map) return;
-    if (baseRef.current) map.removeLayer(baseRef.current);
-    failCount.current = 0;
-    addTileLayer(map, PRIMARY);
-  }
 
   // ---- data ----
   // Kind filtering is CLIENT-side: the bottom chips double as a live legend,
@@ -267,7 +190,8 @@ export default function Radar() {
     setDeepLinkMissing(null);
     // Shared utility — same behavior as the click handler, so the
     // deep-link landing and a direct page-2 click feel identical.
-    focusOnEvent(mapRef.current, ev, { setSelected, claim: deepLinkFocused });
+    setSelected(ev);
+    focusOnEvent(mapRef.current, ev);
   }, [deepLinkEventId, events.length, setSearchParams]);
 
   // SSE: refetch on new sweep ingestion
@@ -281,20 +205,30 @@ export default function Radar() {
 
   // ---- markers ----
   useEffect(() => {
-    const lg = layerRef.current;
-    if (!lg) return;
-    lg.clearLayers();
+    const map = mapRef.current;
+    if (!map) return;
+    // Clear existing markers.
+    for (const m of markersRef.current.values()) m.remove();
+    markersRef.current.clear();
     for (const e of visible) {
-      const m = L.circleMarker([e.lat, e.lon], {
-        radius: sevRadius(e.severity),
-        color: kindColor(e.kind),
-        weight: e.severity === "flash" ? 2 : 1,
-        fillColor: kindColor(e.kind),
-        fillOpacity: e.severity === "info" ? 0.35 : 0.6,
+      const el = document.createElement("div");
+      const size = sevRadius(e.severity) * 2 + 6;
+      el.className = e.severity === "flash" ? "radar-marker radar-marker-flash" : "radar-marker";
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.background = kindColor(e.kind);
+      el.style.borderColor = kindColor(e.kind);
+      el.style.opacity = e.severity === "info" ? "0.55" : "0.85";
+      el.title = `${e.kind} · ${e.title}`;
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        setSelected(e);
+        focusOnEvent(mapRef.current, e);
       });
-      m.on("click", () => focusOnEvent(mapRef.current, e, { setSelected, claim: deepLinkFocused }));
-      m.bindTooltip(`${en("kind", e.kind)} · ${e.title}`, { direction: "top" });
-      m.addTo(lg);
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([e.lon, e.lat])
+        .addTo(map);
+      markersRef.current.set(e.event_id, marker);
     }
   }, [visible]);
 
@@ -374,7 +308,14 @@ export default function Radar() {
             {tiles === PRIMARY ? t("radar.tilesOnline") : tiles === "esri" ? t("radar.tilesEsri") : t("radar.tilesOffline")}
           </span>
           {tiles !== PRIMARY && (
-            <button className="rounded border border-edge px-1.5 py-0.5 text-[10px] hover:border-accent" onClick={goOnline}>
+            <button className="rounded border border-edge px-1.5 py-0.5 text-[10px] hover:border-accent" onClick={() => {
+              const map = mapRef.current;
+              if (!map) return;
+              tileProvider.current = PRIMARY;
+              map.setStyle(buildStyle(PRIMARY), { diff: false });
+              setTiles(PRIMARY);
+              failCount.current = 0;
+            }}>
               {t("radar.retryOnline")}
             </button>
           )}
