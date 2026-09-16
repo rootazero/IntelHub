@@ -106,20 +106,22 @@ check("SP8-C social collectors present (bluesky/telegram-watch/x)",
 #
 # Bridge 2 (2026-09-16): Overpass (OSM POI watcher, keyless), Ahmia (tor
 # hidden-service search, keyless HTML scrape), OpenCorporates (global
-# company registry, free token shelved-by-design).
+# company registry, paid-only token shelved-by-design).
+# Bridge 2.1 (2026-09-17): Wikidata (free, keyless entity enrichment
+# counterpart to OpenCorp — same OSINT Framework gap, different upstream).
 #
 # Re-query cells and states here: the OSINT bridge collectors sit at the
 # tail of the source stagger (idx > 26 ⇒ ~80-93s before first sweep), so
 # the cells captured at script start pre-date their health cells.
 osint_bridge = ["etherscan", "defillama", "otx", "urlscan", "gfw",
-                "overpass", "ahmia", "opencorp"]
+                "overpass", "ahmia", "opencorp", "wikidata"]
 cells = redis("HKEYS", "hub:monitor:health").split()
 for c in cells:
     v = redis("HGET", "hub:monitor:health", c)
     states[c] = '"state":"ok"' in v.replace(" ", "")
 present = [c for c in osint_bridge if c in cells]
-check("OSINT Framework bridge collectors present (8/8)",
-      len(present) == 8, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
+check("OSINT Framework bridge collectors present (9/9)",
+      len(present) == 9, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
 # etherscan / defillama / otx / urlscan run keyless (free public endpoints),
 # so they should reach "ok" within a few cycles. GFW may stay in any state if
 # its token is missing — that's a known shelf, not a regression.
@@ -133,23 +135,23 @@ check("OSINT Framework keyless collectors ok >= 2", len(osint_keyless) >= 2, ","
 ob = health.get("osint_bridge", {})
 ob_collectors = ob.get("collectors", [])
 ob_names = {c.get("name") for c in ob_collectors if isinstance(c, dict)}
-check("OSINT bridge /api/v1/health surfaces 8 collectors (structured)",
-      len(ob_collectors) == 8 and ob_names == set(osint_bridge),
+check("OSINT bridge /api/v1/health surfaces 9 collectors (structured)",
+      len(ob_collectors) == 9 and ob_names == set(osint_bridge),
       f"got={sorted(ob_names)}")
 # Per-collector cadence is exposed so the console can render "next sweep
 # ETA" without a separate config call. Verify the shape carries it.
 ob_with_cadence = [c for c in ob_collectors if isinstance(c, dict)
                    and isinstance(c.get("cadence_hours"), int) and c["cadence_hours"] > 0]
-check("OSINT bridge collectors carry cadence_hours (8/8)",
-      len(ob_with_cadence) == 8, f"missing-cadence={set(osint_bridge)-{c['name'] for c in ob_with_cadence}}")
+check("OSINT bridge collectors carry cadence_hours (9/9)",
+      len(ob_with_cadence) == 9, f"missing-cadence={set(osint_bridge)-{c['name'] for c in ob_with_cadence}}")
 # Structured `ok` count — at least 4 of 5 must be in state=ok. GFW is
 # allowed to be absent/shelved by design (see gfw.rs docstring for the
 # self-heal trigger conditions).
 ob_ok = [c for c in ob_collectors if c.get("state") == "ok"]
-# Bridge 2 adds 2 keyless (overpass, ahmia) + 1 key-gated (opencorp).
-# Keyless should land ok; opencorp stays absent or "ok/0 new" without token.
-# GFW may shelve by design. So minimum ok = 6/8.
-check("OSINT bridge structured ok >= 6/8 (GFW+OpenCorp may shelve)", len(ob_ok) >= 6,
+# Bridge 2 + 2.1: 3 keyless (overpass/ahmia/wikidata) + 1 paid (opencorp).
+# Keyless should land ok; opencorp stays "ok/0 new" without token.
+# GFW may shelve by design. So minimum ok = 7/9.
+check("OSINT bridge structured ok >= 7/9 (GFW+OpenCorp may shelve)", len(ob_ok) >= 7,
       ",".join(f"{c['name']}={c.get('state')}" for c in ob_collectors))
 
 # 3. keyless collectors ok

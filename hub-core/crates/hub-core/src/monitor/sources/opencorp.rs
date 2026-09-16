@@ -5,25 +5,31 @@
 //! company's registered address (or HQ jurisdiction capital if the
 //! address isn't returned).
 //!
-//! - **AUTH REQUIRED**: OpenCorporates requires an `api_token` query
-//!   parameter. Free tier is 200 calls/month — fine for one call per
-//!   watch entry per day (5 entries × 30 days = 150 calls/month). Apply
-//!   at https://api.opencorporates.com/ — registration is instant, the
-//!   token is shown on the dashboard.
+//! - **AUTH REQUIRED**: OpenCorporates API is **PAID ONLY** as of
+//!   2026-09 (verified — cheapest self-serve tier is £225/month /
+//!   £2,250/year; no free tier for production use). Earlier
+//!   documentation referenced a 200-call/month free tier that has been
+//!   retired. Until a paid token is configured, this collector stays
+//!   SHELVED-BY-DESIGN (visible on health board, 0 events, clear ERROR
+//!   log every sweep so the cost is loud, not silent).
 //! - **SHELVED-BY-DESIGN** without a token (verified 2026-09-16: HTTP
 //!   401 with `{"error":{"message":"Invalid Api Token"}}`). The
 //!   collector stays visible on the health board and self-heals the
-//!   moment a token is configured.
+//!   moment a paid token is configured.
+//! - **TO ACTIVATE**: register at https://api.opencorporates.com/,
+//!   choose a paid plan, set `OPENCORP_API_TOKEN=<token>` in
+//!   `core/secrets.env`, restart hub-core. Cheapest self-serve plan is
+//!   £225/month (Annual) or £270/month (Monthly) at
+//!   https://opencorporates.com/pricing/.
 //! - **WATCHLIST**: HUB_OPENCORP_WATCH env var is a comma-list of
 //!   `name|jurisdiction_code` pairs (e.g. `Tesla Inc|us_de`,
 //!   `LockBit Group|gb`). Default ships with 5 sentinel queries that
 //!   match high-profile OFAC/sanctioned entities — these keep returning
 //!   data as long as OpenCorporates has jurisdiction coverage.
 //! - **KIND**: "financial" (matches etherscan/defillama visual cluster).
-//! - **RATE LIMIT**: free tier = 200/month. Each sweep uses 1 call per
-//!   watch entry. 24h cadence × 30 entries = 30 calls/day = 900/month —
-//!   would exceed the free tier. Trim the watchlist to ≤6 entries for
-//!   safe headroom.
+//! - **RATE LIMIT** (post-activation): depends on plan. Cheapest tier
+//!   fits the default watchlist (5 calls/day × 30 days = 150/month).
+//!   Larger watchlists may need a higher tier.
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -86,12 +92,15 @@ impl Source for Opencorp {
                 .clone()
                 .filter(|s| !s.is_empty());
             let Some(_api_token) = api_token else {
-                // OpenCorp returns 401 without a token. Shelved-by-design
-                // (per user decision 2026-09-16): keep collector visible,
-                // log clear WARN, wait for operator to configure the key.
-                tracing::warn!(target: "monitor::opencorp",
-                    "no OPENCORP_API_TOKEN — register at https://api.opencorporates.com/ \
-                     and add the token to core/secrets.env then restart hub-core");
+                // SHELVED-BY-DESIGN (user decision 2026-09-17): OpenCorp
+                // is paid-only — cheapest tier £225/month, no self-serve
+                // free tier. Loud ERROR-level log so the cost is
+                // unmistakable. Stays visible on health board with
+                // state=ok/0-new until activated.
+                tracing::error!(target: "monitor::opencorp",
+                    "OpenCorporates API requires a PAID token (cheapest self-serve £225/month at https://opencorporates.com/pricing/). \
+                     No self-serve free tier exists. To activate: register at https://api.opencorporates.com/, pick a paid plan, \
+                     set OPENCORP_API_TOKEN in core/secrets.env, restart hub-core. Collector stays visible on health board (state=ok, 0 new) until then.");
                 return Ok(Vec::new());
             };
 
@@ -152,9 +161,11 @@ async fn query_entry(ctx: &Ctx, entry: &str, api_token: &str) -> Result<Vec<Sign
     if resp.status() == reqwest::StatusCode::UNAUTHORIZED
         || resp.status() == reqwest::StatusCode::FORBIDDEN
     {
-        // Token expired or invalid. Don't fail the sweep — operator
-        // needs to refresh the token.
-        tracing::warn!(target: "monitor::opencorp", "HTTP 401/403 — check OPENCORP_API_TOKEN");
+        // Token rejected — invalid, expired, or still the unactivated
+        // placeholder string in secrets.env. Loud ERROR so the operator
+        // notices and (if intended) registers + pays.
+        tracing::error!(target: "monitor::opencorp",
+            "HTTP 401/403 — OPENCORP_API_TOKEN rejected. If placeholder, register and pay at https://opencorporates.com/pricing/. If real token, check expiry.");
         return Ok(Vec::new());
     }
     if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
