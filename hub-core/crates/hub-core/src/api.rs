@@ -56,6 +56,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/evidence", axum::routing::post(post_evidence))
         // SP4
         .route("/api/v1/radar/events", get(console_radar_events))
+        // Globe P1 (read-only, auth middleware inherited)
+        .route("/api/v1/globe/aircraft", get(console_globe_aircraft))
+        .route("/api/v1/globe/satellites", get(console_globe_satellites))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
@@ -819,6 +822,64 @@ async fn console_metrics_summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
     crate::console::metrics_summary(&state).await.map(Json).map_err(hub_err)
+}
+
+// ---------- Globe P1: live layers ----------
+
+async fn console_globe_aircraft(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, Response> {
+    let blob: Option<String> = state
+        .redis_timed(
+            redis::cmd("GET")
+                .arg(crate::monitor::sources::adsb::AIRCRAFT_KEY)
+                .clone(),
+            2000,
+        )
+        .await;
+    let parsed = blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    match parsed {
+        Some(v) => Ok(Json(v)),
+        // Snapshot missing/corrupt = collector dead >60s. 200 + stale flag,
+        // never 5xx — the frontend degrades visibly (spec §5).
+        None => Ok(Json(json!({ "stale": true, "aircraft": [] }))),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct GlobeSatParams {
+    category: Option<String>,
+}
+
+async fn console_globe_satellites(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<GlobeSatParams>,
+) -> Result<Json<Value>, Response> {
+    let cats: Option<Vec<String>> = p.category.as_deref().map(|c| {
+        c.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    });
+    type Row = (i32, String, String, String, String, chrono::DateTime<chrono::Utc>);
+    let result = match &cats {
+        Some(c) => sqlx::query_as::<_, Row>(
+            "SELECT norad_id, name, category, tle_line1, tle_line2, epoch FROM satellites WHERE category = ANY($1) ORDER BY category, name",
+        )
+        .bind(c)
+        .fetch_all(&state.pg)
+        .await,
+        None => sqlx::query_as::<_, Row>(
+            "SELECT norad_id, name, category, tle_line1, tle_line2, epoch FROM satellites ORDER BY category, name",
+        )
+        .fetch_all(&state.pg)
+        .await,
+    };
+    let rows = result.map_err(|e| hub_err(crate::error::HubError::sensor(format!("globe satellites: {e}"))))?;
+    let items: Vec<Value> = rows
+        .into_iter()
+        .map(|(norad_id, name, category, tle1, tle2, epoch)| {
+            json!({ "norad_id": norad_id, "name": name, "category": category, "tle1": tle1, "tle2": tle2, "epoch": epoch })
+        })
+        .collect();
+    Ok(Json(json!({ "count": items.len(), "items": items })))
 }
 
 // ---------- SP5: external evidence push (Huginn bridge, §50 Evidence Event) ----------
