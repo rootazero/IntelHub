@@ -85,12 +85,23 @@ fn filter_aliases(aliases: Option<Vec<String>>) -> Result<Value> {
     // before the JSON serialize. Without this, every create_entity re-seed
     // appends the full alias list via `entities.aliases || EXCLUDED.aliases`
     // and accumulates duplicates that bubble up to the /entities/:id UI.
+    // 2026-09-16 fix (e2e BRICS A3): reject when callers send >10 aliases
+    // instead of silently truncating — silent truncation hides caller
+    // bugs (alias list leaked from a hot loop) and means the persisted
+    // record no longer matches what the caller sent. Schema says max 10.
+    const MAX_ALIASES: usize = 10;
+    let raw = aliases.unwrap_or_default();
+    if raw.len() > MAX_ALIASES {
+        return Err(crate::error::HubError::bad_request(format!(
+            "create_entity aliases cap is {max} (got {got})",
+            max = MAX_ALIASES,
+            got = raw.len()
+        )));
+    }
     let mut seen = std::collections::HashSet::new();
-    let list: Vec<String> = aliases
-        .unwrap_or_default()
+    let list: Vec<String> = raw
         .into_iter()
         .filter_map(|a| normalize_name(&a).ok())
-        .take(10)
         .filter(|a| seen.insert(a.clone()))
         .collect();
     Ok(json!(list))
@@ -373,6 +384,27 @@ pub async fn create_entity(state: &AppState, actor: &str, intent: EntityIntent) 
     });
     let synced = graph_write(state, op).await;
 
+    // 2026-09-16 fix (e2e BRICS B-Audit): the v1 create_entity path
+    // historically skipped the graph_change_log audit row that
+    // v1 create_claim writes (graphw.rs:511) and that the v2 compiler
+    // arms (graph_v2/compiler.rs) write. get_entity_timeline reads
+    // graph_change_log to surface the entity creation event; without
+    // this INSERT, the timeline returned [] for entities that had
+    // been alive for hours. Mirror job also relies on the change_log
+    // to back-fill Neo4j when the in-line graph_write fails.
+    sqlx::query(
+        "INSERT INTO graph_change_log (op, target_kind, target_id, before, after, changed_by)
+         VALUES ('insert','entity',$1, NULL, jsonb_build_object('kind',$2,'name',$3,'aliases',$4::jsonb,'attributes',$5::jsonb), $6)",
+    )
+    .bind(entity_id.to_string())
+    .bind(&kind)
+    .bind(&name)
+    .bind(&aliases)
+    .bind(&attributes)
+    .bind(actor)
+    .execute(&state.pg)
+    .await?;
+
     crate::events::publish(
         state,
         BusEvent::new(
@@ -554,22 +586,61 @@ pub async fn create_relationship(
     let attributes = filter_attributes(intent.attributes)?;
 
     // Both endpoints must exist in PG canonical store (graph mirrors it).
-    let from: Option<(Uuid,)> =
-        sqlx::query_as("SELECT entity_id FROM entities WHERE kind=$1 AND name=$2")
-            .bind(&from_kind)
-            .bind(&from_name)
-            .fetch_optional(&state.pg)
-            .await?;
-    let to: Option<(Uuid,)> =
-        sqlx::query_as("SELECT entity_id FROM entities WHERE kind=$1 AND name=$2")
-            .bind(&to_kind)
-            .bind(&to_name)
-            .fetch_optional(&state.pg)
-            .await?;
-    let (Some((from_id,)), Some((to_id,))) = (from, to) else {
-        return Err(HubError::bad_request(
-            "both relationship endpoints must exist (create them with create_entity first)",
-        ));
+    // 2026-09-16 fix (e2e BRICS B-Rel-Race): the original lookup fired a
+    // single SELECT and returned "endpoints must exist" if either row was
+    // missing. With sqlx's pool (max 8 conns), the create_entity INSERT
+    // can land on conn A while the relationship lookup hits conn B and
+    // sees a snapshot before the insert committed — a true read-after-write
+    // race. The e2e BRICS test hit this for BRICS→mBridge (entity just
+    // created 1 call earlier). We retry up to 3× with exponential backoff
+    // before failing; this absorbs the race without requiring the caller
+    // to know about it. The error message also now reports WHICH endpoint
+    // is missing so the caller can fix the typo.
+    let mut from: Option<Uuid> = None;
+    for attempt in 0..3u32 {
+        let res = sqlx::query_as::<_, (Uuid,)>(
+            "SELECT entity_id FROM entities WHERE kind=$1 AND name=$2",
+        )
+        .bind(&from_kind)
+        .bind(&from_name)
+        .fetch_optional(&state.pg)
+        .await;
+        if let Ok(Some((id,))) = res {
+            from = Some(id);
+            break;
+        }
+        if attempt < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
+        }
+    }
+    let mut to: Option<Uuid> = None;
+    for attempt in 0..3u32 {
+        let res = sqlx::query_as::<_, (Uuid,)>(
+            "SELECT entity_id FROM entities WHERE kind=$1 AND name=$2",
+        )
+        .bind(&to_kind)
+        .bind(&to_name)
+        .fetch_optional(&state.pg)
+        .await;
+        if let Ok(Some((id,))) = res {
+            to = Some(id);
+            break;
+        }
+        if attempt < 2 {
+            tokio::time::sleep(std::time::Duration::from_millis(50 * (1u64 << attempt))).await;
+        }
+    }
+    let (Some(from_id), Some(to_id)) = (from, to) else {
+        let missing = match (from, to) {
+            (None, None) => format!("from={from_kind}:{from_name} AND to={to_kind}:{to_name}"),
+            (None, _) => format!("from={from_kind}:{from_name}"),
+            (_, None) => format!("to={to_kind}:{to_name}"),
+            _ => unreachable!(),
+        };
+        return Err(HubError::bad_request(format!(
+            "create_relationship: missing endpoint entity: {missing}. \
+             Call create_entity(kind, name) for the missing side first."
+        )));
     };
 
     let (rel_id,): (Uuid,) = sqlx::query_as(
@@ -598,6 +669,26 @@ pub async fn create_relationship(
         "rel_type": rel_type, "attributes": attributes,
     });
     let synced = graph_write(state, op).await;
+
+    // 2026-09-16 fix (e2e BRICS B-Audit): same rationale as create_entity
+    // above — v1 create_relationship was the second missing arm. The
+    // change_log drives get_entity_timeline + the Neo4j mirror worker;
+    // without this row, a relationship is "invisible" to both. The v2
+    // compiler already does this; we're back-filling v1 parity.
+    sqlx::query(
+        "INSERT INTO graph_change_log (op, target_kind, target_id, before, after, changed_by)
+         VALUES ('insert','relationship',$1, NULL, jsonb_build_object('from_kind',$3,'from_id',$4,'to_kind',$5,'to_id',$6,'rel_type',$7,'attributes',$8::jsonb), $2)",
+    )
+    .bind(rel_id.to_string())
+    .bind(actor)
+    .bind(&from_kind)
+    .bind(from_id.to_string())
+    .bind(&to_kind)
+    .bind(to_id.to_string())
+    .bind(&rel_type)
+    .bind(&attributes)
+    .execute(&state.pg)
+    .await?;
 
     crate::events::publish(
         state,
