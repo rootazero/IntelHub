@@ -61,3 +61,6 @@ pub mod spamhaus_drop;
 pub mod nominatim;
 pub mod ripestat;
 pub mod wayback;
+pub mod aws_ip_ranges;
+pub mod gcp_ip_ranges;
+pub mod ripe_as_overview;

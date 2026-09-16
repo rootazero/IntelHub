@@ -268,6 +268,15 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::nominatim::Nominatim::default()),
         Box::new(sources::ripestat::Ripestat::default()),
         Box::new(sources::wayback::Wayback::default()),
+        // OSINT Framework bridge 8 (2026-09-17): three free
+        // keyless network-attribution collectors that fill
+        // the cloud-IP + AS-topology attribution gaps.
+        // aws_ip_ranges (AWS public IP-range feed) +
+        // gcp_ip_ranges (GCP public IP-range feed) +
+        // ripe_as_overview (RIPE stat per-ASN holder lookup).
+        Box::new(sources::aws_ip_ranges::AWSIpRanges),
+        Box::new(sources::gcp_ip_ranges::GCPIPRanges),
+        Box::new(sources::ripe_as_overview::RipeAsOverview::default()),
     ]
 }
 
