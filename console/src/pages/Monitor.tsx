@@ -237,25 +237,32 @@ export default function Monitor() {
           <HudPanel title={t("hud.news")} className="flex-none h-[150px]" bodyClassName="!overflow-hidden">
             <NewsTicker refreshKey={mapTick} />
           </HudPanel>
-          {/* OSINT Framework bridge (2026-09-16): 5 hardcoded collectors that
+          {/* OSINT Framework bridge (2026-09-16): hardcoded collectors that
               fill osintframework.com gaps. Reuses `/api/v1/health.osint_bridge`
               so the data and the accept-sp6.py acceptance check share one
-              source of truth — no parallel fetch path. */}
+              source of truth — no parallel fetch path.
+              (2026-09-17) Constrain max-h-[28%] + dense rows so the panel
+              scrolls internally instead of expanding to push the indicators
+              / delta / alerts / stream cards below it out of the visible
+              right rail. With 37 collectors at default row size the panel
+              grew past 700px and clipped every subsequent card. body
+              overflow-y: auto is inherited from hud-panel-body so just the
+              max-height constraint is needed. */}
           <HudPanel
             title={`OSINT Bridge (${osintBridge.filter((c) => c.state === "ok").length}/${osintBridge.length})`}
             ok={osintBridge.length > 0 && osintBridge.every((c) => c.state === "ok")}
-            className="flex-none"
+            className="max-h-[28%]"
           >
             <div className="hud-mono text-[10px]">
               {osintBridge.map((c) => (
-                <div key={c.name} className="flex items-center justify-between gap-2 py-[2px]">
+                <div key={c.name} className="flex items-center justify-between gap-2 py-[1px]">
                   <span className="truncate" title={c.kind} style={{ color: c.state === "ok" ? "var(--hud-ink)" : "var(--hud-warn, #f59e0b)" }}>
                     {c.name}
                   </span>
-                  <span className="text-[9px]" style={{ color: "var(--hud-dim)" }}>
+                  <span className="text-[9px] shrink-0" style={{ color: "var(--hud-dim)" }}>
                     {c.cadence_hours}h
                   </span>
-                  <span className="text-[9px]" style={{ color: "var(--hud-dim)" }}>
+                  <span className="text-[9px] shrink-0" style={{ color: "var(--hud-dim)" }}>
                     f={c.last_fetched} n={c.last_new}
                   </span>
                 </div>
