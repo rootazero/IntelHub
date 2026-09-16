@@ -245,6 +245,19 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::crtsh::CrtSh),
         Box::new(sources::openphish::OpenPhish),
         Box::new(sources::shodan_internetdb::ShodanInternetDb),
+        // OSINT Framework bridge 6 (2026-09-17): Spamhaus DROP
+        // (authoritative netblock blocklist, free keyless) +
+        // blocklist.de (German fail2ban community per-attack-type
+        // IP blocklists, free keyless). RDAP originally proposed
+        // but Verisign RDAP rejects reqwest's HTTP/2 + default
+        // reqwest/0.x User-Agent with HTTP 400 from datacenter
+        // egress; curl with HTTP/1.1 + browser UA works. Tracking
+        // in separate branch when reqwest <-> Verisign interop is
+        // resolved. ThreatMiner blocked from datacenter IP (000);
+        // substituted with blocklist.de (per-IP blocklist with
+        // fail2ban provenance).
+        Box::new(sources::spamhaus_drop::SpamhausDrop),
+        Box::new(sources::blocklist_de::BlocklistDe),
     ]
 }
 

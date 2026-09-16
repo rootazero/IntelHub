@@ -56,3 +56,5 @@ pub mod tor_exit;
 pub mod crtsh;
 pub mod openphish;
 pub mod shodan_internetdb;
+pub mod blocklist_de;
+pub mod spamhaus_drop;
