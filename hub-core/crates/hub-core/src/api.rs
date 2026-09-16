@@ -209,6 +209,15 @@ pub async fn system_health(state: &AppState) -> Value {
         // separately.
         ("spamhaus_drop",    24, "cyber"),
         ("blocklist_de",     12, "cyber"),
+        // OSINT Framework bridge 7 (2026-09-17): three free
+        // keyless collectors — Nominatim (OSM geocoding for
+        // threat-actor HQ anchoring) + RIPEstat (RIPE
+        // abuse-contact lookup for incident response) +
+        // Wayback Machine (URL archive snapshots for
+        // phishing forensics).
+        ("nominatim",       24, "cyber"),
+        ("ripestat",        24, "cyber"),
+        ("wayback",         12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
