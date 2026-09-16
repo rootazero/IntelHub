@@ -1,11 +1,10 @@
 //! Etherscan (Ethereum mainnet) — large-transaction / sanctioned-address watch.
 //!
 //! Watches a default list of well-known Ethereum addresses for large ETH or
-//! ERC-20 transfers and emits one Signal per address-day-volume-pair. An
-//! external API key is OPTIONAL — Etherscan free tier without a key returns
-//! the 100 most-recent transactions for an address at 1 req/5s, which is
-//! sufficient for daily sweeps over a short watchlist. With an API key the
-//! rate ceiling rises to 5 req/s and history is unbounded.
+//! ERC-20 transfers and emits one Signal per address-day-volume-pair. **API V2**
+//! only — V1 was deprecated 2025-09 and now returns "NOTOK" with a redirect
+//! message. V2 uses a unified `https://api.etherscan.io/v2/api` endpoint with
+//! `chainid=1` (Ethereum mainnet) plus the existing module/action pair.
 //!
 //! Watchlist semantics:
 //! - Default watchlist: Tornado Cash router (OFAC-sanctioned since 2022-08),
@@ -16,10 +15,10 @@
 //!   The signal itself carries the transaction hash + ETH/USD value so the
 //!   graph plane can pivot to entities downstream.
 //!
-//! Free tier: 5 req/s with `ETHERSCAN_API_KEY`, 1 req/5s without. The collector
-//! is shelved-by-design if `ETHERSCAN_API_KEY` is unset AND no Etherscan-compatible
-//! mirror (e.g. blockscout.com public endpoints) is configured — keeping the
-//! source visible on the health board rather than silently disabled.
+//! Free tier: **API KEY REQUIRED** (verified 2026-09: even keyless calls now
+//! fail with the V1-deprecation error instead of degraded-but-functional
+//! responses). 5 req/s, 100k calls/day. Apply at
+//! https://etherscan.io/myapikey.
 //!
 //! Anchored at Singapore (1.3521, 103.8198) for unlabelled addresses so events
 //! remain visually separable from OFAC (DC), CISA (DC), NVD (DC) and OSV
@@ -33,7 +32,7 @@ use crate::error::Result;
 
 use super::super::{Ctx, Signal, Source};
 
-const API_BASE: &str = "https://api.etherscan.io/api";
+const API_BASE: &str = "https://api.etherscan.io/v2/api"; // V2 — V1 deprecated 2025-09
 /// Anchored at Singapore (Etherscan.io operator) — distinct from existing
 /// DC / NYC anchors (ofac, opensanctions, cisakev, nvd).
 const SINGAPORE: (f64, f64) = (1.3521, 103.8198);
@@ -128,10 +127,12 @@ impl Source for Etherscan {
 
             let mut out = Vec::new();
             for (label, address, lat, lon) in watch {
-                // txlist action returns normal txs (not internal/contract).
-                // For free tier (no key) we accept the 100-row ceiling.
+                // V2 endpoint requires chainid=1 (Ethereum mainnet). The
+                // module/action pair is unchanged from V1. API key is
+                // REQUIRED — keyless calls now return the V1-deprecation
+                // error instead of degraded-but-functional responses.
                 let url = format!(
-                    "{API_BASE}?module=account&action=txlist\
+                    "{API_BASE}?chainid=1&module=account&action=txlist\
                      &address={address}&startblock=0&endblock=99999999\
                      &page=1&offset=100&sort=desc\
                      {apikey}",
