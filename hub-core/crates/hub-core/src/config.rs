@@ -153,6 +153,12 @@ pub struct Config {
     /// OTX public pulses endpoint is keyless; large windows (7-30) are
     /// useful for first-run catch-up sweeps.
     pub monitor_otx_lookback_days: Option<u32>,
+    /// OTX API key (secrets.env, REQUIRED). Free signup at
+    /// https://otx.alienvault.com/api — all OTX public-listing endpoints
+    /// are auth-gated (verified 2026-09: /pulses/subscribed 403 without
+    /// auth, /pulses/search 404, /search/pulses 403, /pulses/public 504).
+    /// Without this key the OTX collector is shelved-by-design.
+    pub monitor_otx_api_key: Option<String>,
     /// urlscan.io API key (secrets.env, optional). Free tier is keyless
     /// (~100 req/day, hard ceiling); with key the ceiling rises to 5k/day.
     /// Free signup at https://urlscan.io/user/signup.
@@ -300,6 +306,7 @@ impl Config {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .and_then(|s| s.parse().ok()),
+            monitor_otx_api_key: std::env::var("OTX_API_KEY").ok().filter(|s| !s.is_empty()),
             monitor_urlscan_api_key: std::env::var("URLSCAN_API_KEY").ok().filter(|s| !s.is_empty()),
             monitor_urlscan_query: env_or("HUB_URLSCAN_QUERY", ""),
             monitor_gfw_token: std::env::var("GFW_API_TOKEN").ok().filter(|s| !s.is_empty()),
