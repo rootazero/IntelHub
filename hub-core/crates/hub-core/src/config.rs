@@ -127,6 +127,51 @@ pub struct Config {
     /// SEC fair-access policy. Falls back to a generic placeholder
     /// when unset — operators should set this to a real contact.
     pub monitor_sec_user_agent_email: Option<String>,
+    /// Etherscan API key (secrets.env, optional). Free tier is keyless
+    /// (1 req/5s, last 100 txs) and sufficient for the default watchlist
+    /// at 6h cadence. With key, ceiling rises to 5 req/s. Free; obtain at
+    /// https://etherscan.io/apis (MyEtherscan → API Keys).
+    pub monitor_etherscan_api_key: Option<String>,
+    /// Etherscan watchlist override (env). Each entry is
+    /// "label:0xADDRESS[:lat:lon]" — e.g. "tornado-router:0xd90e...:38.9:-77.0".
+    /// Lat/lon optional, defaults to Singapore (Etherscan.io operator).
+    /// When empty, the built-in DEFAULT_WATCH (Tornado router, Binance
+    /// hot, Coinbase hot) is used.
+    pub monitor_etherscan_watch: Vec<String>,
+    /// Large-tx threshold in ETH (env, optional). Signals below this
+    /// per-address-day volume are dropped. Default 100 ETH.
+    pub monitor_etherscan_min_eth: Option<f64>,
+    /// DefiLlama watchlist override (env). Each entry is
+    /// "slug[:label[:lat:lon]]" — e.g. "aave:aave:51.5:-0.13".
+    /// When empty, built-in DEFAULT_WATCH (aave/uniswap/makerdao/curve/lido)
+    /// is used. DefiLlama is keyless free for all endpoints.
+    pub monitor_defillama_watch: Vec<String>,
+    /// DefiLlama 24h TVL change threshold (%, absolute). Signals below
+    /// this delta are dropped (noise-floor filter). Default 15%.
+    pub monitor_defillama_threshold_pct: Option<f64>,
+    /// OTX lookback window in days (env, optional). Default 1.
+    /// OTX public pulses endpoint is keyless; large windows (7-30) are
+    /// useful for first-run catch-up sweeps.
+    pub monitor_otx_lookback_days: Option<u32>,
+    /// urlscan.io API key (secrets.env, optional). Free tier is keyless
+    /// (~100 req/day, hard ceiling); with key the ceiling rises to 5k/day.
+    /// Free signup at https://urlscan.io/user/signup.
+    pub monitor_urlscan_api_key: Option<String>,
+    /// urlscan.io search query (env, optional). Default is broad OSINT-
+    /// ecosystem surveillance. Override with any urlscan-compatible
+    /// Lucene query string.
+    pub monitor_urlscan_query: String,
+    /// GFW API token (secrets.env). Free for non-commercial use at
+    /// https://globalfishingwatch.org/our-apis/. Without this the GFW
+    /// collector stays shelved-by-design (visible on health board, 0 events).
+    pub monitor_gfw_token: Option<String>,
+    /// GFW lookback window in days (env, optional). Default 7.
+    pub monitor_gfw_lookback_days: Option<u32>,
+    /// GFW query body (env, optional, JSON). When set, replaces the default
+    /// South-China-Sea port-visits query. Must be valid JSON for the GFW
+    /// Events API v3 — date placeholders REPLACE_START and REPLACE_END are
+    /// substituted from the lookback window.
+    pub monitor_gfw_query: Option<String>,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -240,6 +285,29 @@ impl Config {
             monitor_osv_watch: env_list("HUB_OSV_WATCH"),
             monitor_sec_form: env_or("HUB_SEC_FORM", "8-K"),
             monitor_sec_user_agent_email: std::env::var("HUB_SEC_USER_AGENT_EMAIL").ok().filter(|s| !s.is_empty()),
+            monitor_etherscan_api_key: std::env::var("ETHERSCAN_API_KEY").ok().filter(|s| !s.is_empty()),
+            monitor_etherscan_watch: env_list("HUB_ETHERSCAN_WATCH"),
+            monitor_etherscan_min_eth: std::env::var("HUB_ETHERSCAN_MIN_ETH")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok()),
+            monitor_defillama_watch: env_list("HUB_DEFILLAMA_WATCH"),
+            monitor_defillama_threshold_pct: std::env::var("HUB_DEFILLAMA_THRESHOLD_PCT")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok()),
+            monitor_otx_lookback_days: std::env::var("HUB_OTX_DAYS")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok()),
+            monitor_urlscan_api_key: std::env::var("URLSCAN_API_KEY").ok().filter(|s| !s.is_empty()),
+            monitor_urlscan_query: env_or("HUB_URLSCAN_QUERY", ""),
+            monitor_gfw_token: std::env::var("GFW_API_TOKEN").ok().filter(|s| !s.is_empty()),
+            monitor_gfw_lookback_days: std::env::var("HUB_GFW_LOOKBACK_DAYS")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .and_then(|s| s.parse().ok()),
+            monitor_gfw_query: std::env::var("HUB_GFW_QUERY").ok().filter(|s| !s.is_empty()),
             fred_api_key: std::env::var("FRED_API_KEY").ok().filter(|s| !s.is_empty()),
             comtrade_api_key: std::env::var("COMTRADE_API_KEY").ok().filter(|s| !s.is_empty()),
             bls_api_key: std::env::var("BLS_API_KEY").ok().filter(|s| !s.is_empty()),
@@ -364,6 +432,11 @@ pub fn monitor_metadata() -> &'static HashMap<&'static str, MonitorMeta> {
         m.insert("cisa-kev",      MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.cisa.gov/known-exploited-vulnerabilities-catalog" });
         m.insert("osv",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://google.github.io/osv.dev/" });
         m.insert("opensanctions", MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 24, doc_url: "https://www.opensanctions.org/api/" });
+        m.insert("etherscan",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 6,  doc_url: "https://etherscan.io/apis" });
+        m.insert("defillama",     MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 4,  doc_url: "https://api.llama.fi/" });
+        m.insert("otx",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::Open, data_age_hours: 4,  doc_url: "https://otx.alienvault.com/api" });
+        m.insert("urlscan",       MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 4,  doc_url: "https://urlscan.io/docs/api/" });
+        m.insert("gfw",           MonitorMeta { tier_required: Tier::Free, license_class: LicenseClass::FairUse, data_age_hours: 12, doc_url: "https://globalfishingwatch.org/our-apis/" });
 
         // Paid APIs — redistributability restricted
         m.insert("x",             MonitorMeta { tier_required: Tier::Paid, license_class: LicenseClass::Restricted, data_age_hours: 1, doc_url: "https://developer.twitter.com/en/docs/twitter-api" });

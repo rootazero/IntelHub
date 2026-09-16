@@ -166,6 +166,32 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // sea-ice / temp-extremes only — storms/fires/quakes already owned
         // by NOAA/FIRMS/USGS; re-fetching would double-tag).
         Box::new(sources::eonet::Eonet),
+        // OSINT Framework bridge: Etherscan large-tx / sanctioned-address
+        // watch. Free tier keyless (1 req/5s), 6h cadence over the default
+        // 3-address watchlist (Tornado router + Binance + Coinbase hot).
+        // Self-degrades to "ok/0 new" when no deltas land in the window.
+        Box::new(sources::etherscan::Etherscan),
+        // OSINT Framework bridge: DefiLlama TVL anomaly detector.
+        // Emits financial Signals when a watched protocol's 24h TVL
+        // change crosses 15% (priority) / 30% (flash) — catches rug
+        // pulls and exploits within their propagation window. Keyless,
+        // anchored at protocol HQ (Aave→London, Uniswap→NYC, etc.).
+        Box::new(sources::defillama::DefiLlama),
+        // OSINT Framework bridge: AlienVault OTX community threat-intel
+        // pulses. Anchored at AT&T AlienVault HQ (San Mateo CA) — distinct
+        // from cisakev/nvd/ofac DC cluster. Public /pulses/subscribed is
+        // keyless; if the upstream returns 401/403 we self-degrade to empty
+        // signals without failing the sweep.
+        Box::new(sources::otx::Otx),
+        // OSINT Framework bridge: urlscan.io live URL-scan search feed.
+        // Keyless (~100/day hard cap; with URLSCAN_API_KEY = 5k/day).
+        // Anchored at Berlin (urlscan.io operator).
+        Box::new(sources::urlscan::Urlscan),
+        // OSINT Framework bridge: Global Fishing Watch vessel events.
+        // Real vessel coordinates (not HQ anchor) — surfaced in the
+        // maritime transport cluster. Shelved by design when GFW_API_TOKEN
+        // is unset (free token via globalfishingwatch.org/our-apis).
+        Box::new(sources::gfw::Gfw),
     ]
 }
 
