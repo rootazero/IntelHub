@@ -145,6 +145,27 @@ impl Source for Otx {
                         "iocs": parsed.iocs,
                     })),
                 );
+
+                // OTX → create_claim bridge (2026-09-16). When the pulse
+                // references a known malware family or ATT&CK technique,
+                // also land it as a claim in the graph plane so console
+                // Investigations can pivot from a Radar pulse to the
+                // structured claim graph. Off by default — operator
+                // enables via HUB_OTX_CREATE_CLAIM=1 once the wiring is
+                // reviewed. System-driven (not user-driven), so we call
+                // graphw::create_claim directly with actor="system:monitor"
+                // — bypasses the policy gate that MCP/REST enforce.
+                if ctx.config.monitor_otx_create_claim
+                    && (!parsed.malware_families.is_empty() || !parsed.attack_ids.is_empty())
+                {
+                    if let Err(e) = bridge_pulse_to_claim(ctx, &parsed).await {
+                        // Don't fail the sweep — the geo_event already
+                        // landed, the claim is a bonus.
+                        tracing::warn!(target: "monitor::otx",
+                            pulse_id = %parsed.id, error = %e,
+                            "OTX→create_claim bridge failed");
+                    }
+                }
             }
             if out.is_empty() {
                 return Ok(Vec::new());
@@ -153,6 +174,121 @@ impl Source for Otx {
         }
         .boxed()
     }
+}
+
+/// OTX → create_claim bridge. Inserts the pulse as a documents row (so it
+/// can serve as evidence — claims can't exist without evidence §43), then
+/// invokes graphw::create_claim with a synthesized claim text and the
+/// pulse's malware family / ATT&CK technique as claim entities. Both
+/// operations land in PG (canonical) and Neo4j (mirror) atomically.
+async fn bridge_pulse_to_claim(ctx: &Ctx, parsed: &ParsedPulse) -> Result<()> {
+    use crate::error::HubError;
+    use crate::graphw::{ClaimEntityRef, ClaimIntent};
+    use sha2::{Digest, Sha256};
+    use uuid::Uuid;
+
+    let url_canonical = format!("https://otx.alienvault.com/pulse/{}", parsed.id);
+    let title = parsed
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("OTX pulse {}", parsed.id));
+    let ioc_summary = if parsed.ioc_count > 0 {
+        format!(" ({} IOCs)", parsed.ioc_count)
+    } else {
+        String::new()
+    };
+    let body_text = format!(
+        "OTX pulse {id} \"{title}\"{ioc_summary}.\nMalware families: {fams:?}\nATT&CK: {attcks:?}\nTags: {tags:?}",
+        id = parsed.id,
+        title = title,
+        ioc_summary = ioc_summary,
+        fams = parsed.malware_families,
+        attcks = parsed.attack_ids,
+        tags = parsed.tags,
+    );
+
+    // Compute content_hash for the documents row — the table has a UNIQUE
+    // constraint on content_hash, so re-running the bridge for the same
+    // pulse is a no-op (ON CONFLICT DO UPDATE returns the existing row).
+    let mut hasher = Sha256::new();
+    hasher.update(body_text.as_bytes());
+    let content_hash = format!("{:x}", hasher.finalize());
+
+    let doc_row: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO documents (document_id, source_id, url_canonical, url_original, title, content_hash, retrieved_at, content_text, embedding_status, metadata) \
+         VALUES ($1, NULL, $2, $2, $3, $4, now(), $5, 'SKIPPED', $6) \
+         ON CONFLICT (content_hash) DO UPDATE SET retrieved_at = EXCLUDED.retrieved_at \
+         RETURNING document_id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(&url_canonical)
+    .bind(&title)
+    .bind(&content_hash)
+    .bind(&body_text)
+    .bind(serde_json::json!({
+        "source_kind": "otx",
+        "pulse_id": parsed.id,
+        "tlp": parsed.tlp,
+        "otx_url": url_canonical,
+    }))
+    .fetch_optional(&ctx.state.pg)
+    .await
+    .map_err(|e| HubError::sensor(format!("otx-bridge: documents insert: {e}")))?;
+
+    let doc_id = doc_row
+        .map(|(id,)| id)
+        .ok_or_else(|| HubError::sensor("otx-bridge: documents insert returned no row".to_string()))?;
+
+    // Synthesize claim text. Keep it 8..4000 chars per create_claim's
+    // validation — well under the 4000 cap.
+    let claim_text = if let Some(first_attck) = parsed.attack_ids.first() {
+        format!(
+            "OTX attributes malware campaign \"{title}\" ({fams}) to ATT&CK technique {attck} (pulse {id}, {ioc_count} IOCs)",
+            title = title,
+            fams = parsed.malware_families.join(", "),
+            attck = first_attck,
+            id = parsed.id,
+            ioc_count = parsed.ioc_count,
+        )
+    } else {
+        format!(
+            "OTX community pulse \"{title}\" ({fams}) tracks {ioc_count} IOCs (pulse {id})",
+            title = title,
+            fams = parsed.malware_families.join(", "),
+            ioc_count = parsed.ioc_count,
+            id = parsed.id,
+        )
+    };
+
+    // Entities: one per malware family + one per ATT&CK technique. Each
+    // becomes a graph node on first sight; duplicates collapse via
+    // create_entity's upsert behavior.
+    let mut entities: Vec<ClaimEntityRef> = Vec::new();
+    for fam in &parsed.malware_families {
+        entities.push(ClaimEntityRef {
+            kind: "malware_family".into(),
+            name: fam.clone(),
+            role: Some("subject".into()),
+        });
+    }
+    for attck in &parsed.attack_ids {
+        entities.push(ClaimEntityRef {
+            kind: "attack_pattern".into(),
+            name: attck.clone(),
+            role: Some("mentioned".into()),
+        });
+    }
+
+    let intent = ClaimIntent {
+        text: claim_text,
+        entities: if entities.is_empty() { None } else { Some(entities) },
+        evidence_document_ids: vec![doc_id.to_string()],
+    };
+
+    crate::graphw::create_claim(&ctx.state, "system:monitor", intent)
+        .await
+        .map(|_| ())
+        .map_err(|e| HubError::sensor(format!("otx-bridge: create_claim: {e}")))
 }
 
 #[derive(Debug, Default)]

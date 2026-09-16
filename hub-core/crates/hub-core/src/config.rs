@@ -178,6 +178,11 @@ pub struct Config {
     /// Events API v3 — date placeholders REPLACE_START and REPLACE_END are
     /// substituted from the lookback window.
     pub monitor_gfw_query: Option<String>,
+    pub monitor_overpass_watch: Vec<String>,
+    pub monitor_ahmia_query: Vec<String>,
+    pub monitor_opencorp_api_token: Option<String>,
+    pub monitor_opencorp_watch: Vec<String>,
+    pub monitor_otx_create_claim: bool,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -310,6 +315,14 @@ impl Config {
             monitor_urlscan_api_key: std::env::var("URLSCAN_API_KEY").ok().filter(|s| !s.is_empty()),
             monitor_urlscan_query: env_or("HUB_URLSCAN_QUERY", ""),
             monitor_gfw_token: std::env::var("GFW_API_TOKEN").ok().filter(|s| !s.is_empty()),
+            monitor_overpass_watch: env_list("HUB_OVERPASS_WATCH"),
+            monitor_ahmia_query: env_list("HUB_AHMIA_QUERY"),
+            monitor_opencorp_api_token: std::env::var("OPENCORP_API_TOKEN").ok().filter(|s| !s.is_empty()),
+            monitor_opencorp_watch: env_list("HUB_OPENCORP_WATCH"),
+            monitor_otx_create_claim: std::env::var("HUB_OTX_CREATE_CLAIM")
+                .ok()
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false),
             monitor_gfw_lookback_days: std::env::var("HUB_GFW_LOOKBACK_DAYS")
                 .ok()
                 .filter(|s| !s.is_empty())

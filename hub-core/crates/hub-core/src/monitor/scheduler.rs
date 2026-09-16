@@ -19,7 +19,7 @@ pub async fn run(
 ) {
     let enabled = state.config.monitor_sources.clone();
     let run_all = enabled.iter().any(|e| e == "all");
-    let ctx = match Ctx::new(state.config.clone()) {
+    let ctx = match Ctx::new(Arc::new(state.clone())) {
         Ok(c) => Arc::new(c),
         Err(e) => {
             tracing::error!(error = %e, "monitor: failed to build HTTP client; monitor offline");
