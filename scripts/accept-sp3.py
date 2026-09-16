@@ -93,8 +93,11 @@ import threading, http.client
 got_event = []
 def listen():
     try:
-        conn = http.client.HTTPConnection("10.10.10.41", 8800, timeout=20)
-        conn.request("GET", "/api/v1/events", headers={"Authorization": f"Bearer {KEY}"})
+        from urllib.parse import urlparse
+        _u = urlparse(HUB)
+        conn = http.client.HTTPConnection(_u.hostname, _u.port or 80, timeout=20)
+        path = _u.path.rstrip("/") + "/api/v1/events"
+        conn.request("GET", path, headers={"Authorization": f"Bearer {KEY}"})
         resp = conn.getresponse()
         start = time.time()
         buf = b""

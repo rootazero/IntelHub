@@ -141,27 +141,49 @@ fin_cells = [c for c in ["fred", "eia", "treasury", "markets", "finintel"] if c 
 check("finance collector health cells", len(fin_cells) >= 4, ",".join(fin_cells))
 
 # 3. series flowing per source (allow sources w/o keys to be empty → check those with keys)
-n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:fred'")
-check("FRED series observed >= 5", n.isdigit() and int(n) >= 5, f"fred={n}")
+fred_key = secret("FRED_API_KEY")
+comtrade_key = secret("COMTRADE_API_KEY")
+finnhub_key = secret("FINNHUB_API_KEY")
+eia_key = secret("EIA_API_KEY")
+if not fred_key:
+    check_shelved("FRED series observed >= 5", "FRED_API_KEY not configured — collector degraded by design (self-heals when key provisioned)")
+else:
+    n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:fred'")
+    check("FRED series observed >= 5", n.isdigit() and int(n) >= 5, f"fred={n}")
 n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE source='monitor:treasury'")
 check("Treasury series observed >= 1", n.isdigit() and int(n) >= 1, f"treasury={n}")
 n = pg1("SELECT count(*) FROM signal_observations WHERE series='gscpi:index'")
 check("GSCPI series observed (SP8-A)", n.isdigit() and int(n) >= 1, f"gscpi={n}")
-n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE series LIKE 'comtrade:%'")
-check("Comtrade series observed >= 3 (SP8-B)", n.isdigit() and int(n) >= 3, f"comtrade={n}")
+if not comtrade_key:
+    check_shelved("Comtrade series observed >= 3 (SP8-B)", "COMTRADE_API_KEY not configured — collector degraded by design")
+else:
+    n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE series LIKE 'comtrade:%'")
+    check("Comtrade series observed >= 3 (SP8-B)", n.isdigit() and int(n) >= 3, f"comtrade={n}")
 for s, lo in [("fred:PAYEMS_K", 1), ("fred:ICSA", 1), ("fred:AWHE_YOY_PCT", 1)]:
+    if not fred_key:
+        check_shelved(f"BLS-via-FRED mirror {s}", "FRED_API_KEY not configured — mirror series untestable (FRED carries the data meanwhile)")
+        continue
     n = pg1(f"SELECT count(*) FROM signal_observations WHERE series='{s}'")
     check(f"BLS-via-FRED mirror {s}", n.isdigit() and int(n) >= lo, f"{s}={n}")
-n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE series LIKE 'quote:%'")
-w = pg1("SELECT count(*) FROM monitor_watchlist WHERE enabled")
-ok = n.isdigit() and w.isdigit() and int(n) >= max(1, int(int(w) * 0.8))
-check("markets cover >= 80% of enabled watchlist", ok, f"quotes={n}/{w}")
-n = pg1("SELECT count(*) FROM signal_observations WHERE source='monitor:eia'")
-check("EIA observations present", n.isdigit() and int(n) > 0, f"eia={n}")
+if not finnhub_key:
+    check_shelved("markets cover >= 80% of enabled watchlist", "FINNHUB_API_KEY not configured — quotes collector degraded by design")
+else:
+    n = pg1("SELECT count(DISTINCT series) FROM signal_observations WHERE series LIKE 'quote:%'")
+    w = pg1("SELECT count(*) FROM monitor_watchlist WHERE enabled")
+    ok = n.isdigit() and w.isdigit() and int(n) >= max(1, int(int(w) * 0.8))
+    check("markets cover >= 80% of enabled watchlist", ok, f"quotes={n}/{w}")
+if not eia_key:
+    check_shelved("EIA observations present", "EIA_API_KEY not configured — collector degraded by design")
+else:
+    n = pg1("SELECT count(*) FROM signal_observations WHERE source='monitor:eia'")
+    check("EIA observations present", n.isdigit() and int(n) > 0, f"eia={n}")
 
 # 4. quote payload carries audit source
-src = pg1("SELECT payload->>'source' FROM signal_observations WHERE series LIKE 'quote:%' LIMIT 1")
-check("quote payload has source audit tag", src in ("fmp", "finnhub"), src)
+if not finnhub_key:
+    check_shelved("quote payload has source audit tag", "FINNHUB_API_KEY not configured — no quote rows to audit")
+else:
+    src = pg1("SELECT payload->>'source' FROM signal_observations WHERE series LIKE 'quote:%' LIMIT 1")
+    check("quote payload has source audit tag", src in ("fmp", "finnhub"), src)
 
 # 5. finintel evidence (documents→sources.origin; first sweep landed 186 during deploy)
 n = pg1("SELECT count(*) FROM documents d JOIN sources s ON s.source_id=d.source_id WHERE s.origin IN ('finnhub','stocktwits')")
@@ -169,8 +191,11 @@ check("finintel evidence present", n.isdigit() and int(n) > 0, f"evidence={n}")
 
 # 6. MCP: signal_query
 sid = mcp_initialize()
-r = tool_json(tool(sid, "signal_query", {"series": "fred:%", "limit": 10}, 2))
-check("signal_query returns observations", r.get("count", 0) > 0, f"count={r.get('count')}")
+if not fred_key:
+    check_shelved("signal_query returns observations", "FRED_API_KEY not configured — no fred:% rows to query (query path itself covered by watchlist_manage loop)")
+else:
+    r = tool_json(tool(sid, "signal_query", {"series": "fred:%", "limit": 10}, 2))
+    check("signal_query returns observations", r.get("count", 0) > 0, f"count={r.get('count')}")
 
 # 7. MCP: watchlist_manage closed loop
 r = tool_json(tool(sid, "watchlist_manage", {"action": "add", "symbol": "ACME7", "asset_class": "us_stock", "label": "accept test"}, 3))
