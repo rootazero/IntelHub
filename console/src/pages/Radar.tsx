@@ -44,7 +44,7 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 export default function Radar() {
   const { t } = useT();
   const en = useEnum();
-  const { region, attach } = useMapView();
+  const { region, attach, registerOnReset } = useMapView();
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const baseRef = useRef<L.Layer | null>(null);
@@ -96,6 +96,10 @@ export default function Radar() {
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
     attach(map);
+    // When the ⌂ reset button is clicked (or any other consumer of
+    // useMapView.reset()), also close the right drawer — the user is
+    // explicitly leaving the focused event behind.
+    const unregisterReset = registerOnReset(() => setSelected(null));
     const fit = () => {
       map.invalidateSize();
       // If the deep-link already focused the map on an event, the settle
@@ -115,6 +119,7 @@ export default function Radar() {
       clearTimeout(t);
       clearTimeout(settle);
       cancelAnimationFrame(raf);
+      unregisterReset();
       attach(null);
     };
     // region is intentionally NOT in deps — initial mount only; region
