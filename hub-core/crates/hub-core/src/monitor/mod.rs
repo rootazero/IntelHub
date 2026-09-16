@@ -215,6 +215,14 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // entities land on their actual map location rather than the
         // jurisdiction capital fallback opencorp uses.
         Box::new(sources::wikidata::Wikidata),
+        // OSINT Framework bridge 3 (2026-09-17): CourtListener
+        // (Public Records → Court Filings, free + keyless) +
+        // Leaksify (Email/Breach, free + keyless). Two new gaps
+        // filled in one PR — both use Source pattern, both feed
+        // existing visual clusters (sanction, cyber) without
+        // introducing new infrastructure.
+        Box::new(sources::courtlistener::Courtlistener),
+        Box::new(sources::leaksify::Leaksify),
     ]
 }
 

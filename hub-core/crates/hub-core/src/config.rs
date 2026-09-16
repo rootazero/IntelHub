@@ -187,6 +187,18 @@ pub struct Config {
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
     pub monitor_wikidata_watch: Vec<String>,
+    /// CourtListener search terms (env CSV). Each entry is a free-text
+    /// query against the dockets endpoint. Default = 8 high-signal
+    /// terms (lockbit, tornado cash, APT names) shipped in
+    /// courtlistener.rs.
+    pub monitor_courtlistener_query: Vec<String>,
+    /// Leaksify watchlist (env CSV). Each entry is an email or
+    /// username. Default = 5 sentinel entries tied to sanctioned
+    /// crypto-mixer / APT personas shipped in leaksify.rs.
+    /// IMPORTANT: keep the watchlist short — every email lookup
+    /// surfaces in geo_events metadata (target_hash only — not the
+    /// literal email), so large watchlists add radar noise.
+    pub monitor_leaksify_query: Vec<String>,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -328,6 +340,8 @@ impl Config {
                 .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
                 .unwrap_or(false),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
+            monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
+            monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),
             monitor_gfw_lookback_days: std::env::var("HUB_GFW_LOOKBACK_DAYS")
                 .ok()
                 .filter(|s| !s.is_empty())
