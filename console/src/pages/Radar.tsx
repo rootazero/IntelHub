@@ -127,16 +127,36 @@ export default function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Smooth region transition when user clicks a region button (whether on
-  // Radar or MonitorMap — region is shared via MapViewProvider). Re-fits
-  // the current region (no flicker because we keep the layer group intact).
+  // Smooth region transition when user clicks a region button. We
+  // don't run this from a useEffect on the `region` state because
+  // Leaflet has a 'frozen viewBox' bug: the first 4-5 region changes
+  // (via either fitBounds or setView in a useEffect) update correctly,
+  // then the SVG viewBox stops responding even though the map_pane
+  // transform does change. The bug is not on a specific Leaflet
+  // method; both fitBounds and setView hit it. Repro is headless and
+  // consistent.
+  //
+  // Workaround: skip the useEffect entirely. The page-level region
+  // state is still the source of truth (so MapControls and
+  // MonitorMap stay in lockstep), but the actual map operation is
+  // performed by an imperative call from MapControls via
+  // useMapView.flyToRegion. The effect here only handles the FIRST
+  // fit (initial mount / re-mount on region change to "world") to
+  // keep startup behavior consistent.
   useEffect(() => {
     if (skipFirstRegion.current) { skipFirstRegion.current = false; return; }
     const map = mapRef.current;
     if (!map) return;
-    map.invalidateSize();
-    map.flyToBounds(REGIONS[region], { duration: 0.6, easeLinearity: 0.3 });
-  }, [region]);
+    const bounds = REGIONS[region] as [[number, number], [number, number]];
+    const [[sLat, wLng], [nLat, eLng]] = bounds;
+    const center: L.LatLngExpression = [(sLat + nLat) / 2, (wLng + eLng) / 2];
+    const size = map.getSize();
+    const zoomX = Math.log2((size.x * 360) / ((eLng - wLng) * 256));
+    const zoomY = Math.log2((size.y * 180) / ((nLat - sLat) * 256));
+    const zoom = Math.max(1, Math.floor(Math.min(zoomX, zoomY)));
+    map.stop();
+    map.setView(center, zoom, { animate: false });
+  }, []); // mount only — see comment above
 
   function addTileLayer(map: L.Map, provider: TileProvider) {
     const p = PROVIDERS[provider];

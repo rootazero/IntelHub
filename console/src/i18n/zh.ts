@@ -323,9 +323,13 @@ export const zh: Dict = {
     region: {
       world: "全球",
       americas: "美洲",
+      northAmerica: "北美",
+      southAmerica: "南美",
       europe: "欧洲",
       middleEast: "中东",
       asiaPacific: "亚太",
+      eastAsiaPacific: "亚太",
+      southAsia: "南亚",
       africa: "非洲",
     },
     zoomIn: "放大",
