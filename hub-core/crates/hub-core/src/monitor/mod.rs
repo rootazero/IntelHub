@@ -277,6 +277,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::aws_ip_ranges::AWSIpRanges),
         Box::new(sources::gcp_ip_ranges::GCPIPRanges),
         Box::new(sources::ripe_as_overview::RipeAsOverview::default()),
+        // OSINT Framework bridge 9 (2026-09-17): three free
+        // keyless per-IP attribution collectors that fill
+        // the granular-IP-intel gap. ipapi_co (rich IP
+        // metadata: city/country/lat/lon/ASN/org) +
+        // ip_api_com (IP geolocation + ASN/ISP, redundant
+        // with ipapi_co for cross-validation) +
+        // ripe_prefix_overview (RIPE stat per-prefix BGP
+        // info: prefix, AS path, RPKI status).
+        Box::new(sources::ipapi_co::IpapiCo::default()),
+        Box::new(sources::ip_api_com::IpApiCom::default()),
+        Box::new(sources::ripe_prefix_overview::RipePrefixOverview::default()),
     ]
 }
 
