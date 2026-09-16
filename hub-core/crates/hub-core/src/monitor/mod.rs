@@ -303,6 +303,19 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::misp_dynamic_dns::MispDynamicDns),
         Box::new(sources::urlhaus::Urlhaus),
         Box::new(sources::firehol_level1::FireholLevel1),
+        // OSINT Framework bridge 11 (2026-09-17): three free
+        // keyless sentinel + rich-Tor collectors that fill
+        // the RFC-special-use sentinel cross-check gaps +
+        // provide Tor-relay-fingerprint pivots. misp_rfc5735
+        // (RFC 5735 Special-Use IPv4 addresses) +
+        // misp_rfc6761 (RFC 6761 Special-Use Domain Names) +
+        // tor_exit_details (rich Tor exit-addresses feed
+        // with fingerprint + Published + LastStatus +
+        // ExitAddress timestamps — complementary to existing
+        // tor_exit which uses the bare-IP torbulkexitlist).
+        Box::new(sources::misp_rfc5735::MispRfc5735),
+        Box::new(sources::misp_rfc6761::MispRfc6761),
+        Box::new(sources::tor_exit_details::TorExitDetails),
     ]
 }
 

@@ -247,6 +247,16 @@ pub async fn system_health(state: &AppState) -> Value {
         ("misp_dynamic_dns", 24, "cyber"),
         ("urlhaus",          4, "cyber"),
         ("firehol_level1",  12, "cyber"),
+        // OSINT Framework bridge 11 (2026-09-17): three free
+        // keyless sentinel + rich-Tor collectors —
+        // misp_rfc5735 (RFC 5735 Special-Use IPv4 sentinel)
+        // + misp_rfc6761 (RFC 6761 Special-Use TLD sentinel)
+        // + tor_exit_details (rich Tor exit-addresses feed
+        // with fingerprint + timestamps, complementary to
+        // the existing tor_exit which uses torbulkexitlist).
+        ("misp_rfc5735",    24, "cyber"),
+        ("misp_rfc6761",    24, "cyber"),
+        ("tor_exit_details",12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
