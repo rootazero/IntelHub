@@ -228,6 +228,16 @@ pub async fn system_health(state: &AppState) -> Value {
         ("aws_ip_ranges",   24, "cyber"),
         ("gcp_ip_ranges",   24, "cyber"),
         ("ripe_as_overview",24, "cyber"),
+        // OSINT Framework bridge 9 (2026-09-17): three free
+        // keyless per-IP attribution collectors —
+        // ipapi_co (rich IP metadata: city/country/lat/lon/
+        // ASN/org) + ip_api_com (IP geolocation + ASN/ISP,
+        // redundant with ipapi_co for cross-validation) +
+        // ripe_prefix_overview (RIPE stat per-prefix BGP
+        // info: prefix, AS path, RPKI status).
+        ("ipapi_co",        24, "cyber"),
+        ("ip_api_com",      24, "cyber"),
+        ("ripe_prefix_overview", 24, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
