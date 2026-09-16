@@ -223,6 +223,23 @@ pub struct Config {
     /// GitHub) shipped in ripe_as_overview.rs so day-1
     /// surfaces the AS-holder attribution flow.
     pub monitor_ripe_as_overview_watch: Vec<String>,
+    /// ipapi.co IP-geolocation watchlist (env CSV). Each
+    /// entry is an IPv4 or IPv6 address. Default = 5
+    /// well-known IPs (Cloudflare DNS / Google DNS / Quad9 /
+    /// OpenDNS / GitHub) shipped in ipapi_co.rs so day-1
+    /// surfaces variety of geo + ASN metadata.
+    pub monitor_ipapi_co_watch: Vec<String>,
+    /// ip-api.com IP-geolocation watchlist (env CSV). Same
+    /// shape as ipapi_co — typically the same watchlist.
+    /// Default = 5 well-known IPs (same default set as
+    /// ipapi_co) shipped in ip_api_com.rs.
+    pub monitor_ip_api_com_watch: Vec<String>,
+    /// RIPE stat prefix-overview IP/prefix watchlist
+    /// (env CSV). Each entry is an IP or CIDR. Default = 5
+    /// well-known IPs (same default set as ripe_as_overview)
+    /// shipped in ripe_prefix_overview.rs so day-1 surfaces
+    /// variety of BGP-routing attribution.
+    pub monitor_ripe_prefix_overview_watch: Vec<String>,
     /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
@@ -386,6 +403,9 @@ impl Config {
             monitor_ripestat_watch: env_list("HUB_RIPESTAT_WATCH"),
             monitor_wayback_watch: env_list("HUB_WAYBACK_WATCH"),
             monitor_ripe_as_overview_watch: env_list("HUB_RIPE_AS_OVERVIEW_WATCH"),
+            monitor_ipapi_co_watch: env_list("HUB_IPAPI_CO_WATCH"),
+            monitor_ip_api_com_watch: env_list("HUB_IP_API_COM_WATCH"),
+            monitor_ripe_prefix_overview_watch: env_list("HUB_RIPE_PREFIX_OVERVIEW_WATCH"),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
             monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),
