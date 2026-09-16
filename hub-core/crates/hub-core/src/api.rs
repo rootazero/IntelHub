@@ -179,6 +179,19 @@ pub async fn system_health(state: &AppState) -> Value {
         ("wikidata",  24, "financial"),
         ("courtlistener", 12, "sanction"),
         ("leaksify",     12, "cyber"),
+        // SP8-E cyber plane collectors (already in registry) now surfaced
+        // in the bridge JSON: cisakev (KEV — actively exploited),
+        // nvd (full CVE corpus with CVSS v3), osv (open-source ecosystem
+        // vulns), opensanctions (compliance plane, shelved-by-design
+        // without API key).
+        ("cisa-kev",      6, "cyber"),
+        ("nvd",           6, "cyber"),
+        ("osv",           6, "cyber"),
+        ("opensanctions", 24, "sanction"),
+        // OSINT Framework bridge 4 (2026-09-17): tor_exit (Tor exit-node
+        // daily bulk list) + ipsum (stamparm threat-IP aggregator).
+        ("tor_exit",     24, "cyber"),
+        ("ipsum",        12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {

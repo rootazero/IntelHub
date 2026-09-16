@@ -223,6 +223,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // introducing new infrastructure.
         Box::new(sources::courtlistener::Courtlistener),
         Box::new(sources::leaksify::Leaksify),
+        // OSINT Framework bridge 4 (2026-09-17): TorExit (Tor exit-node
+        // daily bulk list, free+keyless) + IPsum (stamparm's community
+        // threat-IP aggregator feed, free+keyless). Both complement the
+        // existing cyber cluster (otx/urlscan/ahmia/leaksify) — tor
+        // exit IPs are scanner/credential-stuff/bot origins; ipsum is
+        // pre-emptive IP-level blocklist intel. Anchored at operator
+        // home country (honest "no per-event geo" stand-in) so they
+        // visually cluster together with other operator-HQ-anchored
+        // cyber sources.
+        Box::new(sources::tor_exit::TorExit),
+        Box::new(sources::ipsum::Ipsum),
     ]
 }
 
