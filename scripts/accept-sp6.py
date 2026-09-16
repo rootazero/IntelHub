@@ -149,6 +149,13 @@ check("SP8-C social collectors present (bluesky/telegram-watch/x)",
 # feed, ~50K active URLs) + firehol_level1 (FireHOL curated
 # IP blocklist, ~4718 CIDR entries aggregated from ~30
 # sources). All three free keyless, no registration required.
+# Bridge 11 (2026-09-17): misp_rfc5735 (MISP RFC 5735
+# Special-Use IPv4 sentinel — 15 CIDRs) + misp_rfc6761 (MISP
+# RFC 6761 Special-Use TLD sentinel — 25 entries) +
+# tor_exit_details (Tor exit-addresses feed with fingerprint
+# + Published + LastStatus + ExitAddress timestamps,
+# complementary to existing tor_exit which uses the bare-IP
+# torbulkexitlist). All three free keyless.
 #
 # Re-query cells and states here: the OSINT bridge collectors sit at the
 # tail of the source stagger (idx > 26 ⇒ ~80-93s before first sweep), so
@@ -163,14 +170,15 @@ osint_bridge = ["etherscan", "defillama", "otx", "urlscan", "gfw",
                 "nominatim", "ripestat", "wayback",
                 "aws_ip_ranges", "gcp_ip_ranges", "ripe_as_overview",
                 "ipapi_co", "ip_api_com", "ripe_prefix_overview",
-                "misp_dynamic_dns", "urlhaus", "firehol_level1"]
+                "misp_dynamic_dns", "urlhaus", "firehol_level1",
+                "misp_rfc5735", "misp_rfc6761", "tor_exit_details"]
 cells = redis("HKEYS", "hub:monitor:health").split()
 for c in cells:
     v = redis("HGET", "hub:monitor:health", c)
     states[c] = '"state":"ok"' in v.replace(" ", "")
 present = [c for c in osint_bridge if c in cells]
-check("OSINT Framework bridge collectors present (34/34)",
-      len(present) == 34, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
+check("OSINT Framework bridge collectors present (37/37)",
+      len(present) == 37, f"present={','.join(present)},missing={','.join(set(osint_bridge)-set(present))}")
 # etherscan / defillama / otx / urlscan run keyless (free public endpoints),
 # so they should reach "ok" within a few cycles. GFW may stay in any state if
 # its token is missing — that's a known shelf, not a regression.
@@ -184,15 +192,15 @@ check("OSINT Framework keyless collectors ok >= 2", len(osint_keyless) >= 2, ","
 ob = health.get("osint_bridge", {})
 ob_collectors = ob.get("collectors", [])
 ob_names = {c.get("name") for c in ob_collectors if isinstance(c, dict)}
-check("OSINT bridge /api/v1/health surfaces 34 collectors (structured)",
-      len(ob_collectors) == 34 and ob_names == set(osint_bridge),
+check("OSINT bridge /api/v1/health surfaces 37 collectors (structured)",
+      len(ob_collectors) == 37 and ob_names == set(osint_bridge),
       f"got={sorted(ob_names)}")
 # Per-collector cadence is exposed so the console can render "next sweep
 # ETA" without a separate config call. Verify the shape carries it.
 ob_with_cadence = [c for c in ob_collectors if isinstance(c, dict)
                    and isinstance(c.get("cadence_hours"), int) and c["cadence_hours"] > 0]
-check("OSINT bridge collectors carry cadence_hours (34/34)",
-      len(ob_with_cadence) == 34, f"missing-cadence={set(osint_bridge)-{c['name'] for c in ob_with_cadence}}")
+check("OSINT bridge collectors carry cadence_hours (37/37)",
+      len(ob_with_cadence) == 37, f"missing-cadence={set(osint_bridge)-{c['name'] for c in ob_with_cadence}}")
 # Structured `ok` count — at least 4 of 5 must be in state=ok. GFW is
 # allowed to be absent/shelved by design (see gfw.rs docstring for the
 # self-heal trigger conditions).
@@ -201,8 +209,8 @@ ob_ok = [c for c in ob_collectors if c.get("state") == "ok"]
 # (overpass/ahmia/wikidata/courtlistener/leaksify/cisa-kev/nvd/osv/
 # tor_exit/ipsum) + 3 may-shelve (gfw/opencorp/opensanctions — last
 # one is "ok/0-new" without API key, still counts as state=ok).
-# So minimum ok = 31/34 (allow 3 to fail or be absent).
-check("OSINT bridge structured ok >= 31/34 (GFW+OpenCorp+OpenSanctions may shelve)", len(ob_ok) >= 31,
+# So minimum ok = 34/37 (allow 3 to fail or be absent).
+check("OSINT bridge structured ok >= 34/37 (GFW+OpenCorp+OpenSanctions may shelve)", len(ob_ok) >= 34,
       ",".join(f"{c['name']}={c.get('state')}" for c in ob_collectors))
 
 # 3. keyless collectors ok
