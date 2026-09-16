@@ -177,6 +177,8 @@ pub async fn system_health(state: &AppState) -> Value {
         ("ahmia",     12, "cyber"),
         ("opencorp",  24, "financial"),
         ("wikidata",  24, "financial"),
+        ("courtlistener", 12, "sanction"),
+        ("leaksify",     12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {

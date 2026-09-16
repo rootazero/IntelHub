@@ -3,11 +3,13 @@
 
 pub mod acled;
 pub mod ahmia;
+pub mod courtlistener;
 pub mod bls;
 pub mod bluesky;
 pub mod cisakev;
 pub mod climateseries;
 pub mod comtrade;
+pub mod leaksify;
 pub mod eia;
 pub mod eonet;
 pub mod epa;
