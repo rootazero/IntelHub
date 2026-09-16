@@ -129,9 +129,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // catalog direct-writes via ctx.state, emits no geo Signals).
         Box::new(sources::celestrak::Celestrak),
         // Globe P1: adsb.lol per-aircraft tracks — dual-channel (Redis
-        // snapshot + notable-event Signals). 15s cadence; scheduler has no
-        // min-interval clamp and owns backoff on failure.
-        Box::new(sources::adsb::Adsb),
+        // cumulative snapshot + notable-event Signals). Rate-limit-safe
+        // rotation: 1 request/tick over a 14-item queue (~4 req/min, inside
+        // measured upstream quota); scheduler backoff is the 429 cooldown.
+        Box::new(sources::adsb::Adsb::default()),
         Box::new(sources::rss::Rss),
         // SP8-E compliance/financial plane expansion: SEC EDGAR EFTS
         // for material-event filings (default form=8-K). Fills the gap
