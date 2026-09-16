@@ -209,6 +209,12 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::overpass::Overpass),
         Box::new(sources::ahmia::Ahmia),
         Box::new(sources::opencorp::Opencorp),
+        // Wikidata: free, keyless counterpart to OpenCorporates for
+        // the same OSINT Framework "Business Records → Entities" gap.
+        // Same kind=financial; uses real HQ coordinates (P625) so
+        // entities land on their actual map location rather than the
+        // jurisdiction capital fallback opencorp uses.
+        Box::new(sources::wikidata::Wikidata),
     ]
 }
 

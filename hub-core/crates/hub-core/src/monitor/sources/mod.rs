@@ -31,6 +31,7 @@ pub mod opencorp;
 pub mod osv;
 pub mod opensky;
 pub mod overpass;
+pub mod wikidata;
 pub mod radiation;
 pub mod reliefweb;
 pub mod rss;
