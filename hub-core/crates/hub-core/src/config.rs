@@ -198,6 +198,24 @@ pub struct Config {
     /// `apache`, `ftp`, `bots`, `strongips`, `all`. See
     /// https://lists.blocklist.de/lists/ for the full directory.
     pub monitor_blocklist_de_feed: Option<String>,
+    /// Nominatim (OpenStreetMap) geocoding query watchlist
+    /// (env CSV). Each entry is a free-form search string
+    /// (e.g. "Tor Project Seattle", "NSO Group Herzliya").
+    /// Default = 5 threat-actor HQ queries shipped in
+    /// nominatim.rs so day-1 surfaces variety of OSM
+    /// class/subtype hits.
+    pub monitor_nominatim_queries: Vec<String>,
+    /// RIPEstat abuse-contact-finder IP watchlist (env CSV).
+    /// Each entry is an IPv4 or IPv6 address. Default = 5
+    /// well-known IPs (Cloudflare DNS / Google DNS / Quad9 /
+    /// OpenDNS / GitHub) shipped in ripestat.rs so day-1
+    /// surfaces the IRIR contact-lookup flow.
+    pub monitor_ripestat_watch: Vec<String>,
+    /// Wayback Machine URL watchlist (env CSV). Each entry
+    /// is a hostname (e.g. "google.com") or full URL. Default
+    /// = 5 well-known hostnames shipped in wayback.rs so
+    /// day-1 surfaces the archive-snapshot lookup flow.
+    pub monitor_wayback_watch: Vec<String>,
     /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
@@ -356,9 +374,10 @@ impl Config {
                 .unwrap_or(false),
             monitor_shodan_internetdb_watch: env_list("HUB_SHODAN_INTERNETDB_WATCH"),
             monitor_crtsh_watch: env_list("HUB_CRTSH_WATCH"),
-            monitor_blocklist_de_feed: std::env::var("HUB_BLOCKLIST_DE_FEED")
-                .ok()
-                .filter(|s| !s.is_empty()),
+            monitor_blocklist_de_feed: std::env::var("HUB_BLOCKLIST_DE_FEED").ok(),
+            monitor_nominatim_queries: env_list("HUB_NOMINATIM_QUERIES"),
+            monitor_ripestat_watch: env_list("HUB_RIPESTAT_WATCH"),
+            monitor_wayback_watch: env_list("HUB_WAYBACK_WATCH"),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
             monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),
