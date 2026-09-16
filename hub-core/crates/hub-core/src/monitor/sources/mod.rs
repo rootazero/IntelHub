@@ -73,3 +73,6 @@ pub mod firehol_level1;
 pub mod misp_rfc5735;
 pub mod misp_rfc6761;
 pub mod tor_exit_details;
+pub mod romainmarcoux_malicious_ip;
+pub mod ihr_hegemony;
+pub mod misp_second_level_tlds;

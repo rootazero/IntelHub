@@ -223,6 +223,7 @@ pub struct Config {
     /// GitHub) shipped in ripe_as_overview.rs so day-1
     /// surfaces the AS-holder attribution flow.
     pub monitor_ripe_as_overview_watch: Vec<String>,
+    pub monitor_ihr_hegemony_watch: Vec<String>,
     /// ipapi.co IP-geolocation watchlist (env CSV). Each
     /// entry is an IPv4 or IPv6 address. Default = 5
     /// well-known IPs (Cloudflare DNS / Google DNS / Quad9 /
@@ -403,6 +404,7 @@ impl Config {
             monitor_ripestat_watch: env_list("HUB_RIPESTAT_WATCH"),
             monitor_wayback_watch: env_list("HUB_WAYBACK_WATCH"),
             monitor_ripe_as_overview_watch: env_list("HUB_RIPE_AS_OVERVIEW_WATCH"),
+            monitor_ihr_hegemony_watch: env_list("HUB_IHR_HEGEMONY_ASNS"),
             monitor_ipapi_co_watch: env_list("HUB_IPAPI_CO_WATCH"),
             monitor_ip_api_com_watch: env_list("HUB_IP_API_COM_WATCH"),
             monitor_ripe_prefix_overview_watch: env_list("HUB_RIPE_PREFIX_OVERVIEW_WATCH"),
