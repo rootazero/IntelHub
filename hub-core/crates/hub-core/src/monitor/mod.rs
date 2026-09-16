@@ -258,6 +258,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // fail2ban provenance).
         Box::new(sources::spamhaus_drop::SpamhausDrop),
         Box::new(sources::blocklist_de::BlocklistDe),
+        // OSINT Framework bridge 7 (2026-09-17): three free
+        // keyless collectors that fill three distinct OSINT
+        // gaps. Nominatim (OpenStreetMap reverse geocoding
+        // for threat-actor HQ anchoring) + RIPEstat abuse-
+        // contact-finder (IRIR abuse emails for incident
+        // response) + Internet Archive Wayback Machine (URL
+        // archive snapshots for phishing forensics).
+        Box::new(sources::nominatim::Nominatim::default()),
+        Box::new(sources::ripestat::Ripestat::default()),
+        Box::new(sources::wayback::Wayback::default()),
     ]
 }
 
