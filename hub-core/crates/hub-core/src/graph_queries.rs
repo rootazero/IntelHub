@@ -383,22 +383,44 @@ pub async fn query_investigation_graph(
     .bind(investigation_id)
     .fetch_all(&state.pg)
     .await?;
+    // 2026-09-16 fix (e2e BRICS B-InvGraph): the original SQL joined
+    // findings→claim_entities expecting finding_id == claim_id, which is
+    // a category error — findings cite entities through finding_entities,
+    // not claim_entities. The original query therefore always returned
+    // entities:[] for every investigation, which the e2e BRICS test
+    // surfaced immediately. Correct join table is finding_entities.
     let entities: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT DISTINCT e.entity_id, e.kind, e.name \
            FROM findings f \
-           JOIN claim_entities ce ON ce.claim_id = f.finding_id \
-           JOIN entities e ON e.entity_id = ce.entity_id \
+           JOIN finding_entities fe ON fe.finding_id = f.finding_id \
+           JOIN entities e ON e.entity_id = fe.entity_id \
           WHERE f.investigation_id = $1 LIMIT 200",
     )
     .bind(investigation_id)
     .fetch_all(&state.pg)
     .await?;
+    // 2026-09-16 fix (e2e BRICS B-InvGraph): claims don't have an
+    // investigation_id column by design (claims are global, only
+    // findings are scoped). The investigation is reachable through
+    // claims that cite the SAME entities as the investigation's
+    // findings — i.e. the entity overlap set is the bridge. We also
+    // keep the original "finding_id == claim_id" lookup as a fallback
+    // for the legacy path where some callers stored the claim UUID
+    // in finding_id (idempotent — those rows still match).
     let claims: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT DISTINCT c.claim_id, c.text, c.status \
            FROM claims c \
-           JOIN claim_entities ce ON ce.claim_id = c.claim_id \
-           JOIN entities e ON e.entity_id = ce.entity_id \
-           JOIN findings f ON f.investigation_id = $1 AND f.finding_id = c.claim_id \
+           WHERE c.claim_id IN (
+                   SELECT f.finding_id FROM findings f \
+                    WHERE f.investigation_id = $1
+                   UNION
+                   SELECT ce.claim_id FROM claim_entities ce \
+                    WHERE ce.entity_id IN (
+                          SELECT fe.entity_id FROM finding_entities fe \
+                           JOIN findings f ON f.finding_id = fe.finding_id \
+                          WHERE f.investigation_id = $1
+                        )
+                 ) \
           LIMIT 100",
     )
     .bind(investigation_id)

@@ -850,6 +850,21 @@ impl HubMcp {
         out
     }
 
+    async fn _validate_non_empty_query(
+        &self,
+        op: &str,
+        query: &str,
+    ) -> Result<(), McpError> {
+        if query.trim().is_empty() {
+            return Err(map_err(crate::error::HubError::bad_request(format!(
+                "{op} requires a non-empty query (got {len} chars after trim)",
+                op = op,
+                len = query.trim().len()
+            ))));
+        }
+        Ok(())
+    }
+
     #[tool(description = "Keyword full-text search over stored evidence documents.")]
     async fn keyword_search(
         &self,
@@ -858,6 +873,7 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "keyword_search").await?;
+        self._validate_non_empty_query("keyword_search", &args.query).await?;
         let agent = agent_of(&ctx);
         let trace = trace_of(&ctx);
         let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
@@ -898,6 +914,7 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "hybrid_search").await?;
+        self._validate_non_empty_query("hybrid_search", &args.query).await?;
         let agent = agent_of(&ctx);
         let trace = trace_of(&ctx);
         let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
@@ -1095,6 +1112,7 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "semantic_search").await?;
+        self._validate_non_empty_query("semantic_search", &args.query).await?;
         let agent = agent_of(&ctx);
         let trace = trace_of(&ctx);
         let trace_uuid = Uuid::parse_str(&trace.trace_id).ok();
@@ -1418,6 +1436,11 @@ impl HubMcp {
     ) -> Result<CallToolResult, McpError> {
         let started = Instant::now();
         self.gate(&ctx, "search_entity").await?;
+        if args.name.trim().is_empty() {
+            return Err(map_err(crate::error::HubError::bad_request(
+                "search_entity requires a non-empty `name` (got 0 chars after trim)",
+            )));
+        }
         let limit = args.limit.unwrap_or(20);
         let out = match crate::graph_queries::search_entity(
             &self.state, &args.name, args.kind.as_deref(), limit,
