@@ -125,6 +125,9 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::firms::Firms),
         Box::new(sources::gdelt::Gdelt),
         Box::new(sources::opensky::OpenSky),
+        // Globe P1: CelesTrak TLE catalog → PG satellites (dual with adsb.rs;
+        // catalog direct-writes via ctx.state, emits no geo Signals).
+        Box::new(sources::celestrak::Celestrak),
         Box::new(sources::rss::Rss),
         // SP8-E compliance/financial plane expansion: SEC EDGAR EFTS
         // for material-event filings (default form=8-K). Fills the gap

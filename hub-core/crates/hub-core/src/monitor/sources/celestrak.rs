@@ -3,6 +3,13 @@
 //! so fetch() returns Ok(vec![]) — liveness via health cell + sweephist.
 
 use chrono::{DateTime, TimeZone, Utc};
+use futures::future::BoxFuture;
+use futures::FutureExt;
+use std::time::Duration;
+
+use crate::error::{HubError, Result};
+
+use super::super::{Ctx, Signal, Source};
 
 pub struct TleRecord {
     pub norad_id: i64,
@@ -51,6 +58,81 @@ pub fn celestrak_groups() -> Vec<String> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+pub struct Celestrak;
+
+impl Source for Celestrak {
+    fn name(&self) -> &'static str {
+        "celestrak"
+    }
+    fn interval(&self) -> Duration {
+        Duration::from_secs(6 * 3600)
+    }
+    fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>> {
+        async move {
+            let groups = celestrak_groups();
+            let mut wrote_any = false;
+            for g in &groups {
+                let url = format!("https://celestrak.org/NORAD/elements/gp.php?GROUP={g}&FORMAT=tle");
+                let text = match ctx.http.get(&url).send().await {
+                    Ok(r) if r.status().is_success() => match r.text().await {
+                        Ok(t) => t,
+                        Err(e) => { tracing::warn!(group = g, error = %e, "celestrak body read failed"); continue; }
+                    },
+                    Ok(r) => { tracing::warn!(group = g, status = %r.status(), "celestrak group failed"); continue; }
+                    Err(e) => { tracing::warn!(group = g, error = %e, "celestrak group failed"); continue; }
+                };
+                let records = parse_tle_catalog(&text);
+                if records.is_empty() {
+                    tracing::warn!(group = g, "celestrak group parsed empty");
+                    continue;
+                }
+                // Per-category full replace in one tx — decayed sats vanish.
+                let mut tx = ctx.state.pg.begin().await
+                    .map_err(|e| HubError::sensor(format!("celestrak tx begin: {e}")))?;
+                sqlx::query("DELETE FROM satellites WHERE category = $1")
+                    .bind(g).execute(&mut *tx).await
+                    .map_err(|e| HubError::sensor(format!("celestrak delete {g}: {e}")))?;
+                for r in &records {
+                    // ON CONFLICT: CelesTrak groups OVERLAP (25544 ISS and 48274
+                    // CSS are in both `stations` and `visual`), and the schema's
+                    // PK is global (`norad_id`), not (norad_id, category). A plain
+                    // INSERT would raise 23505 and abort the tick, permanently
+                    // starving every group after the first collision. Upsert keeps
+                    // each category's replace atomic and the union complete.
+                    sqlx::query(
+                        "INSERT INTO satellites (norad_id, name, category, tle_line1, tle_line2, epoch)
+                         VALUES ($1, $2, $3, $4, $5, $6)
+                         ON CONFLICT (norad_id) DO UPDATE SET
+                           name = EXCLUDED.name,
+                           category = EXCLUDED.category,
+                           tle_line1 = EXCLUDED.tle_line1,
+                           tle_line2 = EXCLUDED.tle_line2,
+                           epoch = EXCLUDED.epoch,
+                           fetched_at = now()",
+                    )
+                    .bind(r.norad_id as i32)
+                    .bind(&r.name)
+                    .bind(g)
+                    .bind(&r.line1)
+                    .bind(&r.line2)
+                    .bind(tle_epoch_to_utc(&r.line1).unwrap_or_else(Utc::now))
+                    .execute(&mut *tx).await
+                    .map_err(|e| HubError::sensor(format!("celestrak insert {g}: {e}")))?;
+                }
+                tx.commit().await
+                    .map_err(|e| HubError::sensor(format!("celestrak commit {g}: {e}")))?;
+                wrote_any = true;
+                tracing::info!(group = g, count = records.len(), "celestrak catalog replaced");
+            }
+            if !wrote_any {
+                return Err(HubError::sensor("celestrak: every group failed this tick"));
+            }
+            Ok(vec![]) // catalog is not a geo event; liveness via health cell
+        }
+        .boxed()
+    }
 }
 
 #[cfg(test)]
