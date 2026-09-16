@@ -238,6 +238,15 @@ pub async fn system_health(state: &AppState) -> Value {
         ("ipapi_co",        24, "cyber"),
         ("ip_api_com",      24, "cyber"),
         ("ripe_prefix_overview", 24, "cyber"),
+        // OSINT Framework bridge 10 (2026-09-17): three free
+        // keyless sentinel / active-threat / curated-
+        // blocklist collectors — misp_dynamic_dns (MISP
+        // dynamic-DNS sentinel list for OSINT false-positive
+        // suppression) + urlhaus (abuse.ch malware URL feed)
+        // + firehol_level1 (FireHOL curated IP blocklist).
+        ("misp_dynamic_dns", 24, "cyber"),
+        ("urlhaus",          4, "cyber"),
+        ("firehol_level1",  12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
