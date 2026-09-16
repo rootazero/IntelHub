@@ -288,6 +288,21 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::ipapi_co::IpapiCo::default()),
         Box::new(sources::ip_api_com::IpApiCom::default()),
         Box::new(sources::ripe_prefix_overview::RipePrefixOverview::default()),
+        // OSINT Framework bridge 10 (2026-09-17): three free
+        // keyless sentinel / active-threat / curated-
+        // blocklist collectors that fill the "sentinel
+        // domain cross-check" + "active malware URL feed" +
+        // "high-quality IP blocklist" gaps.
+        // misp_dynamic_dns (MISP-maintained 45K-domain
+        // sentinel list of dynamic-DNS providers, used for
+        // OSINT false-positive suppression) +
+        // urlhaus (abuse.ch plain-text malware/phishing URL
+        // feed, ~50K active URLs) + firehol_level1 (curated
+        // high-quality IP blocklist, ~4,718 CIDR entries
+        // from FireHOL's aggregation of ~30 sources).
+        Box::new(sources::misp_dynamic_dns::MispDynamicDns),
+        Box::new(sources::urlhaus::Urlhaus),
+        Box::new(sources::firehol_level1::FireholLevel1),
     ]
 }
 
