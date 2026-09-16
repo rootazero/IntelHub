@@ -20,8 +20,12 @@ import type { Map as MlMap, LngLatBoundsLike } from "maplibre-gl";
 import { REGIONS, ZOOM_STEP, type RegionKey } from "./mapControls";
 
 type MapViewCtx = {
-  region: RegionKey;
-  setRegion: (r: RegionKey) => void;
+  /** Active region preset, or null when the view is detached
+   *  (e.g. focused on a single event after a click or deep-link).
+   *  `null` means no region button is highlighted, so the user can
+   *  pick any region without first "leaving" the current one. */
+  region: RegionKey | null;
+  setRegion: (r: RegionKey | null) => void;
   attach: (m: MlMap | null) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -39,7 +43,7 @@ type MapViewCtx = {
 const Ctx = createContext<MapViewCtx | null>(null);
 
 export function MapViewProvider({ children }: { children: React.ReactNode }) {
-  const [region, setRegion] = useState<RegionKey>("world");
+  const [region, setRegion] = useState<RegionKey | null>("world");
   const mapRef = useRef<MlMap | null>(null);
   const onResetRef = useRef<(() => void) | null>(null);
 

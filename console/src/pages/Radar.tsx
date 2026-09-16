@@ -56,7 +56,7 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 export default function Radar() {
   const { t } = useT();
   const en = useEnum();
-  const { region, attach, registerOnReset } = useMapView();
+  const { region, attach, registerOnReset, setRegion } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const markersRef = useRef<Map<string, MlMarker>>(new Map());
   const divRef = useRef<HTMLDivElement>(null);
@@ -196,6 +196,12 @@ export default function Radar() {
     // Shared utility — same behavior as the click handler, so the
     // deep-link landing and a direct page-2 click feel identical.
     setSelected(ev);
+    // Detach from any active region preset so the top-right region
+    // buttons release (no button highlighted) — the view is now
+    // owned by the focused event, not by a region preset. The user
+    // can click any region button to navigate away without first
+    // having to "leave" the current (visually still-on) preset.
+    setRegion(null);
     focusOnEvent(mapRef.current, ev);
   }, [deepLinkEventId, events.length, setSearchParams]);
 
@@ -228,6 +234,10 @@ export default function Radar() {
       el.addEventListener("click", (ev) => {
         ev.stopPropagation();
         setSelected(e);
+        // Release the region buttons — see deep-link effect for the
+        // rationale. Same call path here so a click and a deep-link
+        // landing produce identical UI state.
+        setRegion(null);
         focusOnEvent(mapRef.current, e);
       });
       const marker = new maplibregl.Marker({ element: el })
