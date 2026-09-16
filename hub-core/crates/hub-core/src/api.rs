@@ -200,6 +200,15 @@ pub async fn system_health(state: &AppState) -> Value {
         ("crtsh",                6, "cyber"),
         ("openphish",            4, "cyber"),
         ("shodan_internetdb",   12, "cyber"),
+        // OSINT Framework bridge 6 (2026-09-17): Spamhaus DROP
+        // (authoritative netblock blocklist) + blocklist.de (German
+        // fail2ban community per-attack-type IP blocklists). Both
+        // free + keyless, no registration required. RDAP originally
+        // planned but Verisign RDAP rejects reqwest <-> Verisign
+        // interop from datacenter egress (HTTP 400); tracked
+        // separately.
+        ("spamhaus_drop",    24, "cyber"),
+        ("blocklist_de",     12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
