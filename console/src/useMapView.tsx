@@ -38,6 +38,13 @@ type MapViewCtx = {
    *  e.g. Radar closes its right drawer here so a 'back to global' click
    *  also clears the focused event's detail panel. */
   registerOnReset: (cb: () => void) => () => void;
+  /** Pages register a callback to run when ANY region button is clicked
+   *  — fires from flyToRegion() AFTER setRegion(r). Use this to react
+   *  to the user's 'I'm done looking at this event, give me the map back'
+   *  gesture (e.g. Radar closes its right drawer). Not fired by
+   *  setRegion(null) (event focus paths) or reset() (⌂) — those have
+   *  their own side-effect contracts via setRegion/onReset. */
+  registerOnRegionJump: (cb: (r: RegionKey) => void) => () => void;
 };
 
 const Ctx = createContext<MapViewCtx | null>(null);
@@ -46,6 +53,7 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
   const [region, setRegion] = useState<RegionKey | null>("world");
   const mapRef = useRef<MlMap | null>(null);
   const onResetRef = useRef<(() => void) | null>(null);
+  const onRegionJumpRef = useRef<((r: RegionKey) => void) | null>(null);
 
   const attach = useCallback((m: MlMap | null) => {
     mapRef.current = m;
@@ -81,22 +89,32 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const registerOnRegionJump = useCallback((cb: (r: RegionKey) => void) => {
+    onRegionJumpRef.current = cb;
+    return () => {
+      if (onRegionJumpRef.current === cb) onRegionJumpRef.current = null;
+    };
+  }, []);
+
   // Imperative fly to region. Called by MapControls when a region
   // button is clicked. setRegion() updates the context state for any
   // other consumer (e.g. the page-level region indicator). The
   // fitBounds happens here directly so it doesn't go through the
   // page's useEffect on `region`. MapLibre's fitBounds is robust —
-  // no stuck-render issues.
+  // no stuck-render issues. After setRegion() we fire any registered
+  // onRegionJump callback so the page can react to the user's
+  // "I'm done with the focused event, give me the map" gesture.
   const flyToRegion = useCallback((r: RegionKey) => {
     const m = mapRef.current;
     if (!m) return;
     m.fitBounds(toMlBounds(REGIONS[r]), { animate: false, padding: 20 });
     setRegion(r);
+    onRegionJumpRef.current?.(r);
   }, []);
 
   const value = useMemo<MapViewCtx>(
-    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset, registerOnReset, flyToRegion }),
-    [region, attach, zoomIn, zoomOut, reset, registerOnReset, flyToRegion],
+    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset, registerOnReset, registerOnRegionJump, flyToRegion }),
+    [region, attach, zoomIn, zoomOut, reset, registerOnReset, registerOnRegionJump, flyToRegion],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
