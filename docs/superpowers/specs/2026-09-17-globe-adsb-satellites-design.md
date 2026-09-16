@@ -200,7 +200,7 @@ VITE_CESIUM_ION_KEY  → Cesium World Terrain + Ion 影像
 |---|---|---|
 | adsb.lol 单请求失败 / 429 | tick Err → scheduler 退避（= 429 冷却），轮转位置不动下轮重试 | envelope `last_tick` 停更；退避 >300s →「ADS-B STALE」徽章 + 图层淡出 |
 | CelesTrak 挂 | 退避；PG 保留上一期目录 | 面板显示 TLE 龄期，epoch > 48h 标灰 |
-| Redis 挂 | `redis_timed` 2s 超时 → tick Err → 退避 | 端点返 `{stale:true}` → 同上徽章 |
+| Redis 挂 | SETEX 失败（`redis_timed` 2s 超时）→ `tracing::warn!` 可见；tick 保持 Ok 以保护 channel-2 紧急事件流（有意设计）；退避只由上游失败路径触发 | 快照 TTL 300s 过期 → 端点返 `{stale:true}` →「ADS-B STALE」徽章 + 图层淡出 |
 | PG 挂 | celestrak 写库 Err → 退避 | 前端 localStorage 缓存 TLE；无缓存显示「目录不可用」 |
 | ion/google key 缺失/失效 | 底图回退链自动降级 | 免 key Esri 影像兜底，永不白球 |
 | Cesium 资产加载失败 | ErrorBoundary | 页内错误卡片 + 重试，不炸 console |

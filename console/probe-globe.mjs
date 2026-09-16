@@ -27,7 +27,7 @@ const acText = await page.textContent('[data-probe="aircraft-count"]').catch(() 
 const satText = await page.textContent('[data-probe="sat-count"]').catch(() => null);
 await browser.close();
 
-const fatal = errors.filter((e) => !/ResizeObserver|WebGL|GroupMarkerNotSet|CesiumWidget/i.test(e));
+const fatal = errors.filter((e) => !/ResizeObserver|GroupMarkerNotSet/i.test(e));
 console.log(`canvas=${canvasOk} aircraft=${acText ?? "n/a"} satellites=${satText ?? "n/a"} pageerrors=${fatal.length}`);
 if (fatal.length) {
   console.error(fatal.join("\n"));

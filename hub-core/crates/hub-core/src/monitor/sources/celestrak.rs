@@ -117,7 +117,11 @@ impl Source for Celestrak {
                     .bind(g)
                     .bind(&r.line1)
                     .bind(&r.line2)
-                    .bind(tle_epoch_to_utc(&r.line1).unwrap_or_else(Utc::now))
+                    .bind(tle_epoch_to_utc(&r.line1).unwrap_or_else(|| {
+                        tracing::warn!(norad_id = r.norad_id, name = %r.name,
+                            "celestrak TLE epoch unparseable, falling back to now() (upstream data corrupt)");
+                        Utc::now()
+                    }))
                     .execute(&mut *tx).await
                     .map_err(|e| HubError::sensor(format!("celestrak insert {g}: {e}")))?;
                 }
