@@ -183,6 +183,10 @@ pub struct Config {
     pub monitor_opencorp_api_token: Option<String>,
     pub monitor_opencorp_watch: Vec<String>,
     pub monitor_otx_create_claim: bool,
+    /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
+    /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
+    /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
+    pub monitor_wikidata_watch: Vec<String>,
     // ── SP6B finance collectors (secrets.env; None = collector degrades) ──
     pub fred_api_key: Option<String>,
     pub comtrade_api_key: Option<String>,
@@ -323,6 +327,7 @@ impl Config {
                 .ok()
                 .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
                 .unwrap_or(false),
+            monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_gfw_lookback_days: std::env::var("HUB_GFW_LOOKBACK_DAYS")
                 .ok()
                 .filter(|s| !s.is_empty())
