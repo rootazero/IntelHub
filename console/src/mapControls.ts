@@ -6,9 +6,15 @@
 //
 // Region latitudes are slightly trimmed so polar cap labels don't crowd;
 // longitudes centered on each region so the default "world" view stays
-// intact when the user clicks WORLD again. Fractional Leaflet zoomSnap
-// 0.25 lets fitBounds fill any panel aspect precisely.
-import type { LatLngBoundsExpression } from "leaflet";
+// intact when the user clicks WORLD again.
+//
+// Post-2026-09-15: dropped Leaflet `LatLngBoundsExpression` import.
+// Each region is now a plain `[[sLat, wLng], [nLat, eLng]]` tuple;
+// `useMapView.toMlBounds()` converts to MapLibre's [lng,lat] order
+// at the fitBounds call site.
+
+/** A bounding box in [lat, lng] order (south-west, north-east). */
+export type RegionBounds = [[number, number], [number, number]];
 
 export type RegionKey =
   | "world"
@@ -20,7 +26,7 @@ export type RegionKey =
   | "southAsia"
   | "africa";
 
-export const REGIONS: Record<RegionKey, LatLngBoundsExpression> = {
+export const REGIONS: Record<RegionKey, RegionBounds> = {
   // Frame↔map contract: longitude spans the full 359° so no repeated
   // continent copies can ever render; only uninhabited polar/pacific
   // fringes are trimmed; every continent (incl. East Asia) stays whole.
