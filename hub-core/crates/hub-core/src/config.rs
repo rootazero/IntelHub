@@ -183,6 +183,15 @@ pub struct Config {
     pub monitor_opencorp_api_token: Option<String>,
     pub monitor_opencorp_watch: Vec<String>,
     pub monitor_otx_create_claim: bool,
+    /// Shodan InternetDB watchlist (env CSV). Each entry is an IPv4
+    /// literal. Default = 10 well-known public IPs (DNS resolvers +
+    /// CDN edges) shipped in shodan_internetdb.rs so day-1 emits
+    /// real CPE / port / vuln signal instead of empty state.
+    pub monitor_shodan_internetdb_watch: Vec<String>,
+    /// crt.sh watchlist (env CSV). Each entry is a crt.sh query
+    /// domain (exact match, `%sub`, or `%.domain` wildcards). Default
+    /// = 5 high-traffic critical-infra domains shipped in crtsh.rs.
+    pub monitor_crtsh_watch: Vec<String>,
     /// Wikidata watchlist (env CSV). Each entry is a Wikidata Q-ID
     /// (e.g. `Q113481936` for Tornado Cash). Default = 10 sanctioned
     /// crypto mixers / APT groups / regime actors shipped in wikidata.rs.
@@ -339,6 +348,8 @@ impl Config {
                 .ok()
                 .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
                 .unwrap_or(false),
+            monitor_shodan_internetdb_watch: env_list("HUB_SHODAN_INTERNETDB_WATCH"),
+            monitor_crtsh_watch: env_list("HUB_CRTSH_WATCH"),
             monitor_wikidata_watch: env_list("HUB_WIKIDATA_WATCH"),
             monitor_courtlistener_query: env_list("HUB_COURTLISTENER_QUERY"),
             monitor_leaksify_query: env_list("HUB_LEAKSIFY_QUERY"),

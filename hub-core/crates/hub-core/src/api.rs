@@ -192,6 +192,14 @@ pub async fn system_health(state: &AppState) -> Value {
         // daily bulk list) + ipsum (stamparm threat-IP aggregator).
         ("tor_exit",     24, "cyber"),
         ("ipsum",        12, "cyber"),
+        // OSINT Framework bridge 5 (2026-09-17): crt.sh (cert
+        // transparency log search, keyless) + OpenPhish (phishing
+        // URL catalog, keyless — replaces PhishTank's retired
+        // public feed) + Shodan InternetDB (per-IP CPE / port /
+        // vuln enrichment, keyless).
+        ("crtsh",                6, "cyber"),
+        ("openphish",            4, "cyber"),
+        ("shodan_internetdb",   12, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
