@@ -103,6 +103,29 @@ pub async fn ingest_content(
     embed_mode: &str, // "auto"|"force"|"skip" (SP2B §40)
     trace_id: Option<Uuid>, // D: trace propagation — None for non-MCP triggers
 ) -> Result<IngestOutcome> {
+    // 2026-09-16 fix (e2e BRICS B-Empty): reject empty / whitespace-only
+    // content BEFORE we compute content_hash. Without this, every empty
+    // crawl collapses to the same sha256 of "" → e3b0c44..., which means
+    // fetch_document(URL_X) silently returns the document for URL_Y
+    // because they share the empty hash. The well-known constant is
+    // also a hash-collision vector for any future ingest job that does
+    // "INSERT ... ON CONFLICT DO NOTHING" on content_hash — the empty
+    // document acts as a singleton bucket for the whole fleet.
+    // Threshold chosen at 20 visible chars (post-trim); a working page
+    // almost always returns more than that. Crawl4s' own error pages
+    // ("403 Forbidden", "504 Gateway") slip through with ~5–18 chars
+    // and are also rejected.
+    const MIN_CONTENT_CHARS: usize = 20;
+    let trimmed = content.trim();
+    if trimmed.len() < MIN_CONTENT_CHARS {
+        return Err(crate::error::HubError::bad_request(format!(
+            "ingest_content rejected: body has only {got} visible chars (min {min}); \
+             likely a 4xx/5xx page or empty crawl — refusing to mint a document that \
+             would collide with every other empty-content crawl on sha256(\"\")",
+            got = trimmed.len(),
+            min = MIN_CONTENT_CHARS,
+        )));
+    }
     let canonical = canonicalize_url(url);
     let hash = content_hash(content);
     let shash = simhash64(content);
