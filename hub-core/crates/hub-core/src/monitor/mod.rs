@@ -234,6 +234,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // cyber sources.
         Box::new(sources::tor_exit::TorExit),
         Box::new(sources::ipsum::Ipsum),
+        // OSINT Framework bridge 5 (2026-09-17): crtsh (Certificate
+        // Transparency log search, free+keyless) + openphish (phishing
+        // URL catalog, free+keyless — PhishTank public feed was
+        // retired in 2024) + shodan_internetdb (free keyless per-IP
+        // enrichment; complements paid Shodan with a public data
+        // subset). All three fill distinct OSINT Framework gaps:
+        // crtsh → "Domain → Certificate Search", openphish → "URL →
+        // Phishing", shodan_internetdb → "IP → Shodan InternetDB".
+        Box::new(sources::crtsh::CrtSh),
+        Box::new(sources::openphish::OpenPhish),
+        Box::new(sources::shodan_internetdb::ShodanInternetDb),
     ]
 }
 
