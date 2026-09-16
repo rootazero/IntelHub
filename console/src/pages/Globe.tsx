@@ -5,6 +5,7 @@ import * as Cesium from "cesium";
 // do not import it here or it loads twice.
 import { applyBasemap, globeBase, type GlobeBase } from "../globe/basemap";
 import { useAircraft, deadReckon, type AircraftPoint } from "../globe/aircraft";
+import { buildSatRecs, loadSatellites, propagateAll, type SatRec } from "../globe/satellites";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 
 // Pick payloads carried on Cesium primitives; ScreenSpaceEventHandler picks
@@ -19,6 +20,13 @@ function GlobeInner() {
   const { snap, fetchedAt } = useAircraft();
   const acCollection = useRef<Cesium.PointPrimitiveCollection | null>(null);
   const viewerRef = useRef<Cesium.Viewer | null>(null);
+
+  const SAT_CATS = ["stations", "visual", "weather", "gnss", "military"] as const;
+  const [satCats, setSatCats] = useState<Set<string>>(new Set(SAT_CATS));
+  const [satRecs, setSatRecs] = useState<SatRec[]>([]);
+  const [satError, setSatError] = useState(false);
+  const satCollection = useRef<Cesium.PointPrimitiveCollection | null>(null);
+  const [selected, setSelected] = useState<GlobePick | null>(null);
 
   useEffect(() => {
     if (!ref.current) return;
@@ -38,6 +46,12 @@ function GlobeInner() {
       baseLayer: false,
     });
     viewerRef.current = viewer;
+    // Pick panel: primitive ids are GlobePick payloads (ac Task 10, sat Task 11).
+    viewer.screenSpaceEventHandler.setInputAction((e: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+      const picked = viewer.scene.pick(e.position);
+      const id = (picked?.id ?? null) as GlobePick | null;
+      setSelected(id && (id.kind === "ac" || id.kind === "sat") ? id : null);
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
     // Initial camera once, synchronously — Cesium setView is safe at init
     // (unlike Leaflet's async-fitBounds pitfall, 2026-09-13 lesson).
     viewer.camera.setView({
@@ -99,6 +113,56 @@ function GlobeInner() {
     return () => clearInterval(t);
   }, [snap, fetchedAt, showMilOnly]);
 
+  // TLE catalog load (localStorage-cached 1h in satellites.ts).
+  useEffect(() => {
+    let dead = false;
+    loadSatellites()
+      .then((tles) => {
+        if (!dead) setSatRecs(buildSatRecs(tles));
+      })
+      .catch(() => {
+        if (!dead) setSatError(true);
+      });
+    return () => {
+      dead = true;
+    };
+  }, []);
+
+  // Satellite layer: 1s SGP4 tick, rebuild collection — 500 objects is cheap.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || satRecs.length === 0) return;
+    const coll = new Cesium.PointPrimitiveCollection();
+    viewer.scene.primitives.add(coll);
+    satCollection.current = coll;
+    const SAT_COLORS: Record<string, Cesium.Color> = {
+      stations: Cesium.Color.fromCssColorString("#ffd60a"),
+      visual: Cesium.Color.fromCssColorString("#4fc3f7"),
+      weather: Cesium.Color.fromCssColorString("#7cfc00"),
+      gnss: Cesium.Color.fromCssColorString("#c792ea"),
+      military: Cesium.Color.fromCssColorString("#ff3355"),
+    };
+    const FALLBACK = Cesium.Color.fromCssColorString("#9aa4b2");
+    const t = setInterval(() => {
+      if (viewer.isDestroyed()) return;
+      coll.removeAll();
+      const active = satRecs.filter((r) => satCats.has(r.tle.category));
+      for (const p of propagateAll(active, new Date())) {
+        coll.add({
+          position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.altKm * 1000),
+          pixelSize: p.category === "stations" ? 6 : 2.5,
+          color: SAT_COLORS[p.category] ?? FALLBACK,
+          id: { kind: "sat", name: p.name, category: p.category, noradId: p.norad_id } satisfies GlobePick,
+        });
+      }
+    }, 1000);
+    return () => {
+      clearInterval(t);
+      if (!viewer.isDestroyed()) viewer.scene.primitives.remove(coll);
+      satCollection.current = null;
+    };
+  }, [satRecs, satCats]);
+
   return (
     <div className="relative h-full w-full">
       <div ref={ref} className="absolute inset-0" />
@@ -113,6 +177,25 @@ function GlobeInner() {
           military only
         </label>
         {snap?.stale && <div className="font-semibold text-[#ff9500]">ADS-B STALE</div>}
+        <div className="flex flex-wrap items-center gap-1">
+          {SAT_CATS.map((c) => (
+            <label key={c} className="flex items-center gap-0.5">
+              <input
+                type="checkbox"
+                checked={satCats.has(c)}
+                onChange={(e) => {
+                  const next = new Set(satCats);
+                  if (e.target.checked) next.add(c);
+                  else next.delete(c);
+                  setSatCats(next);
+                }}
+              />
+              {c}
+            </label>
+          ))}
+          <span data-probe="sat-count">{satRecs.length}</span>
+        </div>
+        {satError && <div className="text-[#ff9500]">SAT CATALOG UNAVAILABLE</div>}
         {snap && !snap.stale && snap.last_tick && (
           <div>
             last: {snap.last_tick}
@@ -125,6 +208,28 @@ function GlobeInner() {
           </div>
         )}
       </div>
+      {selected && (
+        <div className="absolute right-2 top-2 w-56 rounded border border-edge bg-panel/90 p-2 text-[11px] text-ink">
+          {selected.kind === "ac" ? (
+            <>
+              <div className="mb-1 font-semibold">{selected.ac.flight ?? selected.ac.hex}</div>
+              <div className="text-dim">hex {selected.ac.hex}</div>
+              <div className="text-dim">alt {Math.round(selected.ac.alt_m)} m · gs {selected.ac.gs ?? "—"} kt</div>
+              <div className="text-dim">track {selected.ac.track ?? "—"}° · squawk {selected.ac.squawk ?? "—"}</div>
+              {selected.ac.mil && <div className="text-[#ff9500]">MILITARY</div>}
+            </>
+          ) : (
+            <>
+              <div className="mb-1 font-semibold">{selected.name}</div>
+              <div className="text-dim">NORAD {selected.noradId}</div>
+              <div className="text-dim">category {selected.category}</div>
+            </>
+          )}
+          <button className="mt-2 rounded border border-edge px-1.5 py-0.5 text-dim hover:bg-edge" onClick={() => setSelected(null)}>
+            close
+          </button>
+        </div>
+      )}
     </div>
   );
 }
