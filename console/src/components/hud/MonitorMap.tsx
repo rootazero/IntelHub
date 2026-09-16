@@ -227,7 +227,12 @@ export default function MonitorMap({
 
   return (
     <div className="hud-map-wrap">
-      <div ref={divRef} className="absolute inset-0" />
+      {/* MapLibre CSS sets `.maplibregl-map { position: relative }` which
+          overrides our `absolute inset-0` on the same element. Wrap
+          with an outer div that handles the absolute positioning. */}
+      <div className="absolute inset-0">
+        <div ref={divRef} style={{ width: "100%", height: "100%" }} />
+      </div>
 
       {/* status pills: top-left. Bumps when fresh SSE sweep lands */}
       <div className="hud-map-status">
