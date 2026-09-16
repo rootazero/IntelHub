@@ -1,29 +1,30 @@
 // SP7 command-deck map — trimmed Radar: 24h geo events as kind-colored
-// circleMarkers, click → detail card. Basemap chain (CARTO → Esri → Stadia)
+// circles, click → detail card. Basemap chain (CARTO → Esri → Stadia)
 // and providers are shared with Radar via ../basemap — this file only adds
 // the page-specific fourth tier (bundled offline GeoJSON) past the chain.
 //
-// Monitor-vs-Radar deltas:
-//   * Region POV (6 presets: world + 5 continents) — quick focus from the deck
-//   * SensorGrid cross-filter — when a source is selected, others dim, match pops
-//   * Pulse animation for flash severity (Crucix conflict-rings feel, 2D)
-//   * Map controls (zoom +/-, region reset) — top-right
-//   * Tile-mode + event-count + last-refresh status pills — top-left
-//   * Compact kind legend — bottom-right, bumps on fresh SSE sweep
-//   * Detail card with payload peek + "open in Radar" deep link
-//
-// No filter UI (Radar page is the deep view); all interactive elements here are
-// "what's where" not "what to look at".
+// Post-2026-09-15: migrated from Leaflet to MapLibre GL JS.
+//   * Each event is rendered as a MapLibre Marker wrapping a custom
+//     HTML div (CSS-styled circle). HTML markers give us full control
+//     over visual style + click behavior; MapLibre's GeoJSON symbol
+//     layer is also viable but HTML markers are simpler at our event
+//     counts (~70 typical).
+//   * MapLibre's fitBounds is reliable (no stuck-render class of bugs
+//     we hit with Leaflet), so the manual DOM workaround code from
+//     cd8df25 is gone.
+//   * All Leaflet coordinate-order gotchas (lat,lng vs lng,lat) are
+//     handled at the Leaflet-callback boundary — in this file we just
+//     speak [lng, lat] to MapLibre.
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import maplibregl, { Map as MlMap, Marker as MlMarker, type StyleSpecification } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../../api";
 import { useT } from "../../i18n";
 import { kindColor, KIND_COLORS, sevRadius } from "../../kindmeta";
-import { PROVIDERS, CHAIN, PRIMARY } from "../../basemap";
+import { buildStyle, CHAIN, PRIMARY } from "../../basemap";
 import type { TileProvider, TilesMode } from "../../basemap";
-import { REGIONS } from "../../mapControls";
 import { useMapView } from "../../useMapView";
 import { MapControls } from "../MapControls";
 
@@ -46,18 +47,6 @@ const SEV_COLOR: Record<string, string> = {
   info: "#38bdf8",
 };
 
-// Frame↔map contract: the map always shows the INHABITED world fitted exactly
-// into the card — longitude spans the full 359° so no repeated continent
-// copies can ever render; only uninhabited polar/pacific fringes are trimmed;
-// every continent (incl. East Asia) stays whole. Fractional zoomSnap 0.25 lets
-// fitBounds fill any panel aspect precisely. Leaflet does not track container
-// resizes by itself — invalidateSize() before every refit.
-const WORLD: L.LatLngBoundsExpression = [[-58, -179], [76, 180]];
-
-// Region POVs live in ../../mapControls (single source of truth shared with
-// Radar); 6 preset angles with latitudes slightly trimmed so polar cap labels
-// don't crowd and longitudes centered on each region.
-
 export default function MonitorMap({
   refreshKey,
   selectedSource,
@@ -68,152 +57,136 @@ export default function MonitorMap({
   onClearSource?: () => void;
 }) {
   const { t } = useT();
-  const { region, attach } = useMapView();
-  const mapRef = useRef<L.Map | null>(null);
-  const layerRef = useRef<L.LayerGroup | null>(null);
-  const baseRef = useRef<L.Layer | null>(null);
+  const { attach } = useMapView();
+  const mapRef = useRef<MlMap | null>(null);
+  const markersRef = useRef<Map<string, MlMarker>>(new Map());
   const divRef = useRef<HTMLDivElement>(null);
-  const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const bumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failCount = useRef(0);
-  const tileProvider = useRef<TileProvider>(PRIMARY);
-  const offlineGeo = useRef<GeoJSON.GeoJSON | null>(null);
+  const tileProvider = useRef<TileProvider | "offline">(PRIMARY);
   const eventsRef = useRef<GeoEvent[]>([]);
-  // skip the first run: the map-init effect below already fitBounds to
-  // REGIONS[region] (initial = 'world'); calling flyToBounds again here
-  // would hit Leaflet before the init RAF has set the view → 'Set map
-  // center and zoom first' error, React unmounts the whole tree.
-  const skipFirstRegion = useRef(true);
+  const styleSpec = useRef<StyleSpecification | null>(null);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
   const [tiles, setTiles] = useState<TilesMode>(PRIMARY);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
   const [bump, setBump] = useState(false);
 
-  function addTileLayer(map: L.Map, provider: TileProvider) {
-    const p = PROVIDERS[provider];
-    const layer = L.tileLayer(p.url, p.options);
-    layer.on("tileerror", () => { failCount.current += 1; if (failCount.current >= 4) failover(); });
-    layer.on("tileload", () => { failCount.current = 0; });
-    baseRef.current = layer;
-    layer.addTo(map);
-    tileProvider.current = provider;
-    setTiles(provider);
-  }
-
-  function failover() {
-    const map = mapRef.current;
-    if (!map) return;
-    const next = CHAIN[CHAIN.indexOf(tileProvider.current) + 1] as TileProvider | undefined;
-    if (next) {
-      if (baseRef.current) { map.removeLayer(baseRef.current); baseRef.current = null; }
-      failCount.current = 0;
-      addTileLayer(map, next);
-    } else {
-      void goOffline();
-    }
-  }
-
-  async function goOffline() {
-    const map = mapRef.current;
-    if (!map) return;
-    if (baseRef.current) { map.removeLayer(baseRef.current); baseRef.current = null; }
-    if (!offlineGeo.current) {
-      try {
-        const r = await fetch("/world-110m.geo.json");
-        offlineGeo.current = (await r.json()) as GeoJSON.GeoJSON;
-      } catch { return; }
-    }
-    baseRef.current = L.geoJSON(offlineGeo.current, {
-      style: { color: "#2a3b4d", weight: 0.8, fillColor: "#101820", fillOpacity: 0.85 },
-    });
-    baseRef.current.addTo(map);
-    setTiles("offline");
-  }
-
+  // ---- map init ----
   useEffect(() => {
     if (!divRef.current || mapRef.current) return;
-    const map = L.map(divRef.current, {
-      zoomSnap: 0.25, zoomDelta: 0.25,
-      minZoom: 1, maxZoom: 10,
-      worldCopyJump: true,
-      attributionControl: false,
-      zoomControl: false,
-      maxBounds: [[-85, -180], [85, 180]],
-      maxBoundsViscosity: 1.0,
+    const map = new maplibregl.Map({
+      container: divRef.current,
+      style: buildStyle(PRIMARY),
+      center: [10, 25],
+      zoom: 1.5,
+      minZoom: 1,
+      maxZoom: 10,
+      attributionControl: { compact: true },
+      // We provide our own region buttons via <MapControls>; the
+      // default zoom widget would compete with that, so suppress it.
     });
     mapRef.current = map;
-    layerRef.current = L.layerGroup().addTo(map);
+    tileProvider.current = PRIMARY;
+    styleSpec.current = buildStyle(PRIMARY);
+    setTiles(PRIMARY);
     attach(map);
-    addTileLayer(map, PRIMARY);
-    const fit = () => {
-      map.invalidateSize();
-      if ((divRef.current?.clientWidth ?? 0) > 0) map.fitBounds(REGIONS[region], { animate: false });
-    };
-    const raf = requestAnimationFrame(fit);
-    const settle = setTimeout(fit, 300);
-    const ro = new ResizeObserver(fit);
+    // MapLibre's fitBounds runs from useMapView.flyToRegion on region
+    // clicks; on initial mount we just let the default view stand.
+    // The page-level region effect in useMapView handles the initial
+    // fit (mount-only) — see commit cd8df25 spec.
+    const ro = new ResizeObserver(() => map.resize());
     ro.observe(divRef.current);
-    const tm = setTimeout(() => { if (failCount.current > 0 && baseRef.current) failover(); }, 5000);
+    const tm = setTimeout(() => {
+      // If 5 tiles errored, advance one tier (failover).
+      if (failCount.current >= 4 && tileProvider.current !== "offline") {
+        const next = CHAIN[CHAIN.indexOf(tileProvider.current as TileProvider) + 1] as TileProvider | undefined;
+        if (next) switchProvider(next);
+        else void goOffline();
+      }
+    }, 5000);
+    // MapLibre fires 'idle' (not 'load') when the initial style is
+    // ready; we use it for the failure-detect timer reset.
+    map.on("idle", () => { failCount.current = 0; });
+    map.on("error", (e) => {
+      // Tile fetch errors increment a counter; once it crosses the
+      // threshold, we advance the chain.
+      failCount.current += 1;
+      if (failCount.current >= 4) {
+        const next = CHAIN[CHAIN.indexOf(tileProvider.current as TileProvider) + 1] as TileProvider | undefined;
+        if (next) switchProvider(next);
+        else void goOffline();
+      }
+    });
+    function switchProvider(next: TileProvider) {
+      const m = mapRef.current;
+      if (!m) return;
+      tileProvider.current = next;
+      styleSpec.current = buildStyle(next);
+      m.setStyle(buildStyle(next), { diff: false });
+      setTiles(next);
+      failCount.current = 0;
+    }
+    async function goOffline() {
+      const m = mapRef.current;
+      if (!m) return;
+      tileProvider.current = "offline";
+      m.setStyle(buildStyle("offline"), { diff: false });
+      setTiles("offline");
+    }
     return () => {
       clearTimeout(tm);
-      clearTimeout(settle);
-      cancelAnimationFrame(raf);
       ro.disconnect();
       attach(null);
+      map.remove();
+      mapRef.current = null;
     };
-    // region is intentionally NOT in deps — initial mount only; region
-    // changes are handled by a dedicated effect (smoother, separate animate).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Smooth region transition when user clicks a region button. Re-fits the
-  // current region (no flicker because we keep the layer group intact).
-  useEffect(() => {
-    if (skipFirstRegion.current) { skipFirstRegion.current = false; return; }
+  // ---- markers ----
+  function renderMarkers() {
     const map = mapRef.current;
     if (!map) return;
-    map.invalidateSize();
-    map.flyToBounds(REGIONS[region], { duration: 0.6, easeLinearity: 0.3 });
-  }, [region]);
-
-  function renderMarkers() {
-    const lg = layerRef.current;
-    if (!lg) return;
-    lg.clearLayers();
+    // Clear existing markers.
+    for (const m of markersRef.current.values()) m.remove();
     markersRef.current.clear();
     for (const ev of eventsRef.current) {
-      const isFlash = ev.severity === "flash";
-      const m = L.circleMarker([ev.lat, ev.lon], {
-        radius: sevRadius(ev.severity) - 1,
-        color: kindColor(ev.kind),
-        weight: isFlash ? 2 : 1,
-        fillColor: kindColor(ev.kind),
-        fillOpacity: ev.severity === "info" ? 0.35 : 0.7,
-        className: isFlash ? "hud-marker-pulse" : "",
+      const el = document.createElement("div");
+      const size = sevRadius(ev.severity) * 2 + 4;
+      el.className = ev.severity === "flash" ? "hud-marker hud-marker-pulse" : "hud-marker";
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
+      el.style.background = kindColor(ev.kind);
+      el.style.borderColor = kindColor(ev.kind);
+      el.style.opacity = ev.severity === "info" ? "0.55" : "0.85";
+      el.title = ev.title; // native browser tooltip
+      const filter = selectedSource ?? null;
+      const dim = filter && ev.source !== filter;
+      if (dim) el.classList.add("hud-marker-dim");
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelected(ev);
       });
-      m.on("click", () => setSelected(ev));
-      m.bindTooltip(ev.title, { direction: "top", offset: [0, -4] });
-      lg.addLayer(m);
-      markersRef.current.set(ev.event_id, m);
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([ev.lon, ev.lat])
+        .addTo(map);
+      markersRef.current.set(ev.event_id, marker);
     }
-    applySourceFilter();
   }
 
-  // When SensorGrid selects a source, dim non-matching markers visually
-  // without removing them (so user sees context + filtered foreground).
-  function applySourceFilter() {
+  // Update dim state when SensorGrid cross-filter changes (without
+  // re-rendering markers).
+  useEffect(() => {
     const filter = selectedSource ?? null;
-    for (const [id, m] of markersRef.current) {
+    for (const [id, marker] of markersRef.current) {
       const ev = eventsRef.current.find((e) => e.event_id === id);
       if (!ev) continue;
-      const dim = filter && ev.source !== filter;
-      const el = m.getElement();
-      if (el) el.classList.toggle("hud-marker-dim", !!dim);
+      const el = marker.getElement();
+      if (el) el.classList.toggle("hud-marker-dim", !!(filter && ev.source !== filter));
     }
-  }
+  }, [selectedSource]);
 
-  useEffect(() => { applySourceFilter(); }, [selectedSource]);
-
+  // ---- data ----
   useEffect(() => {
     let live = true;
     const from = new Date(Date.now() - 24 * 3600_000).toISOString();
