@@ -45,3 +45,7 @@ pub mod usaspending;
 pub mod usgs;
 pub mod who;
 pub mod x;
+// OSINT Framework bridge 4 (2026-09-17): TorExit + IPsum — see
+// each module's docstring for anchor + cadence rationale.
+pub mod ipsum;
+pub mod tor_exit;
