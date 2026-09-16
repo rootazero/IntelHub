@@ -114,7 +114,7 @@ hub:globe:aircraft   STRING  JSON blob   TTL 300s（单键覆盖写，读端透�
 
 ```
 GET /api/v1/globe/aircraft
-  → 200 {ts, count, regions_ok, coverage, aircraft:[...]}   # Redis 透传
+  → 200 {ts, count, coverage, cycle_secs, last_tick, aircraft:[...]}   # Redis 透传
   → 200 {stale: true, aircraft: []}                         # 快照过期（不 5xx，前端据此降级）
 
 GET /api/v1/globe/satellites?category=stations,military
