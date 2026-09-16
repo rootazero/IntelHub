@@ -840,8 +840,8 @@ async fn console_globe_aircraft(
     let parsed = blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
     match parsed {
         Some(v) => Ok(Json(v)),
-        // Snapshot missing/corrupt = collector dead >60s. 200 + stale flag,
-        // never 5xx — the frontend degrades visibly (spec §5).
+        // Snapshot missing/corrupt = collector dead >300s (SNAPSHOT_TTL_SECS).
+        // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
         None => Ok(Json(json!({ "stale": true, "aircraft": [] }))),
     }
 }
@@ -948,6 +948,7 @@ fn content_type(path: &str) -> &'static str {
         Some("png") => "image/png",
         Some("ico") => "image/x-icon",
         Some("json" | "map") => "application/json",
+        Some("wasm") => "application/wasm",
         Some("woff2") => "font/woff2",
         Some("txt") => "text/plain; charset=utf-8",
         _ => "application/octet-stream",

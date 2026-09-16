@@ -286,6 +286,9 @@ try:
     snap = json.loads(snap_raw or "{}")
 except Exception:
     snap = {}
+# valid-JSON-non-dict (e.g. a bare string/array) must not crash .get() below
+if not isinstance(snap, dict):
+    snap = {}
 check("globe: aircraft snapshot fresh (count>100)",
       int(snap.get("count", 0)) > 100,
       f"count={snap.get('count', 0)} last_tick={snap.get('last_tick')}")

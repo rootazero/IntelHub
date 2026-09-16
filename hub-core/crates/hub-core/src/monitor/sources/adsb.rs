@@ -35,7 +35,7 @@ const SNAPSHOT_TTL_SECS: usize = 300;
 const STALE_SECS: i64 = 600;
 /// Full-queue cycle in seconds (QUEUE_LEN × 15s tick); surfaced in the
 /// envelope so consumers know the worst-case data age.
-const CYCLE_SECS: i64 = 210;
+const CYCLE_SECS: i64 = QUEUE_LEN as i64 * 15;
 
 #[derive(Clone)]
 pub struct AdsbPoint {
@@ -87,6 +87,8 @@ pub fn classify_notable(ac: &AdsbPoint, in_hotspot: bool, hour_bucket: &str) -> 
     None
 }
 
+/// Task 4 contract retained: the production path uses apply_tick; this
+/// function serves batch-level merge semantics and tests.
 /// Dedupe by hex, keep lowest `seen` (most recent). Batch-level helper kept
 /// from Task 4; the live collector's cross-tick dedupe lives in apply_tick.
 pub fn merge_aircraft(batches: Vec<Vec<AdsbPoint>>) -> Vec<AdsbPoint> {
@@ -213,7 +215,7 @@ impl Source for Adsb {
             let hour_bucket = chrono::Utc::now().format("%Y%m%d%H").to_string();
             // Select this tick's ONE request. The guard is dropped before the
             // HTTP await — a Mutex guard must never be held across .await.
-            let (label, url) = queue_item(*self.pos.lock().unwrap());
+            let (label, url) = queue_item(*self.pos.lock().unwrap_or_else(|p| p.into_inner()));
             // Single request. ANY failure (HTTP error / non-2xx / bad JSON)
             // returns Err so the scheduler backoff fires (30s→600s cap =
             // the 429 cooldown); the cursor is untouched, so the next tick
@@ -262,17 +264,25 @@ impl Source for Adsb {
             // Channel 1: advance cursor, merge batch into the cumulative
             // snapshot, prune stale entries, full-rewrite the Redis envelope.
             let envelope = {
-                let mut pos = self.pos.lock().unwrap();
-                let mut snap = self.snap.lock().unwrap();
+                let mut pos = self.pos.lock().unwrap_or_else(|p| p.into_inner());
+                let mut snap = self.snap.lock().unwrap_or_else(|p| p.into_inner());
                 apply_tick(&mut pos, &mut snap, batch, now, &label)
             };
-            let _: Option<String> = ctx
+            // Redis write failure must be visible but must NOT fail the
+            // tick: channel-2 emergency events (7700/7500/7600) still flow
+            // via signals. If redis stays down, the 300s TTL expires and the
+            // frontend shows the STALE badge; backoff only fires on upstream
+            // failures.
+            let wrote: Option<String> = ctx
                 .state
                 .redis_timed(
                     redis::cmd("SETEX").arg(AIRCRAFT_KEY).arg(SNAPSHOT_TTL_SECS).arg(envelope.to_string()).clone(),
                     2000,
                 )
                 .await;
+            if wrote.is_none() {
+                tracing::warn!("adsb snapshot write failed (redis down?)");
+            }
             Ok(signals)
         }
         .boxed()
