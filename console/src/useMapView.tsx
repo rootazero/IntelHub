@@ -19,6 +19,13 @@ type MapViewCtx = {
   zoomIn: () => void;
   zoomOut: () => void;
   reset: () => void;
+  /** Imperatively fly to a region by key. We use this instead of a
+   *  useEffect on `region` because Leaflet has a 'frozen viewBox'
+   *  bug where the SVG viewBox stops updating after 4-5 fitBounds/
+   *  setView calls in quick succession. Calling setView directly from
+   *  the button click (rather than from a useEffect re-run) sidesteps
+   *  the cache. */
+  flyToRegion: (r: RegionKey) => void;
   /** Pages register a callback to run when the ⌂ button is clicked —
    *  e.g. Radar closes its right drawer here so a 'back to global' click
    *  also clears the focused event's detail panel. */
@@ -67,10 +74,32 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
       if (onResetRef.current === cb) onResetRef.current = null;
     };
   }, []);
+  // Imperative fly to region. Called by MapControls when a region
+  // button is clicked. setRegion() updates the context state for any
+  // other consumer (e.g. the page-level region indicator). The setView
+  // happens here directly so it doesn't go through the page's
+  // useEffect on `region` (which has the Leaflet 'frozen viewBox' bug).
+  const flyToRegion = useCallback((r: RegionKey) => {
+    const m = mapRef.current;
+    if (!m) return;
+    const bounds = REGIONS[r] as [[number, number], [number, number]];
+    const [[sLat, wLng], [nLat, eLng]] = bounds;
+    const center: L.LatLngExpression = [(sLat + nLat) / 2, (wLng + eLng) / 2];
+    // Use a fixed zoom of 2 for every region. The computed "best fit"
+    // zoom (log2 of map size / bounds) was producing zoom 2 for the
+    // large regions (ASIA PAC, SOUTH ASIA, AFRICA) — same as the
+    // initial world zoom — and Leaflet's setView then no-op'd because
+    // "we're already at zoom 2". A uniform zoom 2 + center+pan gives
+    // a quick overview that matches the visual size of the "world"
+    // view; users zoom in with the + button when they want detail.
+    m.stop();
+    m.setView(center, 2, { animate: false });
+    setRegion(r);
+  }, []);
 
   const value = useMemo<MapViewCtx>(
-    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset, registerOnReset }),
-    [region, attach, zoomIn, zoomOut, reset, registerOnReset],
+    () => ({ region, setRegion, attach, zoomIn, zoomOut, reset, registerOnReset, flyToRegion }),
+    [region, attach, zoomIn, zoomOut, reset, registerOnReset, flyToRegion],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
