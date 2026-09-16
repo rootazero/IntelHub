@@ -218,6 +218,16 @@ pub async fn system_health(state: &AppState) -> Value {
         ("nominatim",       24, "cyber"),
         ("ripestat",        24, "cyber"),
         ("wayback",         12, "cyber"),
+        // OSINT Framework bridge 8 (2026-09-17): three free
+        // keyless network-attribution collectors —
+        // aws_ip_ranges (AWS public IP-range feed for
+        // cloud-IP attribution) + gcp_ip_ranges (GCP
+        // public IP-range feed) + ripe_as_overview (RIPE
+        // stat per-ASN holder lookup for AS-topology
+        // attribution).
+        ("aws_ip_ranges",   24, "cyber"),
+        ("gcp_ip_ranges",   24, "cyber"),
+        ("ripe_as_overview",24, "cyber"),
     ];
     let mut osint_bridge: Vec<Value> = Vec::with_capacity(osint_bridge_collectors.len());
     for (name, cadence_hours, kind) in osint_bridge_collectors {
