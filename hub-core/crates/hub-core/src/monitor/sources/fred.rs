@@ -208,7 +208,7 @@ mod tests {
         }
         obs.push_str(r#"{"date":"2026-02-01","value":"102.0"}]}"#);
         let body = obs.replace("2025-13-01", "2026-01-01");
-        let out = cpi_yoy(&body, 5);
+        let out = yoy(&body, "fred:CPIAUCSL_YOY", 5);
         assert!(!out.is_empty());
         let last = out.iter().find(|o| o.value > 1.9 && o.value < 2.1);
         assert!(last.is_some(), "expected a ~2.0% YoY point, got {out:?}");

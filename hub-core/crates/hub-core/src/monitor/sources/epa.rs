@@ -124,7 +124,7 @@ fn analyze(text: &str, label: &str, lat: f64, lon: f64) -> Option<Signal> {
 mod tests {
     use super::*;
 
-    fn csv(rows: &[( &str, f64)]) -> String {
+    fn csv(rows: &[(String, f64)]) -> String {
         let mut s = String::from("LOCATION_NAME,SAMPLE COLLECTION TIME,DOSE EQUIVALENT RATE (nSv/h)\n");
         for (t, d) in rows {
             s.push_str(&format!("AL: BIRMINGHAM,{t},{d}\n"));
