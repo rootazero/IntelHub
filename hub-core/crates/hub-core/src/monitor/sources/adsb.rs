@@ -1,11 +1,21 @@
 //! adsb.lol per-aircraft tracks (Globe P1). Keyless. Dual-channel:
-//! full snapshot → Redis `hub:globe:aircraft` (TTL 60s, expiry = death
+//! full snapshot → Redis `hub:globe:aircraft` (TTL 300s, expiry = death
 //! detector); notable events (squawk 7700/7500/7600, military in hotspot)
 //! → Signal → geo_events. Positions NEVER touch PG (spec §2.2).
+//!
+//! Rate-limit-safe rotation (controller ruling, 2026-09-17): upstream quota
+//! is ~2–5 req/min (measured: burst capacity ~4–8, refill ~1 token/20–30s),
+//! so the old 11-endpoint × 15s fan-out (44 req/min) hammered it into 429s
+//! while `regions_ok > 0` kept the fetch Ok and the scheduler backoff never
+//! fired. Now: ONE request per tick, rotating through a 14-item queue
+//! (mil → squawk7700/7500/7600 → 10 hotspot points) = ~4 req/min. A failed
+//! tick returns Err (backoff = 429 cooldown) and retries the same item.
 
 use futures::future::BoxFuture;
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::error::{HubError, Result};
@@ -15,8 +25,19 @@ use super::opensky::HOTSPOTS;
 
 pub const AIRCRAFT_KEY: &str = "hub:globe:aircraft";
 
-const REGIONS_TOTAL: usize = 11; // 10 hotspot points + 1 global /v2/mil
+/// Work-queue length: 1 mil + 3 squawk + 10 hotspot points. Full cycle at the
+/// 15s tick = 210s ≈ 4 req/min, inside the measured upstream quota.
+const QUEUE_LEN: usize = 14;
+/// Snapshot TTL: the globe only loses aircraft if the collector itself is
+/// dead for >5min, not because a single endpoint 429'd one tick.
+const SNAPSHOT_TTL_SECS: usize = 300;
+/// Drop aircraft whose freshest sighting is older than this.
+const STALE_SECS: i64 = 600;
+/// Full-queue cycle in seconds (QUEUE_LEN × 15s tick); surfaced in the
+/// envelope so consumers know the worst-case data age.
+const CYCLE_SECS: i64 = 210;
 
+#[derive(Clone)]
 pub struct AdsbPoint {
     pub hex: String,
     pub flight: Option<String>,
@@ -66,9 +87,10 @@ pub fn classify_notable(ac: &AdsbPoint, in_hotspot: bool, hour_bucket: &str) -> 
     None
 }
 
-/// Dedupe by hex, keep lowest `seen` (most recent).
+/// Dedupe by hex, keep lowest `seen` (most recent). Batch-level helper kept
+/// from Task 4; the live collector's cross-tick dedupe lives in apply_tick.
 pub fn merge_aircraft(batches: Vec<Vec<AdsbPoint>>) -> Vec<AdsbPoint> {
-    let mut by_hex: std::collections::HashMap<String, AdsbPoint> = std::collections::HashMap::new();
+    let mut by_hex: HashMap<String, AdsbPoint> = HashMap::new();
     for b in batches {
         for ac in b {
             match by_hex.get(&ac.hex) {
@@ -87,21 +109,90 @@ pub fn merge_aircraft(batches: Vec<Vec<AdsbPoint>>) -> Vec<AdsbPoint> {
     v
 }
 
-pub fn snapshot_envelope(aircraft: &[AdsbPoint], regions_ok: usize) -> serde_json::Value {
+/// Work-queue item for rotation cursor `pos`. Pure — it never mutates state,
+/// so a failed tick (which returns before advancing the cursor) naturally
+/// re-selects the SAME item on the next pass.
+fn queue_item(pos: usize) -> (String, String) {
+    match pos % QUEUE_LEN {
+        0 => ("mil".into(), "https://api.adsb.lol/v2/mil".into()),
+        1 => ("squawk7700".into(), "https://api.adsb.lol/v2/squawk/7700".into()),
+        2 => ("squawk7500".into(), "https://api.adsb.lol/v2/squawk/7500".into()),
+        3 => ("squawk7600".into(), "https://api.adsb.lol/v2/squawk/7600".into()),
+        i => {
+            let h = i - 4; // hotspot index
+            let (lamin, lomin, lamax, lomax, _) = HOTSPOTS[h];
+            (
+                format!("point:hotspot_{h}"),
+                format!(
+                    "https://api.adsb.lol/v2/point/{:.2}/{:.2}/250",
+                    (lamin + lamax) / 2.0,
+                    (lomin + lomax) / 2.0
+                ),
+            )
+        }
+    }
+}
+
+/// Success-path state transition (pure; fetch wires it to the Mutex fields):
+/// advance the rotation cursor, merge this tick's batch into the cumulative
+/// snapshot (same hex keeps the highest seen_abs = freshest sighting,
+/// matching merge_aircraft's lowest-relative-seen semantics), drop entries unseen for > STALE_SECS, and
+/// build the full-rewrite envelope (hex-sorted).
+fn apply_tick(
+    pos: &mut usize,
+    snap: &mut HashMap<String, (AdsbPoint, i64)>,
+    batch: Vec<AdsbPoint>,
+    now: i64,
+    last_tick: &str,
+) -> serde_json::Value {
+    *pos = (*pos + 1) % QUEUE_LEN;
+    for ac in batch {
+        let seen_abs = now - ac.seen.round() as i64;
+        match snap.get(&ac.hex) {
+            Some((_, cur_abs)) if *cur_abs >= seen_abs => {}
+            _ => {
+                snap.insert(ac.hex.clone(), (ac, seen_abs));
+            }
+        }
+    }
+    snap.retain(|_, (_, seen_abs)| now - *seen_abs <= STALE_SECS);
+    let mut all: Vec<(AdsbPoint, i64)> = snap.values().cloned().collect();
+    all.sort_by(|a, b| a.0.hex.cmp(&b.0.hex));
+    snapshot_envelope(&all, now, last_tick)
+}
+
+pub fn snapshot_envelope(aircraft: &[(AdsbPoint, i64)], now: i64, last_tick: &str) -> serde_json::Value {
     json!({
         "ts": chrono::Utc::now().to_rfc3339(),
         "count": aircraft.len(),
-        "regions_ok": regions_ok,
-        "coverage": "hotspots+mil",
-        "aircraft": aircraft.iter().map(|a| json!({
+        "coverage": "hotspots+mil+squawk",
+        "cycle_secs": CYCLE_SECS,
+        "last_tick": last_tick,
+        "aircraft": aircraft.iter().map(|(a, seen_abs)| json!({
             "hex": a.hex, "flight": a.flight, "lat": a.lat, "lon": a.lon,
             "alt_m": a.alt_m.round() as i64, "gs": a.gs, "track": a.track,
             "squawk": a.squawk, "mil": a.mil,
+            "age_s": now - seen_abs,
         })).collect::<Vec<_>>(),
     })
 }
 
-pub struct Adsb;
+pub struct Adsb {
+    /// Rotation cursor into the work queue. The Source trait object lives in
+    /// the registry's `Box<dyn Source>` for the whole process lifetime, so
+    /// this instance state persists across ticks — that persistence is the
+    /// foundation of the 1-request-per-tick rotation and the cumulative
+    /// snapshot.
+    pos: Mutex<usize>,
+    /// Cumulative snapshot: hex → (freshest point, seen_abs unix secs).
+    snap: Mutex<HashMap<String, (AdsbPoint, i64)>>,
+}
+
+impl Default for Adsb {
+    fn default() -> Self {
+        Self { pos: Mutex::new(0), snap: Mutex::new(HashMap::new()) }
+    }
+}
 
 fn in_hotspot(lat: f64, lon: f64) -> bool {
     HOTSPOTS
@@ -118,59 +209,37 @@ impl Source for Adsb {
     }
     fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>> {
         async move {
+            let now = chrono::Utc::now().timestamp();
             let hour_bucket = chrono::Utc::now().format("%Y%m%d%H").to_string();
-            let urls: Vec<String> = HOTSPOTS
-                .iter()
-                .map(|(lamin, lomin, lamax, lomax, _)| {
-                    format!(
-                        "https://api.adsb.lol/v2/point/{:.2}/{:.2}/250",
-                        (lamin + lamax) / 2.0,
-                        (lomin + lomax) / 2.0
-                    )
-                })
-                .chain(std::iter::once("https://api.adsb.lol/v2/mil".to_string()))
-                .collect();
-            // Concurrent fan-out (4 in flight), each under Ctx's 25s ceiling.
-            let results: Vec<Option<Vec<AdsbPoint>>> = futures::stream::iter(urls)
-                .map(|url| {
-                    let http = &ctx.http;
-                    async move {
-                        match http.get(&url).send().await {
-                            Ok(r) if r.status().is_success() => {
-                                r.json::<serde_json::Value>().await.ok().map(|j| parse_ac_array(&j))
-                            }
-                            Ok(r) => {
-                                tracing::warn!(status = %r.status(), url, "adsb upstream non-2xx");
-                                None
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, url, "adsb upstream failed");
-                                None
-                            }
-                        }
-                    }
-                })
-                .buffer_unordered(4)
-                .collect()
-                .await;
-            let regions_ok = results.iter().filter(|r| r.is_some()).count();
-            if regions_ok == 0 {
-                return Err(HubError::sensor(format!(
-                    "adsb: all {REGIONS_TOTAL} endpoints failed this tick"
-                )));
-            }
-            let merged = merge_aircraft(results.into_iter().flatten().collect());
-            // Channel 1: full snapshot → Redis (60s TTL = death detector).
-            let envelope = snapshot_envelope(&merged, regions_ok);
-            let _: Option<String> = ctx
-                .state
-                .redis_timed(
-                    redis::cmd("SETEX").arg(AIRCRAFT_KEY).arg(60).arg(envelope.to_string()).clone(),
-                    2000,
-                )
-                .await;
-            // Channel 2: notable events → Signal → geo_events.
-            let signals = merged
+            // Select this tick's ONE request. The guard is dropped before the
+            // HTTP await — a Mutex guard must never be held across .await.
+            let (label, url) = queue_item(*self.pos.lock().unwrap());
+            // Single request. ANY failure (HTTP error / non-2xx / bad JSON)
+            // returns Err so the scheduler backoff fires (30s→600s cap =
+            // the 429 cooldown); the cursor is untouched, so the next tick
+            // retries this same item.
+            let batch: Vec<AdsbPoint> = match ctx.http.get(&url).send().await {
+                Ok(r) if r.status().is_success() => {
+                    let j = r.json::<serde_json::Value>().await.map_err(|e| {
+                        tracing::warn!(error = %e, url = %url, "adsb upstream bad json");
+                        HubError::sensor(format!("adsb: {label}: bad json body: {e}"))
+                    })?;
+                    parse_ac_array(&j)
+                }
+                Ok(r) => {
+                    tracing::warn!(status = %r.status(), url = %url, "adsb upstream non-2xx");
+                    return Err(HubError::sensor(format!("adsb: {label}: upstream status {}", r.status())));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, url = %url, "adsb upstream failed");
+                    return Err(HubError::sensor(format!("adsb: {label}: {e}")));
+                }
+            };
+            // Channel 2: notable events from THIS tick's batch. Squawk-endpoint
+            // aircraft carry their squawk code, so emergency classification is
+            // now global (not hotspot-bounded); the mil rule stays
+            // "mil AND in hotspot → routine".
+            let signals: Vec<Signal> = batch
                 .iter()
                 .filter_map(|ac| {
                     let (sev, ext_id) = classify_notable(ac, in_hotspot(ac.lat, ac.lon), &hour_bucket)?;
@@ -190,6 +259,20 @@ impl Source for Adsb {
                     )
                 })
                 .collect();
+            // Channel 1: advance cursor, merge batch into the cumulative
+            // snapshot, prune stale entries, full-rewrite the Redis envelope.
+            let envelope = {
+                let mut pos = self.pos.lock().unwrap();
+                let mut snap = self.snap.lock().unwrap();
+                apply_tick(&mut pos, &mut snap, batch, now, &label)
+            };
+            let _: Option<String> = ctx
+                .state
+                .redis_timed(
+                    redis::cmd("SETEX").arg(AIRCRAFT_KEY).arg(SNAPSHOT_TTL_SECS).arg(envelope.to_string()).clone(),
+                    2000,
+                )
+                .await;
             Ok(signals)
         }
         .boxed()
@@ -199,6 +282,10 @@ impl Source for Adsb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mk(hex: &str, seen: f64) -> AdsbPoint {
+        AdsbPoint { hex: hex.into(), flight: None, lat: 0.0, lon: 0.0, alt_m: 0.0, gs: None, track: None, squawk: None, mil: false, seen }
+    }
 
     #[test]
     fn parse_ac_array_extracts_positions() {
@@ -237,8 +324,8 @@ mod tests {
 
     #[test]
     fn merge_keeps_freshest_by_seen() {
-        let old = AdsbPoint { hex: "abc".into(), flight: None, lat: 10.0, lon: 0.0, alt_m: 0.0, gs: None, track: None, squawk: None, mil: false, seen: 30.0 };
-        let fresh = AdsbPoint { hex: "abc".into(), flight: None, lat: 20.0, lon: 0.0, alt_m: 0.0, gs: None, track: None, squawk: None, mil: false, seen: 1.0 };
+        let old = mk("abc", 30.0);
+        let fresh = AdsbPoint { lat: 20.0, ..mk("abc", 1.0) };
         let m = merge_aircraft(vec![vec![old], vec![fresh]]);
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].lat, 20.0);
@@ -262,26 +349,109 @@ mod tests {
 
     #[test]
     fn merge_output_is_hex_sorted() {
-        let mk = |hex: &str, seen: f64| AdsbPoint { hex: hex.into(), flight: None, lat: 0.0, lon: 0.0, alt_m: 0.0, gs: None, track: None, squawk: None, mil: false, seen };
         let m = merge_aircraft(vec![vec![mk("ff", 1.0), mk("00", 1.0)], vec![mk("80", 1.0)]]);
         assert_eq!(m.iter().map(|a| a.hex.as_str()).collect::<Vec<_>>(), vec!["00", "80", "ff"]);
     }
 
     #[test]
-    fn regions_total_matches_hotspot_list_plus_mil() {
-        // REGIONS_TOTAL only appears in the all-endpoints-failed message, but a
-        // silent drift would make that message lie about the fan-out width.
-        assert_eq!(REGIONS_TOTAL, HOTSPOTS.len() + 1);
+    fn queue_len_matches_work_queue() {
+        // Drift guard: the queue is mil + 3 squawk + one point per hotspot.
+        // QUEUE_LEN is baked into the rotation modulo and the cycle-time math.
+        assert_eq!(QUEUE_LEN, HOTSPOTS.len() + 4);
+    }
+
+    #[test]
+    fn queue_item_order_and_url_mapping() {
+        let (l0, u0) = queue_item(0);
+        assert_eq!((l0.as_str(), u0.as_str()), ("mil", "https://api.adsb.lol/v2/mil"));
+        let (l1, u1) = queue_item(1);
+        assert_eq!((l1.as_str(), u1.as_str()), ("squawk7700", "https://api.adsb.lol/v2/squawk/7700"));
+        let (l2, u2) = queue_item(2);
+        assert_eq!((l2.as_str(), u2.as_str()), ("squawk7500", "https://api.adsb.lol/v2/squawk/7500"));
+        let (l3, u3) = queue_item(3);
+        assert_eq!((l3.as_str(), u3.as_str()), ("squawk7600", "https://api.adsb.lol/v2/squawk/7600"));
+        // Point items follow hotspot order and match the opensky HOTSPOTS table.
+        for h in 0..HOTSPOTS.len() {
+            let (label, url) = queue_item(4 + h);
+            assert_eq!(label, format!("point:hotspot_{h}"));
+            let (lamin, lomin, lamax, lomax, _) = HOTSPOTS[h];
+            assert_eq!(
+                url,
+                format!("https://api.adsb.lol/v2/point/{:.2}/{:.2}/250", (lamin + lamax) / 2.0, (lomin + lomax) / 2.0)
+            );
+        }
+        // Cursor wraps modulo QUEUE_LEN.
+        assert_eq!(queue_item(QUEUE_LEN).1, queue_item(0).1);
+    }
+
+    #[test]
+    fn rotation_advances_on_success_holds_on_failure() {
+        let mut pos = 0usize;
+        let mut snap = HashMap::new();
+        // Failure path: fetch returns Err BEFORE apply_tick, cursor untouched.
+        let failed_url = queue_item(pos).1;
+        assert_eq!(failed_url, queue_item(pos).1, "failed tick retries same item");
+        // Success path: apply_tick advances the cursor.
+        let env = apply_tick(&mut pos, &mut snap, vec![mk("aa", 0.0)], 1000, "mil");
+        assert_eq!(pos, 1);
+        assert_eq!(env["last_tick"], "mil");
+        assert_ne!(queue_item(pos).1, failed_url);
+        // Cursor wraps at QUEUE_LEN.
+        for _ in 0..QUEUE_LEN - 1 {
+            apply_tick(&mut pos, &mut snap, vec![], 1000, "x");
+        }
+        assert_eq!(pos, 0);
+    }
+
+    #[test]
+    fn apply_tick_merges_batch_keeping_fresher_seen_abs() {
+        let mut pos = 0usize;
+        let mut snap = HashMap::new();
+        // Tick at t=1000: hex aa seen 100s ago (abs 900), hex bb seen 5s ago.
+        apply_tick(&mut pos, &mut snap, vec![mk("aa", 100.0), mk("bb", 5.0)], 1000, "point:hotspot_0");
+        // Tick at t=1100: aa seen 10s ago (abs 1090 > 900 → fresher, must
+        // replace); bb is absent from this batch and survives untouched.
+        let newer = AdsbPoint { lat: 55.0, ..mk("aa", 10.0) };
+        let env = apply_tick(&mut pos, &mut snap, vec![newer], 1100, "squawk7700");
+        assert_eq!(env["count"], 2);
+        let hexes: Vec<&str> = env["aircraft"].as_array().unwrap().iter().map(|a| a["hex"].as_str().unwrap()).collect();
+        assert_eq!(hexes, vec!["aa", "bb"]); // hex-sorted
+        let aa = env["aircraft"].as_array().unwrap().iter().find(|a| a["hex"] == "aa").unwrap();
+        assert_eq!(aa["lat"], 55.0);
+        assert_eq!(aa["age_s"], 10); // now(1100) - seen_abs(1090)
+        let bb = env["aircraft"].as_array().unwrap().iter().find(|a| a["hex"] == "bb").unwrap();
+        assert_eq!(bb["age_s"], 105); // now(1100) - seen_abs(995): retained from tick 1
+    }
+
+    #[test]
+    fn apply_tick_prunes_entries_older_than_600s() {
+        let mut pos = 0usize;
+        let mut snap = HashMap::new();
+        // Tick at t=0: aa seen just now → seen_abs 0.
+        apply_tick(&mut pos, &mut snap, vec![mk("aa", 0.0)], 0, "mil");
+        assert_eq!(snap.len(), 1);
+        // Tick at t=700 with an empty batch: aa's age is 700s > 600s → pruned.
+        let env = apply_tick(&mut pos, &mut snap, vec![], 700, "mil");
+        assert_eq!(snap.len(), 0);
+        assert_eq!(env["count"], 0);
+        // Boundary: age exactly 600s survives.
+        apply_tick(&mut pos, &mut snap, vec![mk("bb", 0.0)], 1000, "mil");
+        let env = apply_tick(&mut pos, &mut snap, vec![], 1600, "mil");
+        assert_eq!(env["count"], 1);
+        assert_eq!(env["aircraft"][0]["age_s"], 600);
     }
 
     #[test]
     fn snapshot_envelope_shape() {
-        let ac = AdsbPoint { hex: "abc".into(), flight: Some("X".into()), lat: 1.0, lon: 2.0, alt_m: 100.0, gs: None, track: None, squawk: None, mil: true, seen: 0.0 };
-        let env = snapshot_envelope(&[ac], 11);
+        let ac = AdsbPoint { flight: Some("X".into()), lat: 1.0, lon: 2.0, alt_m: 100.0, mil: true, ..mk("abc", 0.0) };
+        let env = snapshot_envelope(&[(ac, 970)], 1000, "squawk7700");
         assert_eq!(env["count"], 1);
-        assert_eq!(env["coverage"], "hotspots+mil");
-        assert_eq!(env["regions_ok"], 11);
+        assert_eq!(env["coverage"], "hotspots+mil+squawk");
+        assert_eq!(env["cycle_secs"], 210);
+        assert_eq!(env["last_tick"], "squawk7700");
+        assert!(env.get("regions_ok").is_none());
         assert_eq!(env["aircraft"][0]["hex"], "abc");
         assert_eq!(env["aircraft"][0]["mil"], true);
+        assert_eq!(env["aircraft"][0]["age_s"], 30);
     }
 }
