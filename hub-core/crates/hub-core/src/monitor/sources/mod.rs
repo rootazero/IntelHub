@@ -70,3 +70,6 @@ pub mod ripe_prefix_overview;
 pub mod misp_dynamic_dns;
 pub mod urlhaus;
 pub mod firehol_level1;
+pub mod misp_rfc5735;
+pub mod misp_rfc6761;
+pub mod tor_exit_details;
