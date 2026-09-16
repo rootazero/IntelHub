@@ -49,3 +49,10 @@ pub mod x;
 // each module's docstring for anchor + cadence rationale.
 pub mod ipsum;
 pub mod tor_exit;
+// OSINT Framework bridge 5 (2026-09-17): crt.sh (cert transparency)
+// + OpenPhish (phishing URL catalog) + Shodan InternetDB (free
+// per-IP enrichment). See each module's docstring for watchlist
+// + cadence rationale.
+pub mod crtsh;
+pub mod openphish;
+pub mod shodan_internetdb;
