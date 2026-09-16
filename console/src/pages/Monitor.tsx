@@ -31,6 +31,20 @@ interface AlertRow {
   created_at: string;
 }
 
+// OSINT Framework bridge: per-collector state + cadence from the
+// `/api/v1/health.osint_bridge` section (added 2026-09-16). Same data
+// shape accept-sp6.py reads. 5 hardcoded collectors; the registry
+// owner is the Rust Source impl, not this UI.
+interface OsintBridgeEntry {
+  name: string;
+  kind: string;
+  cadence_hours: number;
+  state: string;
+  last_fetched: number;
+  last_new: number;
+  ts: string;
+}
+
 // GAUGES look up series IDs from the static catalog. If a series is
 // renamed or removed upstream, `requireByNormalizedId` throws at build
 // time — the gauge won't silently render empty.
@@ -53,6 +67,7 @@ export default function Monitor() {
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [stream, setStream] = useState<BusEventPayload[]>([]);
+  const [osintBridge, setOsintBridge] = useState<OsintBridgeEntry[]>([]);
   const [series, setSeries] = useState(GAUGES[0].series);
   const [selSource, setSelSource] = useState<string | null>(null);
   const [mapTick, setMapTick] = useState(0);
@@ -90,6 +105,11 @@ export default function Monitor() {
       .then((d) => setAlerts((d.items ?? d.alerts ?? []).slice(0, 5)))
       .catch(() => {});
   }, []);
+  const loadOsintBridge = useCallback(() => {
+    api<{ osint_bridge?: { collectors?: OsintBridgeEntry[] } }>("/api/v1/health")
+      .then((d) => setOsintBridge(d.osint_bridge?.collectors ?? []))
+      .catch(() => {});
+  }, []);
   const loadSparks = useCallback(() => {
     GAUGES.forEach((g) => {
       api<{ points: { t: string; v: number }[] }>(
@@ -101,8 +121,8 @@ export default function Monitor() {
   }, []);
 
   useEffect(() => {
-    loadSources(); loadDelta(); loadLatest(); loadAlerts(); loadSparks();
-    const poll = setInterval(() => { loadSources(); loadDelta(); loadLatest(); loadAlerts(); }, 30_000);
+    loadSources(); loadDelta(); loadLatest(); loadAlerts(); loadSparks(); loadOsintBridge();
+    const poll = setInterval(() => { loadSources(); loadDelta(); loadLatest(); loadAlerts(); loadOsintBridge(); }, 30_000);
     const stop = streamEvents((ev) => {
       if (seen.current.has(ev.event_id)) return;
       seen.current.add(ev.event_id);
@@ -216,6 +236,32 @@ export default function Monitor() {
         <div className="hud-col">
           <HudPanel title={t("hud.news")} className="flex-none h-[150px]" bodyClassName="!overflow-hidden">
             <NewsTicker refreshKey={mapTick} />
+          </HudPanel>
+          {/* OSINT Framework bridge (2026-09-16): 5 hardcoded collectors that
+              fill osintframework.com gaps. Reuses `/api/v1/health.osint_bridge`
+              so the data and the accept-sp6.py acceptance check share one
+              source of truth — no parallel fetch path. */}
+          <HudPanel
+            title={`OSINT Bridge (${osintBridge.filter((c) => c.state === "ok").length}/${osintBridge.length})`}
+            ok={osintBridge.length > 0 && osintBridge.every((c) => c.state === "ok")}
+            className="flex-none"
+          >
+            <div className="hud-mono text-[10px]">
+              {osintBridge.map((c) => (
+                <div key={c.name} className="flex items-center justify-between gap-2 py-[2px]">
+                  <span className="truncate" title={c.kind} style={{ color: c.state === "ok" ? "var(--hud-ink)" : "var(--hud-warn, #f59e0b)" }}>
+                    {c.name}
+                  </span>
+                  <span className="text-[9px]" style={{ color: "var(--hud-dim)" }}>
+                    {c.cadence_hours}h
+                  </span>
+                  <span className="text-[9px]" style={{ color: "var(--hud-dim)" }}>
+                    f={c.last_fetched} n={c.last_new}
+                  </span>
+                </div>
+              ))}
+              {osintBridge.length === 0 && <span style={{ color: "var(--hud-dim)" }}>loading…</span>}
+            </div>
           </HudPanel>
           <HudPanel title={t("hud.indicators")} className="max-h-[24%]">
             <div className="hud-mono">
