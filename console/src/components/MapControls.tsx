@@ -11,7 +11,7 @@ import { useMapView } from "../useMapView";
 
 export function MapControls({ className }: { className: string }) {
   const { t } = useT();
-  const { region, setRegion, zoomIn, zoomOut, reset } = useMapView();
+  const { region, flyToRegion, zoomIn, zoomOut, reset } = useMapView();
   return (
     <div className={className}>
       <div className="map-ctrl-row">
@@ -19,7 +19,7 @@ export function MapControls({ className }: { className: string }) {
           <button
             key={r}
             className={`map-ctrl-btn ${region === r ? "on" : ""}`}
-            onClick={() => setRegion(r)}
+            onClick={() => flyToRegion(r)}
             title={t(`hud.region.${r}`)}
           >
             {t(`hud.region.${r}`)}

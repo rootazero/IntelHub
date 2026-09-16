@@ -322,9 +322,13 @@ export const en = {
     region: {
       world: "WORLD",
       americas: "AMERICAS",
+      northAmerica: "NORTH AM",
+      southAmerica: "SOUTH AM",
       europe: "EUROPE",
       middleEast: "MIDDLE EAST",
       asiaPacific: "ASIA PACIFIC",
+      eastAsiaPacific: "ASIA PAC",
+      southAsia: "SOUTH ASIA",
       africa: "AFRICA",
     },
     zoomIn: "Zoom in",
