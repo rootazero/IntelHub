@@ -9,7 +9,7 @@
 // helpers can drive whichever map mounted. Pages keep their own local
 // mapRef for non-control concerns (tile layer, marker group).
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { Map as LMap } from "leaflet";
+import L, { type Map as LMap } from "leaflet";
 import { REGIONS, ZOOM_STEP, type RegionKey } from "./mapControls";
 
 type MapViewCtx = {
@@ -75,26 +75,67 @@ export function MapViewProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
   // Imperative fly to region. Called by MapControls when a region
-  // button is clicked. setRegion() updates the context state for any
-  // other consumer (e.g. the page-level region indicator). The setView
-  // happens here directly so it doesn't go through the page's
-  // useEffect on `region` (which has the Leaflet 'frozen viewBox' bug).
+  // button is clicked.
+  //
+  // Background: Leaflet in this build has a "stuck render" bug — after
+  // a few setView / fitBounds calls, the SVG viewBox and map_pane
+  // transform stop updating (the internal getCenter / getBounds are
+  // fine, but the DOM never reflects the new view). We've tried:
+  //   - m.stop() before setView
+  //   - requestAnimationFrame defer
+  //   - map.invalidateSize(true) / invalidateSize + getSize()
+  //   - map.fire('viewreset') / 'moveend'
+  //   - map._resetView (private)
+  // None unblock the render. So we bypass Leaflet's render path
+  // entirely and write the SVG viewBox + map_pane transform directly
+  // from the same math Leaflet would have used. The result is
+  // guaranteed to be visible, even though it's an internal-API dance.
   const flyToRegion = useCallback((r: RegionKey) => {
     const m = mapRef.current;
     if (!m) return;
+    // Update Leaflet's internal state (so getCenter/getBounds match
+    // and any subsequent operations like fitBounds work from a known
+    // base). The DOM update is handled by our manual code below.
     const bounds = REGIONS[r] as [[number, number], [number, number]];
     const [[sLat, wLng], [nLat, eLng]] = bounds;
     const center: L.LatLngExpression = [(sLat + nLat) / 2, (wLng + eLng) / 2];
-    // Use a fixed zoom of 2 for every region. The computed "best fit"
-    // zoom (log2 of map size / bounds) was producing zoom 2 for the
-    // large regions (ASIA PAC, SOUTH ASIA, AFRICA) — same as the
-    // initial world zoom — and Leaflet's setView then no-op'd because
-    // "we're already at zoom 2". A uniform zoom 2 + center+pan gives
-    // a quick overview that matches the visual size of the "world"
-    // view; users zoom in with the + button when they want detail.
-    m.stop();
-    m.setView(center, 2, { animate: false });
+    const size = m.getSize();
+    const lngSpan = eLng - wLng;
+    const latSpan = nLat - sLat;
+    const zoomX = Math.log2((size.x * 360) / (lngSpan * 256));
+    const zoomY = Math.log2((size.y * 180) / (latSpan * 256));
+    let fitZoom = Math.max(2, Math.floor(Math.min(zoomX, zoomY)));
+    const currentZoom = m.getZoom();
+    if (fitZoom === currentZoom) fitZoom += 0.5;
+    m.setView(center, fitZoom, { animate: false });
     setRegion(r);
+    // Manual DOM update via the same math Leaflet uses internally.
+    // The overlay-pane's SVG viewBox reflects the bounding box of
+    // all markers in pixel coords; the map_pane's transform offsets
+    // the pane so the current center is at the container's center.
+    // We compute these directly because Leaflet's render path is
+    // stuck (setView updates internal state but the DOM never
+    // reflects it).
+    const mapPane = m.getPane("mapPane") as HTMLElement | null;
+    const overlayPaneDiv = m.getPane("overlayPane") as HTMLElement | null;
+    // The overlay pane is a DIV containing an SVG. setAttribute on
+    // the div is a no-op; we need the SVG child.
+    const svg = overlayPaneDiv?.querySelector("svg") as unknown as SVGGElement | null;
+    if (!mapPane || !svg) return;
+    // Project the desired center to layer pixel coords at the
+    // requested zoom. Then derive the viewBox top-left from the
+    // container size. The map_pane transform offsets the pane so the
+    // center is at the container's center.
+    const centerLatLng = L.latLng(center[0] as number, center[1] as number);
+    const centerPx = m.project(centerLatLng, fitZoom);
+    const w = size.x;
+    const h = size.y;
+    const x = centerPx.x - w / 2;
+    const y = centerPx.y - h / 2;
+    svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+    mapPane.style.transform = `translate3d(${-x}px, ${-y}px, 0px)`;
   }, []);
 
   const value = useMemo<MapViewCtx>(
