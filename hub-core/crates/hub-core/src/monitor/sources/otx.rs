@@ -8,9 +8,15 @@
 //! complements cisakev (NVD KEV) and nvd (NVD full CVE) by surfacing
 //! unattributed / emerging threats before they land in formal databases.
 //!
-//! - Free, no key required for public pulses (`/pulses/subscribed` requires
-//!   auth). We use the public search endpoint `/pulses/{}` or the
-//!   "modified since" filter via `?modified_since=` — both keyless.
+//! - **AUTH REQUIRED**: as of 2026-09, OTX has no keyless public-listing
+//!   endpoint. `/pulses/subscribed` returns 403 without auth; `/pulses/search`
+//!   returns 404; `/search/pulses` returns 403; `/pulses/public` returns 504.
+//!   Apply for a free API key at https://otx.alienvault.com/api (or via the
+//!   dashboard at https://otx.alienvault.com/otp/my-apikey after registration).
+//!   Without a key the collector stays shelved-by-design — visible on the
+//!   health board, zero new events.
+//! - Send the key via the standard `X-OTX-API-Key` HTTP header (the same
+//!   header the OTX web dashboard uses).
 //! - Built-in scan window: 24h. Override via `HUB_OTX_DAYS` (1..30).
 //! - Kind: "cyber" (matches cisakev/nvd/osv visual cluster on radar).
 //!
@@ -46,6 +52,19 @@ impl Source for Otx {
     }
     fn fetch<'a>(&'a self, ctx: &'a Ctx) -> BoxFuture<'a, Result<Vec<Signal>>> {
         async move {
+            let api_key = ctx
+                .config
+                .monitor_otx_api_key
+                .clone()
+                .filter(|s| !s.is_empty());
+            let Some(api_key) = api_key else {
+                // OTX public endpoints are all auth-gated (verified 2026-09).
+                // Shelved-by-design: visible on health board, 0 events.
+                tracing::warn!(target: "monitor::otx",
+                    "no OTX_API_KEY — collector shelved by design");
+                return Ok(Vec::new());
+            };
+
             let days = ctx
                 .config
                 .monitor_otx_lookback_days
@@ -54,7 +73,13 @@ impl Source for Otx {
             let url = format!(
                 "{API_BASE}/pulses/subscribed?modified_since={days}d&limit={MAX_PULSES_PER_SWEEP}",
             );
-            let resp = match ctx.http.get(&url).send().await {
+            let resp = match ctx
+                .http
+                .get(&url)
+                .header("X-OTX-API-Key", api_key)
+                .send()
+                .await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!(target: "monitor::otx", "fetch failed: {e}");
@@ -62,12 +87,11 @@ impl Source for Otx {
                 }
             };
             if !resp.status().is_success() {
-                // 401/404 means the endpoint is key-only (the public
-                // /pulses/search requires a search term; the listing is
-                // auth-gated). Self-degrade silently — the source remains
-                // visible on the health board via scheduler reporting.
+                // 401 means the key is wrong/expired. 403 could be a tier
+                // restriction. Either way, self-degrade — the source remains
+                // visible on the health board.
                 tracing::warn!(target: "monitor::otx",
-                    "HTTP {} (likely key-gated); collector shelved by design",
+                    "HTTP {} (likely bad key or rate-limit); self-degraded",
                     resp.status());
                 return Ok(Vec::new());
             }
