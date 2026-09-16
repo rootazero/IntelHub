@@ -18,6 +18,43 @@
 //!
 //! Unlike other sources that anchor at an HQ, GFW events are anchored at
 //! the actual vessel coordinate — meaningful on the radar map.
+//!
+//! ---
+//!
+//! **SHELVED-BY-DESIGN as of 2026-09-16** — the upstream Google Cloud WAF
+//! rejects TLS handshakes from every egress path we have access to.
+//! Verified 2026-09-16 from `IntelHub` (10.10.10.41, prod):
+//!
+//! | Egress path             | Result                               |
+//! |-------------------------|--------------------------------------|
+//! | openclash proxy node A (38.175.103.105) | TLS `unexpected EOF`     |
+//! | openclash proxy node B (155.254.126.122) | TLS `unexpected EOF`    |
+//! | VM direct egress (after openclash DIRECT rule) | TLS `unexpected EOF` |
+//!
+//! Symptoms in every case: TCP/443 succeeds, DNS returns real Google IPs
+//! (64.233.188.121 / 2404:6800:4008:c06::79), but server resets the TLS
+//! handshake during ClientHello. Other Google-hosted services
+//! (`www.google.com`) work from the same egress path, so the ban is
+//! specific to the GFW load balancer's GeoIP/WAF rules — not a generic
+//! Google block.
+//!
+//! **Self-heal trigger conditions** (no code change needed; just
+//! `sudo systemctl restart hub-core` once the upstream environment
+//! changes):
+//!
+//! 1. openclash gains access to a residential-IP proxy node that GFW's
+//!    WAF doesn't have on its blocklist (the most likely fix — a fresh
+//!    `/v3/datasets` 200 response will be visible in hub-core's journal).
+//! 2. GFW relaxes its WAF policy (low likelihood; they tightened in 2024).
+//! 3. Someone deploys a self-hosted TLS-fronting proxy (overkill for this
+//!    single endpoint).
+//!
+//! Until then the collector logs a `WARN monitor::gfw: fetch: ...` every
+//! 12h, the scheduler writes `state:"ok" / new:0` to the health cell
+//! (graceful error path — does NOT pollute the health board), and zero
+//! events land in `geo_events`. The collector stays registered in
+//! `monitor::registry()` so any future network fix is automatically
+//! picked up by the next sweep.
 
 use futures::future::BoxFuture;
 use futures::FutureExt;
