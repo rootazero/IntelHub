@@ -128,6 +128,10 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // Globe P1: CelesTrak TLE catalog → PG satellites (dual with adsb.rs;
         // catalog direct-writes via ctx.state, emits no geo Signals).
         Box::new(sources::celestrak::Celestrak),
+        // Globe P1: adsb.lol per-aircraft tracks — dual-channel (Redis
+        // snapshot + notable-event Signals). 15s cadence; scheduler has no
+        // min-interval clamp and owns backoff on failure.
+        Box::new(sources::adsb::Adsb),
         Box::new(sources::rss::Rss),
         // SP8-E compliance/financial plane expansion: SEC EDGAR EFTS
         // for material-event filings (default form=8-K). Fills the gap

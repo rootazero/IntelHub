@@ -13,7 +13,7 @@ use crate::error::Result;
 use super::super::{Ctx, Signal, Source};
 
 /// (lamin, lomin, lamax, lomax, label) — Crucix OPENSKY HOTSPOTS verbatim.
-const HOTSPOTS: &[(f64, f64, f64, f64, &str)] = &[
+pub(crate) const HOTSPOTS: &[(f64, f64, f64, f64, &str)] = &[
     (12.0, 30.0, 42.0, 65.0, "Middle East"),
     (20.0, 115.0, 28.0, 125.0, "Taiwan Strait"),
     (44.0, 22.0, 53.0, 41.0, "Ukraine Region"),
