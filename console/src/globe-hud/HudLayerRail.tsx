@@ -14,7 +14,14 @@
 //
 // Structural typing only — the engine is plain JS (wildcard d.ts), so the
 // rail depends on this minimal surface, not the engine's class type.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { DOMAINS } from "./domains";
 import type { HudDomain } from "./domains";
 
@@ -47,6 +54,10 @@ const FLYOUT_AUTO_CLOSE_MS = 3000;
 export function HudLayerRail({ manager }: { manager: RailManager }) {
   const [collapsed, setCollapsed] = useState(false);
   const [openDomainId, setOpenDomainId] = useState<string | null>(null);
+  // T14 a11y: roving-tabindex index within the menubar (one Tab stop for
+  // the whole rail; arrows move, Home/End jump, Escape closes + refocuses).
+  const [focusIndex, setFocusIndex] = useState(0);
+  const iconRefs = useRef<Array<HTMLButtonElement | null>>([]);
   // Bumped on every manager lifecycle event so the getAll() snapshot and the
   // per-checkbox isEffectivelyEnabled() reads re-render while a toggle is
   // still in flight on the manager's per-layer serialized queue.
@@ -113,6 +124,66 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
     setOpenDomainId((current) => (current === domainId ? null : domainId));
   };
 
+  // ---- menubar keyboard model (T14 a11y) ---------------------------------
+  // role=menubar/menuitem already marked (T9). Roving tabindex: only the
+  // icon at focusIndex is a Tab stop; Arrow keys move focus AND open that
+  // domain's flyout (mirrors the mouseenter lane); Home/End jump; Escape
+  // closes the flyout and returns focus to the icon that opened it.
+  const focusIcon = (index: number) => {
+    const clamped = (index + DOMAINS.length) % DOMAINS.length;
+    setFocusIndex(clamped);
+    iconRefs.current[clamped]?.focus();
+  };
+
+  const onMenubarKeyDown = (event: ReactKeyboardEvent) => {
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowRight": {
+        event.preventDefault();
+        const next = (focusIndex + 1) % DOMAINS.length;
+        openFlyout(DOMAINS[next].id);
+        focusIcon(next);
+        break;
+      }
+      case "ArrowUp":
+      case "ArrowLeft": {
+        event.preventDefault();
+        const prev = (focusIndex - 1 + DOMAINS.length) % DOMAINS.length;
+        openFlyout(DOMAINS[prev].id);
+        focusIcon(prev);
+        break;
+      }
+      case "Home": {
+        event.preventDefault();
+        openFlyout(DOMAINS[0].id);
+        focusIcon(0);
+        break;
+      }
+      case "End": {
+        event.preventDefault();
+        const last = DOMAINS.length - 1;
+        openFlyout(DOMAINS[last].id);
+        focusIcon(last);
+        break;
+      }
+      case "Escape": {
+        if (!openDomainId) break;
+        event.preventDefault();
+        cancelAutoClose();
+        setOpenDomainId(null);
+        // Focus return: the trigger of the flyout being closed, so a keyboard
+        // user lands back where they were before opening it.
+        const triggerIndex = DOMAINS.findIndex(
+          (domain) => domain.id === openDomainId,
+        );
+        const target = triggerIndex >= 0 ? triggerIndex : focusIndex;
+        setFocusIndex(target);
+        iconRefs.current[target]?.focus();
+        break;
+      }
+    }
+  };
+
   const onToggleLayer = (layerId: string, next: boolean) => {
     // Fire-and-forget: the per-layer serialized queue owns ordering; the
     // subscribe() epoch bump above converges the checkbox when it settles.
@@ -145,18 +216,28 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
         {collapsed ? "▸" : "◂"}
       </button>
       {!collapsed && (
-        <div className="hud-rail-icons" role="menubar" aria-label="图层域">
-          {DOMAINS.map((domain) => (
+        <div
+          className="hud-rail-icons"
+          role="menubar"
+          aria-label="图层域"
+          onKeyDown={onMenubarKeyDown}
+        >
+          {DOMAINS.map((domain, index) => (
             <button
               key={domain.id}
               type="button"
               role="menuitem"
+              ref={(node) => {
+                iconRefs.current[index] = node;
+              }}
+              tabIndex={index === focusIndex ? 0 : -1}
               className={`hud-rail-icon${
                 openDomainId === domain.id ? " open" : ""
               }${domainActive(domain) ? " active" : ""}`}
               title={`${domain.label.zh} · ${domain.label.en}`}
               aria-label={`${domain.label.zh} ${domain.label.en}`}
               aria-expanded={openDomainId === domain.id}
+              onFocus={() => setFocusIndex(index)}
               onMouseEnter={() => openFlyout(domain.id)}
               onClick={() => toggleFlyout(domain.id)}
             >

@@ -212,6 +212,86 @@ describe("HudLayerRail", () => {
     fireEvent.click(sea);
     expect(document.querySelector(".hud-rail-flyout")).toBeNull();
   });
+
+  // ---- T14 menubar a11y -----------------------------------------------------
+  // Roving tabindex: the rail is ONE Tab stop; arrows move; Home/End jump;
+  // Escape closes the flyout and returns focus to its trigger.
+
+  test("roving tabindex: exactly one menuitem is a Tab stop", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const items = screen.getAllByRole("menuitem");
+    expect(items[0].tabIndex).toBe(0);
+    for (const item of items.slice(1)) expect(item.tabIndex).toBe(-1);
+  });
+
+  test("ArrowDown moves focus to the next menuitem and opens its flyout", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const air = screen.getByRole("menuitem", { name: "航空 Air" });
+    air.focus();
+    fireEvent.keyDown(air, { key: "ArrowDown" });
+    const space = screen.getByRole("menuitem", { name: "太空 Space" });
+    expect(document.activeElement).toBe(space);
+    expect(document.querySelector(".hud-rail-flyout")).toHaveAttribute(
+      "data-domain",
+      "space",
+    );
+    // ArrowRight is the horizontal alias and wraps at the end.
+    fireEvent.keyDown(space, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "地面 Ground" }),
+    );
+  });
+
+  test("ArrowUp moves focus backwards and opens that flyout", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const air = screen.getByRole("menuitem", { name: "航空 Air" });
+    air.focus();
+    fireEvent.keyDown(air, { key: "ArrowUp" });
+    // Wraps to the last domain (环境 Environment).
+    const env = screen.getByRole("menuitem", { name: "环境 Environment" });
+    expect(document.activeElement).toBe(env);
+    expect(document.querySelector(".hud-rail-flyout")).toHaveAttribute(
+      "data-domain",
+      "env",
+    );
+  });
+
+  test("Home/End jump to the first/last menuitem", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const air = screen.getByRole("menuitem", { name: "航空 Air" });
+    air.focus();
+    fireEvent.keyDown(air, { key: "End" });
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "环境 Environment" }),
+    );
+    fireEvent.keyDown(screen.getAllByRole("menuitem")[6], { key: "Home" });
+    expect(document.activeElement).toBe(air);
+  });
+
+  test("Escape closes the flyout and returns focus to the trigger icon", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const sea = screen.getByRole("menuitem", { name: "海洋 Sea" });
+    sea.focus();
+    fireEvent.keyDown(sea, { key: "ArrowDown" }); // opens Space flyout, moves focus
+    expect(document.querySelector(".hud-rail-flyout")).not.toBeNull();
+    fireEvent.keyDown(
+      screen.getByRole("menuitem", { name: "太空 Space" }),
+      { key: "Escape" },
+    );
+    expect(document.querySelector(".hud-rail-flyout")).toBeNull();
+    // Focus returns to the icon whose flyout was open.
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "太空 Space" }),
+    );
+    // Escape with nothing open is a no-op (no crash, focus stays).
+    fireEvent.keyDown(
+      screen.getByRole("menuitem", { name: "太空 Space" }),
+      { key: "Escape" },
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "太空 Space" }),
+    );
+  });
 });
 
 // ---- describe 3: stub degradation through the REAL LayerLifecycle -----------

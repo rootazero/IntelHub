@@ -17,6 +17,7 @@ import { HudLayerRail } from "../globe-hud/HudLayerRail";
 import type { RailManager } from "../globe-hud/HudLayerRail";
 import { HudTopBar } from "../globe-hud/HudTopBar";
 import { useOverview } from "../globe-hud/useOverview";
+import type { BasemapStack } from "../globe-hud/useActiveBasemap";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -36,6 +37,14 @@ export default function GlobeV2() {
   // double effect keeps state, and the module-level `booted` guard ensures
   // start() runs once.
   const [railManager, setRailManager] = useState<RailManager | null>(null);
+  // T14: scene handles for the live bottom-bar lanes (cursor pick + basemap
+  // stack). Surfaced via state so the bars mount their Cesium wiring only
+  // AFTER start() resolves — registering a ScreenSpaceEventHandler against a
+  // half-built viewer is the exact failure the P2 Leaflet lesson warns about.
+  const [sceneHandles, setSceneHandles] = useState<{
+    viewer: unknown;
+    mapStack: BasemapStack | null;
+  } | null>(null);
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
@@ -54,8 +63,13 @@ export default function GlobeV2() {
       .then(() => {
         const components = globe.getComponents() as {
           data?: { dataManager?: RailManager };
+          scene?: { viewer?: unknown; mapStackController?: BasemapStack };
         };
         setRailManager(components?.data?.dataManager ?? null);
+        setSceneHandles({
+          viewer: components?.scene?.viewer ?? null,
+          mapStack: components?.scene?.mapStackController ?? null,
+        });
       })
       .catch((e) => setError(String(e)));
     // No destroy on unmount: the engine singleton outlives route switches;
@@ -74,6 +88,8 @@ export default function GlobeV2() {
           overview={overviewState.overview}
           manager={railManager}
           error={overviewState.error}
+          viewer={sceneHandles?.viewer}
+          mapStack={sceneHandles?.mapStack}
         />
       }
     />

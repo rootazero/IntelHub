@@ -7,19 +7,25 @@
 // readout always agrees with the rail's checkboxes. The manager is a plain JS
 // engine object (wildcard d.ts), so only this minimal structural type is used.
 //
-// Basemap label: the GEV globe is photoreal (Google 3D Tiles) when a Google key
-// (or Cesium ion token) is configured, otherwise scene.js falls back to keyless
-// `esri-imagery` (gev-engine/src/app/scene.js: initialStack). CARTO belongs to
-// the P1 2D radar and is never this scene's basemap. The label is derived from
-// key presence (not from the live styleManager, which the bootstrap does not
-// expose) and carries a P3 tooltip so it is not mistaken for live state.
+// Basemap label: T14 reads the engine's ACTUAL map stack via
+// mapStackController (useActiveBasemap) — including the photoreal
+// tile-failure fallback path, which re-emits 'gev:map-stack-changed'.
+// Until the scene handle exists (or without one, e.g. tests), the label
+// falls back to the build-key derivation: the GEV globe is photoreal
+// (Google 3D Tiles) when a Google key (or Cesium ion token) is configured,
+// otherwise scene.js falls back to keyless `esri-imagery` (initialStack).
+// CARTO belongs to the P1 2D radar and is never this scene's basemap.
 //
-// Mouse lon/lat readout is a STATIC placeholder (P3): live wiring needs the
-// Cesium viewer handle plumbed into the HUD plus a ScreenSpaceEventHandler
-// lifecycle — same explicit-placeholder pattern as the P5 search box.
+// Mouse lon/lat readout: T14 wires Cesium ScreenSpaceEventHandler
+// MOUSE_MOVE → pickEllipsoid (useCursorCoordinates); the handler is only
+// registered once the viewer handle exists (page surfaces it after
+// start()), and removeInputAction + destroy run on unmount.
 import { useEffect, useState } from "react";
 import type { RailManager } from "./HudLayerRail";
 import type { GlobeSourceHealth, OverviewData } from "./useOverview";
+import { useActiveBasemap } from "./useActiveBasemap";
+import type { BasemapStack } from "./useActiveBasemap";
+import { formatCoord, useCursorCoordinates } from "./useCursorCoordinates";
 
 /** Globe-relevant collectors, in board order. These are the monitor source
  *  names written into `hub:monitor:health` (verified in
@@ -31,9 +37,10 @@ export const GLOBE_SOURCES = ["adsb", "celestrak", "usgs", "opensky"] as const;
 const GOOGLE_MAPS_KEY =
   (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) ?? "";
 
-/** Honest basemap label: the engine scene loads `photoreal` when a Google key /
- *  Cesium ion token is configured and `esri-imagery` otherwise
- *  (gev-engine/src/app/scene.js). Exported pure so both lanes are testable. */
+/** Basemap label derivation for the no-handle fallback lane (tests /
+ * keyless builds). The live lane (useActiveBasemap) supersedes this once the
+ * scene's mapStackController exists. Exported pure so both lanes are
+ * testable. */
 export function basemapStyleName(googleKey?: string | null): string {
   return googleKey ? "GOOGLE PHOTOREAL" : "ESRI IMAGERY";
 }
@@ -65,6 +72,12 @@ export interface HudBottomBarProps {
   error?: boolean;
   /** Override for the build-time Google key (tests / keyless builds). */
   googleKey?: string;
+  /** Engine scene's mapStackController (getActiveId/getActiveStack) —
+   *  surfaced by the page after start(); null keeps the static fallback. */
+  mapStack?: BasemapStack | null;
+  /** Engine Cesium viewer — surfaced by the page after start(); the cursor
+   *  handler registers only when this exists. */
+  viewer?: unknown;
 }
 
 export function HudBottomBar({
@@ -72,6 +85,8 @@ export function HudBottomBar({
   manager,
   error = false,
   googleKey,
+  mapStack,
+  viewer,
 }: HudBottomBarProps) {
   // The manager's lifecycle events are only a render trigger: getAll() /
   // isEffectivelyEnabled() are read live during render below, so the epoch
@@ -107,7 +122,9 @@ export function HudBottomBar({
   const sourceOk = GLOBE_SOURCES.filter(
     (name) => health.get(name)?.state === "ok",
   ).length;
-  const styleName = basemapStyleName(googleKey ?? GOOGLE_MAPS_KEY);
+  const styleName =
+    useActiveBasemap(mapStack) ?? basemapStyleName(googleKey ?? GOOGLE_MAPS_KEY);
+  const cursor = useCursorCoordinates(viewer ?? null);
 
   return (
     <div className="hud-bar hud-bar-bottom" data-testid="hud-bottom-bar">
@@ -158,28 +175,39 @@ export function HudBottomBar({
         </b>
       </span>
       <span className="hud-bar-sep" aria-hidden />
-      {/* Static pointer readout — live ScreenSpaceEventHandler wiring is P3
-          (same explicit-placeholder pattern as the P5 search box). */}
+      {/* Live pointer readout — Cesium ScreenSpaceEventHandler; the handler
+          registers once the viewer handle exists and tears down on unmount
+          (see useCursorCoordinates). Off-globe picks read as em-dash. */}
       <span
         className="hud-bar-stat hud-bar-coords"
         data-testid="hud-coords-p3"
-        title="鼠标坐标（P3 接 Cesium ScreenSpaceEventHandler）"
-        aria-label="鼠标坐标 lon — lat —（P3 待实现）"
+        title="鼠标经纬度（Cesium pickEllipsoid 实时）"
+        aria-label="鼠标坐标 lon/lat 实时"
       >
         <span className="hud-bar-coord">
-          lon <b data-testid="hud-cursor-lon">—</b>
+          lon{" "}
+          <b data-testid="hud-cursor-lon">
+            {cursor ? formatCoord(cursor.lon) : "—"}
+          </b>
         </span>
         <span className="hud-bar-coord-sep" aria-hidden>
           /
         </span>
         <span className="hud-bar-coord">
-          lat <b data-testid="hud-cursor-lat">—</b>
+          lat{" "}
+          <b data-testid="hud-cursor-lat">
+            {cursor ? formatCoord(cursor.lat) : "—"}
+          </b>
         </span>
       </span>
       <span className="hud-bar-sep" aria-hidden />
       <span
         className="hud-bar-stat"
-        title="底图样式（P3 接引擎 styleManager）"
+        title={
+          mapStack
+            ? "底图样式（引擎 mapStackController 实时）"
+            : "底图样式（构建期密钥推导）"
+        }
       >
         底图
         <b data-testid="hud-basemap-style">{styleName}</b>
