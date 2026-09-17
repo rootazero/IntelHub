@@ -40,6 +40,9 @@ use crate::error::{HubError, Result};
 
 use super::super::{Ctx, Signal, Source};
 
+pub mod providers;
+pub mod refresh;
+
 /// Placeholder cadence (see module docstring): the load is idempotent, so
 /// a re-run every 24h is a no-op reconcile, not a re-seed storm.
 pub const INTERVAL_SECS: u64 = 24 * 3600;
@@ -71,7 +74,12 @@ pub const UPSERT_SQL: &str = "INSERT INTO cctv_cameras \
     credit = EXCLUDED.credit, code = EXCLUDED.code, \
     fetched_at = EXCLUDED.fetched_at";
 
-const STALE_SWEEP_SQL: &str = "DELETE FROM cctv_cameras WHERE fetched_at < $1";
+/// T9: scoped to static-catalog rows — a static reload must never wipe
+/// live-provider rows (tfl/ontario511/…) whose fetched_at is older than
+/// the static round timestamp. Live providers sweep their own provider
+/// scope in refresh.rs.
+const STALE_SWEEP_SQL: &str =
+    "DELETE FROM cctv_cameras WHERE fetched_at < $1 AND provider LIKE 'static-%'";
 
 /// One normalized row of `cctv_cameras`.
 #[derive(Debug, Clone, PartialEq)]
@@ -131,8 +139,11 @@ pub fn normalize_feed_type(raw: Option<&str>) -> &'static str {
 /// Feed types served by a `<video>` element on the client
 /// (model.js isVideoFeedType): those belong in `media_url`; everything
 /// else is a static frame → `frame_url`.
+/// T8 review M1: mjpeg is NOT a video feed type client-side
+/// (model.js:94-96 matches only mp4/hls/webm) — browsers render
+/// multipart MJPEG natively via the image path, so it goes to frame_url.
 pub fn is_video_feed_type(feed_type: &str) -> bool {
-    matches!(feed_type, "mp4" | "hls" | "webm" | "mjpeg")
+    matches!(feed_type, "mp4" | "hls" | "webm")
 }
 
 fn finite_f64(v: Option<&Value>) -> Option<f64> {
@@ -536,6 +547,28 @@ mod tests {
         }
         // unknown values fall back to image rather than inventing a type
         assert_eq!(normalize_feed_type(Some("rtsp")), "image");
+    }
+
+    // ---- T8 review M1 / T9 scoped-sweep regressions ----
+
+    #[test]
+    fn mjpeg_routes_to_frame_url_not_media_url() {
+        // model.js isVideoFeedType matches only {mp4,hls,webm}; mjpeg is
+        // rendered via the image path client-side, so the URL must land in
+        // frame_url for the engine to pick it up at all.
+        assert!(!is_video_feed_type("mjpeg"));
+        let doc = json!([{"id":"cam-mjpeg","lat":1.0,"lon":2.0,"feedType":"mjpg","url":"http://x/cam.mjpeg"}]);
+        let rows = parse_cameras(&doc, "tallinn");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].feed_type, "mjpeg");
+        assert_eq!(rows[0].frame_url.as_deref(), Some("http://x/cam.mjpeg"));
+        assert!(rows[0].media_url.is_none());
+    }
+
+    #[test]
+    fn stale_sweep_is_scoped_to_static_providers() {
+        // T9: a static reload must never wipe live-provider rows.
+        assert!(STALE_SWEEP_SQL.contains("provider LIKE 'static-%'"));
     }
 
     // ---- robustness: bad rows never kill the file ----
