@@ -9,6 +9,7 @@
 // throw). The stub exports for the four wave-1 layers are kept in ./stubs.ts
 // because the contract guard (T12) still introspects them.
 
+import { cctvSource } from "./cctv";
 import { earthquakesSource } from "./earthquakes";
 import { flightsSource } from "./flights";
 import { militarySource } from "./military";
@@ -39,7 +40,7 @@ export function createIntelHubLayerSources(deps: {
     cables: stubs.cables,
     alpr: stubs.alpr,
     launches: stubs.launches,
-    cctv: stubs.cctv,
+    cctv: cctvSource(apiFetch), // T13 (GEV P3) → real hub catalog + frame/media proxy
     radio: stubs.radio,
     traffic: trafficSource(apiFetch), // T7 (GEV P3) → real hub-proxied Overpass + TomTom flow
     bikeshare: stubs.bikeshare,

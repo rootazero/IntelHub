@@ -107,20 +107,8 @@ export const launches = {
 };
 
 // ── CCTV ───────────────────────────────────────────────────────────────────
-// cctv/catalog.js:86 `data?.sources` must be an array (else []); cctv/health.js
-// `data?.cameras` likewise. getFrameUrl/getMediaUrl return strings that the
-// frame loader consumes; "" means "no frame" without a thrown TypeError.
-
-export const cctv = {
-  async getCatalog(): Promise<{ sources: unknown[] }> {
-    return { sources: [] };
-  },
-  async getHealth(): Promise<{ cameras: unknown[] }> {
-    return { cameras: [] };
-  },
-  getFrameUrl: (): string => "",
-  getMediaUrl: (): string => "",
-};
+// GEV P3 T13 replaced this stub with ./cctv.ts (hub catalog + frame/media
+// proxy URLs). Stub export removed.
 
 // ── Radio ──────────────────────────────────────────────────────────────────
 // radio/ingestion.js:24 → body.stations must be a non-empty usable array, plus
