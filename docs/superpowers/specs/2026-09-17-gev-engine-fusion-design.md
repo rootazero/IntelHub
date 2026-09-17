@@ -107,7 +107,7 @@ P2 是命门：构建集成（模板展开/GLSL/vite 插件）与引擎纯净模
 
 ## 7. 验收策略
 
-每期：sp6 增加对应图层检查项（健康格/数据落点/REST 200）+ probe-globe.mjs 扩展（HUD 元素存在性 + 图层 entity 计数 + pageerror=0）+ 契约守卫测试。315 全绿 → merge → 410 → 生产验收 → push。基线维护随各期更新 AGENTS.md。
+每期：sp6 增加对应图层检查项（健康格/数据落点/REST 200）+ probe 扩展（HUD 元素存在性 + 图层 entity 计数 + pageerror=0）+ 契约守卫测试。315 全绿 → merge → 410 → 生产验收 → push。基线维护随各期更新 AGENTS.md。（探针文件：P1 为 `probe-globe.mjs`，GEV P2 T16 起为 `console/probe-gev.mjs`——前者已删除。）
 
 ## 8. 附：调研证据锚点（gods-eye-view 源码）
 

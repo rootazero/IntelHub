@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // probe-gev.mjs — headless smoke for the GEV-engine /globe page (GlobeV2).
 //
-// Why a new file (T14): probe-globe.mjs asserted the P1 self-built 2D globe
+// Why a new file (T14): the retired P1 probe asserted the self-built 2D globe
 // (`[data-probe="aircraft-count"]`, `document.querySelector("canvas")`). The
 // /globe route now mounts GlobeV2 (T8) with an engine-owned Cesium canvas, and
-// the P1 page is retired in T16 — the old assertions would have silently
-// "passed" against a page they no longer describe. probe-globe.mjs is kept as a
-// 13-line pass-through to this file and deleted in T16.
+// the P1 page + probe are retired in T16 — the old assertions would have
+// silently "passed" against a page they no longer describe. This file replaced
+// the P1 `probe-globe.mjs` (a stand-in pass-through during T14/T15, now
+// deleted): run `probe-gev.mjs` directly.
 //
 // Asserted (T8-T11 DOM contract + engine boot order):
 //   [data-hud="top|left|right|bottom"]   four-edge HUD frame, each edge
