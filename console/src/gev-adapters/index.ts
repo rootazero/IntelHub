@@ -14,6 +14,7 @@ import { flightsSource } from "./flights";
 import { militarySource } from "./military";
 import { satellitesSource } from "./satellites";
 import { installationsSource } from "./installations";
+import { trafficSource } from "./traffic";
 import { vesselsSource } from "./vessels";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
@@ -40,7 +41,7 @@ export function createIntelHubLayerSources(deps: {
     launches: stubs.launches,
     cctv: stubs.cctv,
     radio: stubs.radio,
-    traffic: stubs.traffic,
+    traffic: trafficSource(apiFetch), // T7 (GEV P3) → real hub-proxied Overpass + TomTom flow
     bikeshare: stubs.bikeshare,
     installations: installationsSource(apiFetch), // T4 (GEV P3) → real OSM military catalog source
     // T3 I-2: without this entry the transit layer silently falls back to the
