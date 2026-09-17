@@ -300,7 +300,27 @@ async fn fetch_quadrant(
             }
             match http.post(url).form(&[("data", query.as_str())]).send().await {
                 Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
-                    Ok(doc) => return Ok(parse_elements(&doc)),
+                    Ok(doc) => {
+                        // 2026-09-17 (T17 315): Overpass reports runtime
+                        // errors (timeout/rate) as HTTP 200 + {"remark":
+                        // "…error…", "elements":[]} — accepting that as an
+                        // empty success both loses the quadrant AND arms the
+                        // full-round stale sweep with a false 4/4 (q2 Europe/
+                        // NA harvested "0 rows" this way). Treat remark-errors
+                        // and missing elements as failures.
+                        let remark = doc.get("remark").and_then(Value::as_str).unwrap_or("");
+                        if remark.to_lowercase().contains("error")
+                            || remark.to_lowercase().contains("timed out")
+                        {
+                            last_err = format!("overpass remark: {}", &remark[..remark.len().min(120)]);
+                            continue;
+                        }
+                        if doc.get("elements").and_then(Value::as_array).is_none() {
+                            last_err = "body json: missing elements array".to_string();
+                            continue;
+                        }
+                        return Ok(parse_elements(&doc));
+                    }
                     Err(err) => last_err = format!("body json: {err}"),
                 },
                 Ok(resp) => {
@@ -492,6 +512,22 @@ mod tests {
         std::env::remove_var("HUB_OVERPASS_URL");
         std::env::remove_var("OVERPASS_URL");
         assert_eq!(endpoints().len(), DEFAULT_ENDPOINTS.len());
+    }
+
+    #[test]
+    fn quadrant_error_remark_is_not_an_empty_success() {
+        // The false-empty regression guard: a 200 + remark body must read
+        // as failure. The check lives in fetch_quadrant's success branch;
+        // here we pin the detection predicate itself.
+        let err_doc: Value = serde_json::from_str(
+            r#"{"version":0.6,"generator":"Overpass API","remark":"runtime error: Query timed out at line 1 after 121 seconds.","elements":[]}"#,
+        ).unwrap();
+        let remark = err_doc.get("remark").and_then(Value::as_str).unwrap_or("");
+        assert!(remark.to_lowercase().contains("error") || remark.to_lowercase().contains("timed out"));
+        // …while a genuinely empty quadrant (no remark) stays a valid zero.
+        let ok_doc: Value = serde_json::from_str(r#"{"version":0.6,"elements":[]}"#).unwrap();
+        assert!(ok_doc.get("remark").is_none());
+        assert!(ok_doc.get("elements").and_then(Value::as_array).is_some());
     }
 
     // ---- mil_class derivation ----
