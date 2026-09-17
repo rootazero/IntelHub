@@ -77,6 +77,11 @@ pub mod ais;
 // `military_installations` (migration 0020). Keyless, 24h cadence, 4
 // quadrants with ≥60s politeness; restart-safe (<24h → skip round).
 pub mod installations;
+// GEV P3 (2026-09-17): CCTV static catalog loader (T8) — vendor
+// cctv_sources.*.json → PG cctv_cameras (migration 0021). Keyless,
+// idempotent upsert, 24h placeholder cadence; T9 adds the periodic
+// upstream refresh on top of this base load.
+pub mod cctv;
 pub mod ripe_as_overview;
 pub mod ipapi_co;
 pub mod ip_api_com;

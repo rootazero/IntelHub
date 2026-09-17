@@ -344,6 +344,11 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // stale sweep only after a full 4/4 round; hub-restart rounds skip when
     // data is <24h old (max(fetched_at) probe). Emits no geo Signals.
     out.push(Box::new(sources::installations::Installations));
+    // GEV P3 (2026-09-17): CCTV static catalog base load (T8) — vendor
+    // cctv_sources.*.json → PG cctv_cameras (0021, contracts.md §3).
+    // Keyless, idempotent; missing vendor dir degrades to a warn, never
+    // a boot failure. Emits no geo Signals (catalog, celestrak precedent).
+    out.push(Box::new(sources::cctv::CctvLoader));
     // GEV P3 (2026-09-17): AISStream live vessels — env-gated, opensky
     // pattern. Without AISSTREAM_API_KEY the collector is NOT registered
     // (one startup log line); the T2 REST layer answers the contract's
