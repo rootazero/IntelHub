@@ -843,7 +843,11 @@ async fn console_metrics_summary(
 async fn console_globe_aircraft(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
-    let blob: Option<String> = state
+    // Ruling 3 (GEV P2 T13): two independent snapshots — adsb.lol rotating
+    // (`hub:globe:aircraft`, TTL 300s) and OpenSky OAuth full vectors
+    // (`hub:globe:aircraft:opensky`, TTL 120s) — merged by hex at read time
+    // (fresher age_s wins; adsb priority without age info).
+    let adsb_blob: Option<String> = state
         .redis_timed(
             redis::cmd("GET")
                 .arg(crate::monitor::sources::adsb::AIRCRAFT_KEY)
@@ -851,13 +855,22 @@ async fn console_globe_aircraft(
             2000,
         )
         .await;
-    let parsed = blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
-    match parsed {
-        Some(v) => Ok(Json(v)),
-        // Snapshot missing/corrupt = collector dead >300s (SNAPSHOT_TTL_SECS).
-        // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
-        None => Ok(Json(json!({ "stale": true, "aircraft": [] }))),
-    }
+    let opensky_blob: Option<String> = state
+        .redis_timed(
+            redis::cmd("GET")
+                .arg(crate::monitor::sources::opensky::OPENSKY_AIRCRAFT_KEY)
+                .clone(),
+            2000,
+        )
+        .await;
+    let adsb = adsb_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let opensky = opensky_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    // Both missing/corrupt = both collectors dead (adsb >300s, opensky >120s).
+    // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
+    Ok(Json(crate::monitor::sources::adsb::merge_globe_snapshots(
+        adsb.as_ref(),
+        opensky.as_ref(),
+    )))
 }
 
 #[derive(Debug, Deserialize)]
