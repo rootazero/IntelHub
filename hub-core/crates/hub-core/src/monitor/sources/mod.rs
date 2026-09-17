@@ -68,6 +68,11 @@ pub mod celestrak;
 // Globe P1 (2026-09-17): adsb.lol live aircraft snapshot → Redis ring +
 // notable events → geo_events (spec §2.2: positions never touch PG).
 pub mod adsb;
+// GEV P3 (2026-09-17): AISStream.io live vessel positions → Redis
+// `hub:globe:vessels` + per-MMSI track ring. Env-gated: registered only
+// when AISSTREAM_API_KEY/HUB_AISSTREAM_API_KEY is set (opensky pattern);
+// without a key the REST layer serves status "missing-key".
+pub mod ais;
 pub mod ripe_as_overview;
 pub mod ipapi_co;
 pub mod ip_api_com;

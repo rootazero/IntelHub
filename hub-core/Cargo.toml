@@ -32,6 +32,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 futures = "0.3"
 strsim = "0.11"
+# GEV P3 (2026-09-17): the ONE approved new crate — AISStream vessels WS
+# broker. rustls-tls-native-roots keeps the build image free of OpenSSL
+# system deps (rust:trixie docker build).
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-native-roots"] }
 
 [profile.release]
 lto = "thin"
