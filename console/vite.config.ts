@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -9,6 +10,15 @@ export default defineConfig({
   // (The plugin still injects the /cesium/Widgets/widgets.css link — do NOT
   // import widgets.css from Globe.tsx or it loads twice.)
   plugins: [react(), tailwindcss(), cesium({ rebuildCesium: true })],
+  resolve: {
+    // Bare-specifier import channel for the vendored GEV engine: console TS
+    // code imports `gev-engine/src/app/application.js` etc. instead of fragile
+    // depth-relative paths. Vite resolves at bundle time; tsc resolves via
+    // tsconfig paths + the ambient wildcard in src/gev-boot/gev-engine.d.ts.
+    alias: {
+      "gev-engine": fileURLToPath(new URL("./gev-engine", import.meta.url)),
+    },
+  },
   define: {
     // Vendored GEV engine reads these at module scope (upstream build/vite.js
     // equivalent). Fold build-time keys in so `import.meta.env.X` resolves in

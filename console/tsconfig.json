@@ -8,6 +8,13 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      // Matches vite.config.ts resolve.alias — bare `gev-engine/...` specifiers
+      // resolve here for tsc; typing comes from the ambient wildcard
+      // declaration in src/gev-boot/gev-engine.d.ts (shorthand `any`).
+      "gev-engine/*": ["./gev-engine/*"]
+    },
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
