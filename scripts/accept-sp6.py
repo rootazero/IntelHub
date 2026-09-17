@@ -308,15 +308,107 @@ check("globe: aircraft snapshot fresh (count>100)",
 
 n_sat = pg1("SELECT count(*) FROM satellites")
 fresh = pg1("SELECT count(*) FROM satellites WHERE fetched_at > now() - interval '12 hours'")
+# Ruling 2 (GEV P2 T5 carry-forward): the old flat n_sat>400 threshold is
+# toothless under the six-group catalog (T5 实测: geo alone ~567, all six
+# groups ~830). Total floor raised to >600 here; the per-category floor is
+# asserted on the live endpoint below.
 check("globe: satellites catalog loaded",
-      n_sat.isdigit() and int(n_sat) > 400,
+      n_sat.isdigit() and int(n_sat) > 600,
       f"rows={n_sat} fresh12h={fresh}")
 
 st_a, body_a = req("/api/v1/globe/aircraft")
 st_s, body_s = req("/api/v1/globe/satellites")
 check("globe: /api/v1/globe/* endpoints 200",
-      st_a == 200 and "aircraft" in body_a and st_s == 200 and body_s.get("count", 0) > 400,
+      st_a == 200 and "aircraft" in body_a and st_s == 200 and body_s.get("count", 0) > 600,
       f"aircraft_http={st_a} satellites_http={st_s} sat_count={body_s.get('count')}")
+
+# ---- GEV P2: T4/T5/T13 engine source endpoints (2026-09-17) ----
+
+
+def req_text(path, timeout=30):
+    """Raw-text GET for TLE/plain endpoints (req() JSON-parses bodies and
+    would crash on TLE text). Returns (status, text); error bodies are
+    truncated to 200 chars so failure details stay readable."""
+    r = urllib.request.Request(BASE + path, headers={"Authorization": f"Bearer {KEY}"})
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")[:200]
+    except Exception as e:
+        return 0, str(e)[:200]
+
+
+# T5 实测 (Ruling 2): per-category floor on the live /globe/satellites
+# response — the six PG-backed GEV TLE groups must each carry >50 sats.
+GEV_TLE_GROUPS = ["stations", "visual", "gps-ops", "glo-ops", "galileo", "geo"]
+sat_items = body_s.get("items", []) if isinstance(body_s, dict) else []
+by_cat = {}
+for _it in sat_items:
+    if isinstance(_it, dict):
+        _c = _it.get("category", "?")
+        by_cat[_c] = by_cat.get(_c, 0) + 1
+low_cat = [g for g in GEV_TLE_GROUPS if by_cat.get(g, 0) <= 50]
+check("gev: satellites per-category floor (six groups each >50, total >600)",
+      not low_cat and isinstance(body_s, dict) and body_s.get("count", 0) > 600,
+      f"per-cat={ {g: by_cat.get(g, 0) for g in GEV_TLE_GROUPS} } total={body_s.get('count') if isinstance(body_s, dict) else '?'}")
+
+# T13: merged flights snapshot envelope. `coverage` carries the +opensky
+# suffix exactly when an opensky OAuth snapshot is being merged — assert the
+# base prefix (startswith), never exact equality.
+cov = str(body_a.get("coverage", "")) if isinstance(body_a, dict) else ""
+check("gev: flights snapshot envelope (count>100, coverage tolerant)",
+      st_a == 200 and int(body_a.get("count", 0)) > 100 and cov.startswith("hotspots+mil+squawk"),
+      f"http={st_a} count={body_a.get('count') if isinstance(body_a, dict) else '?'} coverage={cov!r}")
+
+# T4: earthquake layer rows (JSON array body — every row M2.5+ by the
+# upstream 2.5_day feed contract). 24h global M2.5+ is practically never
+# empty; 0 rows means the USGS collector or the endpoint regressed, so this
+# is a hard check. Raw fetch + defensive parse: unmatched routes on a stale
+# build fall through to the SPA index.html (200 + HTML), which must fail
+# cleanly here, not crash json.loads. Failure detail prints body[:200].
+st_q, raw_q = req_text("/api/v1/gev/earthquakes")
+try:
+    body_q = json.loads(raw_q) if raw_q else []
+except Exception:
+    body_q = None
+n_q = len(body_q) if isinstance(body_q, list) else 0
+check("gev: earthquakes endpoint rows>0",
+      st_q == 200 and n_q > 0,
+      f"http={st_q} rows={n_q} body={raw_q[:200]}")
+
+# T5: celestrak readGroup — six PG-backed groups served as plain-text TLE
+# (name\nline1\nline2 blocks, byte-compatible with celestrak gp.php).
+# "\n1 " is the line-1 marker of the first TLE block. The not-HTML guard
+# rejects the SPA index.html fallback (200 + HTML) that unmatched routes
+# serve on builds predating this endpoint.
+st_t, text_t = req_text("/api/v1/gev/celestrak/stations")
+check("gev: celestrak readGroup stations TLE text",
+      st_t == 200 and not text_t.lstrip().startswith("<") and "\n1 " in text_t and len(text_t.splitlines()) > 30,
+      f"http={st_t} lines={len(text_t.splitlines())} bytes={len(text_t)}")
+
+# T5: starlink is a thin celestrak.org proxy cached in Redis (upstream
+# failure = 502 by design). That is a genuine failure to surface, NOT a
+# shelf — 315 verified celestrak.org reachable from the VM egress.
+st_x, text_x = req_text("/api/v1/gev/celestrak/starlink")
+check("gev: starlink proxied TLE (200 + STARLINK)",
+      st_x == 200 and not text_x.lstrip().startswith("<") and "STARLINK" in text_x,
+      f"http={st_x} bytes={len(text_x)} head={text_x[:80]!r}")
+
+# T13: opensky OAuth gate. Creds absent -> the collector keeps the keyless
+# 900s hotspot loop and the OAuth full-vector layer is shelved-by-design;
+# creds present -> the opensky health cell must read ok (the full-vector
+# channel never fails the keyless tick, so an unhealthy cell here means a
+# real regression). Both HUB_-prefixed and bare env names are accepted by
+# oauth_creds() (HUB_* wins); secrets.env is the source of truth.
+os_id = secret("HUB_OPENSKY_CLIENT_ID") or secret("OPENSKY_CLIENT_ID")
+if not os_id:
+    check_shelved("opensky OAuth configured",
+                  "HUB_OPENSKY_CLIENT_ID/OPENSKY_CLIENT_ID absent in secrets.env — OAuth full-vector layer shelved-by-design")
+else:
+    v_os = redis("HGET", "hub:monitor:health", "opensky")
+    check("opensky OAuth configured (health cell ok)",
+          '"state":"ok"' in v_os.replace(" ", ""), v_os[:120])
 
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
