@@ -292,6 +292,43 @@ describe("HudLayerRail", () => {
       screen.getByRole("menuitem", { name: "太空 Space" }),
     );
   });
+
+  test("flyout is not a keyboard trap: Escape from inside a checkbox closes it and refocuses the trigger icon", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const sea = screen.getByRole("menuitem", { name: "海洋 Sea" });
+    sea.focus();
+    fireEvent.keyDown(sea, { key: "Enter" }); // no-op, documents click lane
+    fireEvent.click(sea); // opens the Sea flyout
+    const flyout = document.querySelector(".hud-rail-flyout")!;
+    expect(flyout).toHaveAttribute("data-domain", "sea");
+    // Tab-into-flyout simulation: focus lands on a layer checkbox.
+    const box = screen.getByRole("checkbox", { name: /ais-live-vessels/ });
+    box.focus();
+    expect(document.activeElement).toBe(box);
+    // The keydown handler lives on the OUTER rail container, so this event
+    // bubbles up from the flyout (a menubar sibling) instead of vanishing.
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(document.querySelector(".hud-rail-flyout")).toBeNull();
+    expect(document.activeElement).toBe(sea);
+  });
+
+  test("arrow keys keep working while focus is inside the flyout", () => {
+    render(<HudLayerRail manager={mockManager()} />);
+    const sea = screen.getByRole("menuitem", { name: "海洋 Sea" });
+    sea.focus();
+    fireEvent.click(sea);
+    const box = screen.getByRole("checkbox", { name: /ais-live-vessels/ });
+    box.focus();
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    // Focus moved to the NEXT domain icon and its flyout opened.
+    expect(document.activeElement).toBe(
+      screen.getByRole("menuitem", { name: "网络 Cyber" }),
+    );
+    expect(document.querySelector(".hud-rail-flyout")).toHaveAttribute(
+      "data-domain",
+      "cyber",
+    );
+  });
 });
 
 // ---- describe 3: stub degradation through the REAL LayerLifecycle -----------
