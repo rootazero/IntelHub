@@ -10,8 +10,12 @@ import { militarySource } from "../military";
 // only the `mil` bit separates them (hub-core adsb.rs reads it from adsb.lol's
 // `dbFlags & 1`). Rows are real, sampled from the live production snapshot on
 // 2026-09-17T00:59Z (223 of its 520 rows carried `mil: true`).
-const TS = "2026-09-17T00:59:09.029094120+00:00";
-const TS_MS = Date.parse(TS);
+// Clock-relative epoch: the adapter now degrades AGED snapshots on its own
+// (aircraft-map.ts toEnvelope, ruling 8 — ageMs > 120 s ⇒ stale), so a
+// fresh-snapshot fixture must be recent at RUN time, not pinned to the probe
+// moment. Row content still mirrors the live probe cited above.
+const TS_MS = Date.now() - 30_000;
+const TS = new Date(TS_MS).toISOString();
 const AIRCRAFT = [
   {
     age_s: 121,

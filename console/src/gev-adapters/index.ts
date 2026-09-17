@@ -1,4 +1,4 @@
-// Factory for the 14 GEV layer sources IntelHub supplies to the vendored
+// Factory for the 15 GEV layer sources IntelHub supplies to the vendored
 // engine. The engine's `createApplicationCatalog` (constructCatalog.js) throws
 // `Invalid catalog source: <name>` unless every SOURCE_METHODS entry is a
 // function, so this object is the single wiring point.
@@ -41,5 +41,8 @@ export function createIntelHubLayerSources(deps: {
     traffic: stubs.traffic,
     bikeshare: stubs.bikeshare,
     installations: stubs.installations,
+    // T3 I-2: without this entry the transit layer silently falls back to the
+    // engine's own unauthenticated /api/transit source (stubs.ts header).
+    transit: stubs.transit,
   };
 }

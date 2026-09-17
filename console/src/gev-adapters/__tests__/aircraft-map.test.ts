@@ -135,3 +135,19 @@ test("toEnvelope clamps a future snapshot epoch to a zero age", () => {
   expect(env.ageMs).toBe(0);
   expect(env.freshness).toBe("current");
 });
+
+test("toEnvelope degrades an aged snapshot even without the hub stale flag", () => {
+  // Ruling 8 / T6 I-2: freshness and status derive from the same stale
+  // boolean, and age alone past the engine's own 120 s threshold
+  // (aircraft.js:92) must degrade the envelope — a hub that serves an old
+  // snapshot without setting `stale:true` must not read as fresh.
+  const env = toEnvelope([], { ts: TS }, "intelhub-adsb", TS_MS + 130_000);
+  expect(env.ageMs).toBe(130_000);
+  expect(env.stale).toBe(true);
+  expect(env.freshness).toBe("stale");
+  expect(env.status).toBe(503);
+  // The threshold is strict, exactly like the engine's `ageMs > 120000`.
+  const atLimit = toEnvelope([], { ts: TS }, "intelhub-adsb", TS_MS + 120_000);
+  expect(atLimit.stale).toBe(false);
+  expect(atLimit.freshness).toBe("current");
+});
