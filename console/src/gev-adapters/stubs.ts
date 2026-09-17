@@ -14,10 +14,10 @@ import { emptyEnvelope } from "./types";
 import type { SnapshotEnvelope } from "./types";
 
 // ── Envelope snapshot layers ───────────────────────────────────────────────
-// vessels/ingestion.js:readSource().getSnapshot → snapshot.records/.source/
-// .observedAtMs/.freshness/.complete/.stale; flights & military ingestion read
-// the same envelope keys (status, ageMs, coverage, source). emptyEnvelope
-// supplies every required key with an empty record set.
+// flights/military ingestion read the envelope keys (status, ageMs,
+// coverage, source). emptyEnvelope supplies every required key with an
+// empty record set. vessels graduated to a real adapter in GEV P3 T2
+// (./vessels.ts).
 
 const envelopeSource = (layer: string) => ({
   async getSnapshot(): Promise<SnapshotEnvelope> {
@@ -27,7 +27,6 @@ const envelopeSource = (layer: string) => ({
 
 export const flights = envelopeSource("flights");
 export const military = envelopeSource("military");
-export const vessels = envelopeSource("vessels");
 
 // ── FIRMS ──────────────────────────────────────────────────────────────────
 // firms/ingestion.js:loadHeatmap → `payload.keyRequired` short-circuit, else
