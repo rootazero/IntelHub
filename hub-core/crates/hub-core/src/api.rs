@@ -67,6 +67,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/gev/overpass", axum::routing::post(crate::gev_traffic::gev_overpass))
         .route("/api/v1/gev/tomtom/status", get(crate::gev_traffic::gev_tomtom_status))
         .route("/api/v1/gev/tomtom/flow/{z}/{x}/{y}.pbf", get(crate::gev_traffic::gev_tomtom_flow))
+        // GEV P3: military installations layer source (PG catalog → Overpass elements)
+        .route("/api/v1/gev/installations", get(crate::gev_installations::gev_installations))
         // GEV P3: vessels layer source (AIS live snapshot + per-MMSI track)
         .route("/api/v1/gev/ais-live", get(crate::gev_vessels::gev_ais_live))
         .route("/api/v1/gev/ais-live/track", get(crate::gev_vessels::gev_ais_live_track))
