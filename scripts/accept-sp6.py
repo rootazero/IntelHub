@@ -464,7 +464,7 @@ else:
 # (first-round runs at startup when the table is empty). rows>0 in PG AND
 # the bbox endpoint serving a 1° box around a known-dense region
 # (Ramstein AB, Germany: 49.4N 7.6E) with the contract envelope.
-n_mi = pg1("SELECT count(*) FROM military_installations")
+n_mi = int(pg1("SELECT count(*) FROM military_installations") or "0")
 st_i, body_i = req("/api/v1/gev/installations?south=49.0&west=7.0&north=49.8&east=8.0")
 els_i = body_i.get("elements", []) if isinstance(body_i, dict) else []
 check("gev: installations catalog rows>0 + bbox endpoint envelope",
