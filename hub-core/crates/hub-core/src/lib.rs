@@ -14,6 +14,7 @@ pub mod entity_seeder;
 pub mod error;
 pub mod events;
 pub mod gev_traffic;
+pub mod gev_vessels;
 pub mod graph;
 pub mod graph_queries;
 pub mod graph_v2;
