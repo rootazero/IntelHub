@@ -7,6 +7,7 @@
 // marked below, consuming `deps.apiFetch`. Every other entry stays a contract
 // stub until its own wave (T3 goal: layers enable, render empty, never throw).
 
+import { earthquakesSource } from "./earthquakes";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
 
@@ -16,16 +17,15 @@ export function createIntelHubLayerSources(deps: {
   apiFetch: ApiFetch;
 }): LayerSources {
   // `deps` (notably `apiFetch`) is the transport the wave-1 implementations
-  // will close over when they replace the stubs below. The stubs are pure
-  // data objects and perform no I/O, so it is intentionally unreferenced here
-  // — T4-T6 thread it into their real sources at this exact seam.
-  void deps;
+  // close over when they replace the stubs below. The stubs themselves are pure
+  // data objects and perform no I/O, so they never touch it.
+  const { apiFetch } = deps;
 
   return {
     flights: stubs.flights, // T6 → real OpenSky snapshot source
     military: stubs.military, // T6 → real military snapshot source
     satellites: stubs.satellites, // T5 → real CelesTrak group source
-    earthquakes: stubs.earthquakes, // T4 → real USGS snapshot source
+    earthquakes: earthquakesSource(apiFetch), // T4 → real USGS snapshot source
     vessels: stubs.vessels,
     firms: stubs.firms,
     cables: stubs.cables,
