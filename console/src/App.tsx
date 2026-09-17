@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { getKey, setKey } from "./api";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { I18nProvider, LANGS, useT } from "./i18n";
 import { MapViewProvider } from "./useMapView";
 import Overview from "./pages/Overview";
@@ -20,8 +21,6 @@ import Audit from "./pages/Audit";
 import System from "./pages/System";
 
 const GlobeV2 = lazy(() => import("./pages/GlobeV2"));
-
-import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const NAV = [
   ["/", "nav.monitor"],
@@ -173,11 +172,11 @@ function Shell() {
           <Route
             path="/globe"
             element={
-              <Suspense fallback={<div className="p-4 text-dim">Loading globe…</div>}>
-                <ErrorBoundary>
+              <ErrorBoundary>
+                <Suspense fallback={<div className="p-4 text-dim">Loading globe…</div>}>
                   <GlobeV2 />
-                </ErrorBoundary>
-              </Suspense>
+                </Suspense>
+              </ErrorBoundary>
             }
           />
           <Route path="/signals" element={<Signals />} />
