@@ -68,6 +68,20 @@ pub mod celestrak;
 // Globe P1 (2026-09-17): adsb.lol live aircraft snapshot → Redis ring +
 // notable events → geo_events (spec §2.2: positions never touch PG).
 pub mod adsb;
+// GEV P3 (2026-09-17): AISStream.io live vessel positions → Redis
+// `hub:globe:vessels` + per-MMSI track ring. Env-gated: registered only
+// when AISSTREAM_API_KEY/HUB_AISSTREAM_API_KEY is set (opensky pattern);
+// without a key the REST layer serves status "missing-key".
+pub mod ais;
+// GEV P3 (2026-09-17): Overpass military-installations harvest → PG
+// `military_installations` (migration 0020). Keyless, 24h cadence, 4
+// quadrants with ≥60s politeness; restart-safe (<24h → skip round).
+pub mod installations;
+// GEV P3 (2026-09-17): CCTV static catalog loader (T8) — vendor
+// cctv_sources.*.json → PG cctv_cameras (migration 0021). Keyless,
+// idempotent upsert, 24h placeholder cadence; T9 adds the periodic
+// upstream refresh on top of this base load.
+pub mod cctv;
 pub mod ripe_as_overview;
 pub mod ipapi_co;
 pub mod ip_api_com;

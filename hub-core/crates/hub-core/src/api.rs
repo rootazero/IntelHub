@@ -63,6 +63,25 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/gev/earthquakes", get(gev_earthquakes))
         // GEV P2: satellites layer source (PG TLE catalog + starlink proxy)
         .route("/api/v1/gev/celestrak/{group}", get(gev_celestrak))
+        // GEV P3: traffic layer sources (overpass proxy + tomtom flow tiles)
+        .route("/api/v1/gev/overpass", axum::routing::post(crate::gev_traffic::gev_overpass))
+        .route("/api/v1/gev/tomtom/status", get(crate::gev_traffic::gev_tomtom_status))
+        // axum forbids two params in one segment, so the route drops the
+        // engine's ".pbf" suffix (the console adapter strips it in the
+        // prefix rewrite — traffic.ts rewriteTrafficPath).
+        .route("/api/v1/gev/tomtom/flow/{z}/{x}/{y}", get(crate::gev_traffic::gev_tomtom_flow))
+        // GEV P3: military installations layer source (PG catalog → Overpass elements)
+        .route("/api/v1/gev/installations", get(crate::gev_installations::gev_installations))
+        // GEV P3: vessels layer source (AIS live snapshot + per-MMSI track)
+        .route("/api/v1/gev/ais-live", get(crate::gev_vessels::gev_ais_live))
+        .route("/api/v1/gev/ais-live/track", get(crate::gev_vessels::gev_ais_live_track))
+        // GEV P3: cctv layer source (camera catalog + probe health; frames/media proxied at T12)
+        .route("/api/v1/gev/cctv/sources", get(crate::gev_cctv::gev_cctv_sources))
+        .route("/api/v1/gev/cctv/health", get(crate::gev_cctv::gev_cctv_health))
+        // GEV P3 T12: frame proxy (10s cache) + mp4 media stream (cap 4, 429);
+        // hls → 501 until the P4 playlist proxy. SSRF-impossible: ids only.
+        .route("/api/v1/gev/cctv/frame/{id}", get(crate::gev_cctv::gev_cctv_frame))
+        .route("/api/v1/gev/cctv/media/{id}", get(crate::gev_cctv::gev_cctv_media))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))

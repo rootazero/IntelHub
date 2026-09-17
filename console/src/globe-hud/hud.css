@@ -377,6 +377,14 @@
   color: #e6edf3;
 }
 
+/* CCTV template's no-feed state: same geometry as the link, inert. */
+.hud-detail-link.disabled {
+  border-color: rgba(154, 164, 178, 0.25);
+  color: #9aa4b2;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* ── T11 top / bottom bars ───────────────────────────────────────────────
    Thin single-row status strips. Same dark translucent token family as
    .hud-edge / .hud-rail / .hud-detail (no new colors); the top/bottom slots
@@ -553,7 +561,7 @@
   color: #ff4d6d;
 }
 
-/* P3 placeholder: static lon/lat readout muted until live wiring lands. */
+/* T14 live lon/lat readout — monospace-tabular digits for a steady column. */
 .hud-bar-coords {
   gap: 5px;
   color: #9aa4b2;
@@ -563,4 +571,49 @@
 
 .hud-bar-coord-sep {
   opacity: 0.5;
+}
+
+/* ── T14 narrow screens (≤900px) ─────────────────────────────────────────
+   Four-edge frame survives; geometry degrades:
+   - TopBar hides secondary chips (subtitle + P5 search) — brand, alert
+     bell and UTC clock stay.
+   - DetailPanel becomes a full-width bottom drawer (leaving the left rail
+     its 44px column) instead of the right-edge column.
+   - LayerRail keeps its native icon-only column; the flyout clamps its
+     width so it never runs off a phone viewport.
+   - BottomBar collector names collapse to dots-only; the strip keeps its
+     single-row no-wrap shape. */
+@media (max-width: 900px) {
+  .hud-bar-sub,
+  .hud-bar-search {
+    display: none;
+  }
+
+  /* Right slot: drawer across the bottom, above the bottom bar (58px =
+     8px gap + 34px strip + 8px gap, same math as the :has() rules). Left
+     inset keeps the rail column visible beside the drawer. */
+  .hud-root:has(.hud-right .hud-detail) .hud-right {
+    top: auto;
+    left: 58px; /* 8px margin + 44px rail + 6px gutter */
+    right: 8px;
+    bottom: 58px;
+    width: auto;
+  }
+
+  .hud-detail {
+    width: 100%;
+    max-height: 38vh;
+  }
+
+  .hud-rail-flyout {
+    width: min(232px, calc(100vw - 70px));
+  }
+
+  .hud-bar-src-name {
+    display: none;
+  }
+
+  .hud-bar-sources {
+    gap: 8px;
+  }
 }

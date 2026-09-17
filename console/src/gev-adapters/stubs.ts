@@ -14,10 +14,10 @@ import { emptyEnvelope } from "./types";
 import type { SnapshotEnvelope } from "./types";
 
 // ── Envelope snapshot layers ───────────────────────────────────────────────
-// vessels/ingestion.js:readSource().getSnapshot → snapshot.records/.source/
-// .observedAtMs/.freshness/.complete/.stale; flights & military ingestion read
-// the same envelope keys (status, ageMs, coverage, source). emptyEnvelope
-// supplies every required key with an empty record set.
+// flights/military ingestion read the envelope keys (status, ageMs,
+// coverage, source). emptyEnvelope supplies every required key with an
+// empty record set. vessels graduated to a real adapter in GEV P3 T2
+// (./vessels.ts).
 
 const envelopeSource = (layer: string) => ({
   async getSnapshot(): Promise<SnapshotEnvelope> {
@@ -27,7 +27,6 @@ const envelopeSource = (layer: string) => ({
 
 export const flights = envelopeSource("flights");
 export const military = envelopeSource("military");
-export const vessels = envelopeSource("vessels");
 
 // ── FIRMS ──────────────────────────────────────────────────────────────────
 // firms/ingestion.js:loadHeatmap → `payload.keyRequired` short-circuit, else
@@ -108,20 +107,8 @@ export const launches = {
 };
 
 // ── CCTV ───────────────────────────────────────────────────────────────────
-// cctv/catalog.js:86 `data?.sources` must be an array (else []); cctv/health.js
-// `data?.cameras` likewise. getFrameUrl/getMediaUrl return strings that the
-// frame loader consumes; "" means "no frame" without a thrown TypeError.
-
-export const cctv = {
-  async getCatalog(): Promise<{ sources: unknown[] }> {
-    return { sources: [] };
-  },
-  async getHealth(): Promise<{ cameras: unknown[] }> {
-    return { cameras: [] };
-  },
-  getFrameUrl: (): string => "",
-  getMediaUrl: (): string => "",
-};
+// GEV P3 T13 replaced this stub with ./cctv.ts (hub catalog + frame/media
+// proxy URLs). Stub export removed.
 
 // ── Radio ──────────────────────────────────────────────────────────────────
 // radio/ingestion.js:24 → body.stations must be a non-empty usable array, plus
@@ -154,46 +141,10 @@ export const radio = {
   },
 };
 
-// ── Traffic (Overpass roads + TomTom flow) ─────────────────────────────────
-// traffic/ingestion.js fetchRoads → `source.requestRoads(...)` must resolve a
-// Response-like `{ ok, status, headers, json() }` whose json() yields
-// `{ roads: [...] }` (Array required). `{ roads: [] }` keeps the road layer
-// empty and non-throwing.
-// traffic/flow.js ensureFlowStatus → `source.getStatus()` must yield
-// `{ hasKey: boolean }`; `false` selects the engine's built-in simulated
-// (keyless) mode and skips live flow entirely — the honest "no live data" path.
-// traffic/flowSource.js fetchFlowForBounds resolves a FLAT ARRAY of flow
-// segments (traffic/flow.js destructures the result directly and passes it to
-// matchFlowToRoads, which requires an array), so the degraded value is `[]`.
-// getFlowSessionStats → `{ tilesFetched }`; resetFlowTileCache is void.
-
-export const traffic = {
-  async requestRoads(): Promise<{
-    ok: boolean;
-    status: number;
-    headers: Headers;
-    json: () => Promise<{ roads: unknown[] }>;
-  }> {
-    return {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ roads: [] }),
-    };
-  },
-  async getStatus(): Promise<{ hasKey: boolean }> {
-    return { hasKey: false };
-  },
-  async fetchFlowForBounds(): Promise<unknown[]> {
-    return [];
-  },
-  getFlowSessionStats(): { tilesFetched: number } {
-    return { tilesFetched: 0 };
-  },
-  resetFlowTileCache(): void {
-    // no cache to clear in the stub
-  },
-};
+// ── Traffic ────────────────────────────────────────────────────────────────
+// GEV P3 T7 replaced this stub with ./traffic.ts (real source wrapping the
+// engine's own createTrafficSource with a prefix rewrite to hub-proxied
+// /api/v1/gev/overpass + /api/v1/gev/tomtom/*). Stub export removed.
 
 // ── Bikeshare (GBFS) ───────────────────────────────────────────────────────
 // bikeshare/model.js:74 extractStationsArray reads `payload.data.stations`
@@ -206,31 +157,10 @@ export const bikeshare = {
   },
 };
 
-// ── Military installations (OSM + Google Places) ───────────────────────────
-// installations/ingestion.js:55-69 → payload.saturated (bool) and
-// `payload.records.filter(...)`. The real source spreads
-// normalizeMilitaryInstallations()'s `{ records, droppedCount }` and adds
-// `status` + `saturated`. searchNearby (ingestion reads `payload.places`)
-// returns `{ places: [] }`.
-
-export const installations = {
-  async getMappedSites(): Promise<{
-    records: unknown[];
-    droppedCount: number;
-    status: "unavailable";
-    saturated: boolean;
-  }> {
-    return {
-      records: [],
-      droppedCount: 0,
-      status: "unavailable",
-      saturated: false,
-    };
-  },
-  async searchNearby(): Promise<{ places: unknown[] }> {
-    return { places: [] };
-  },
-};
+// ── Military installations ─────────────────────────────────────────────────
+// GEV P3 T4 replaced this stub with ./installations.ts (real source wrapping
+// the engine's own createInstallationSource with a path rewrite). The stub
+// export is removed (same convention as vessels in T2).
 
 // ── Satellites (CelesTrak) ─────────────────────────────────────────────────
 // satellites/ingestion.js:31 → `source.readGroup(path, { signal })` returns

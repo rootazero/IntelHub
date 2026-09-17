@@ -121,6 +121,9 @@ const gate = async (selector, timeoutMs, label) => {
 let snap = null;
 let aircraft = null;
 let satellites = null;
+let p3CountBefore = null;
+let p3CountAfter = null;
+let p3Toggled = [];
 let bodySnippet = null;
 
 try {
@@ -303,6 +306,90 @@ try {
     "stale",
   ]);
   satellites = await readCount("/api/v1/globe/satellites", "items");
+
+  // ---- GEV P3 T16: exercise the newly-wired layers through the rail ------
+  // vessels (sea), cctv + traffic (ground), installations (infra). Flyout
+  // labels come from upstream catalog metadata (may rename), so we toggle by
+  // domain: open each domain's flyout and switch every currently-OFF layer
+  // ON, then assert the n/m layer counter moved and no pageerror fired.
+  // Stubs enable-empty by contract, so this also smoke-tests them. All
+  // toggles are restored OFF afterwards. (traffic with no TomTom key takes
+  // the engine's simulated path — zero tile-quota burn.)
+  const readLayerCount = async () =>
+    page.evaluate(() => {
+      const el = document.querySelector('[data-testid="hud-layer-count"]');
+      const m = el?.textContent?.match(/(\d+)\s*\/\s*(\d+)/);
+      return m ? Number(m[1]) : null;
+    });
+  p3CountBefore = await readLayerCount();
+  p3Toggled = [];
+  for (const [domain, zh] of [
+    ["sea", "海洋"],
+    ["ground", "地面"],
+    ["infra", "基建"],
+  ]) {
+    const icon = page.locator(
+      `[data-testid="hud-layer-rail"] .hud-rail-icons button[aria-label*="${zh}"]`,
+    );
+    if (!(await icon.count())) {
+      warnings.push(`P3 rail: ${domain} icon missing`);
+      continue;
+    }
+    // T14 a11y (roving tabindex): the first icon click focuses, the second
+    // opens the flyout — retry the click until the flyout appears (≤3).
+    const flyout = page.locator('.hud-rail-flyout');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await icon.first().click();
+      const visible = await flyout
+        .waitFor({ state: "visible", timeout: 1500 })
+        .then(() => true)
+        .catch(() => false);
+      if (visible) break;
+    }
+    const boxes = flyout.locator('input[type="checkbox"]');
+    const n = await boxes.count();
+    for (let i = 0; i < n; i++) {
+      const box = boxes.nth(i);
+      if (!(await box.isChecked())) {
+        await box
+          .check({ timeout: 3000 })
+          .catch((e) => warnings.push(`P3 toggle ${domain}[${i}]: ${String(e).slice(0, 80)}`));
+        p3Toggled.push(`${domain}[${i}]`);
+      }
+    }
+    await page.keyboard.press("Escape").catch(() => {});
+  }
+  // Let the LayerLifecycle serial queues settle + first fetches land.
+  await page.waitForTimeout(6000);
+  p3CountAfter = await readLayerCount();
+  // Restore: uncheck everything we turned on (same domain loop, reversed).
+  for (const [domain, zh] of [
+    ["infra", "基建"],
+    ["ground", "地面"],
+    ["sea", "海洋"],
+  ]) {
+    const icon = page.locator(
+      `[data-testid="hud-layer-rail"] .hud-rail-icons button[aria-label*="${zh}"]`,
+    );
+    if (!(await icon.count())) continue;
+    const flyout = page.locator('.hud-rail-flyout');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await icon.first().click();
+      const visible = await flyout
+        .waitFor({ state: "visible", timeout: 1500 })
+        .then(() => true)
+        .catch(() => false);
+      if (visible) break;
+    }
+    const boxes = flyout.locator('input[type="checkbox"]');
+    const n = await boxes.count();
+    for (let i = n - 1; i >= 0; i--) {
+      const box = boxes.nth(i);
+      if (p3Toggled.includes(`${domain}[${i}]`) && (await box.isChecked()))
+        await box.uncheck({ timeout: 3000 }).catch(() => {});
+    }
+    await page.keyboard.press("Escape").catch(() => {});
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
@@ -372,6 +459,20 @@ if (aircraft && !aircraft.error) {
 }
 if (satellites && !satellites.error && satellites.count === 0)
   warnings.push("satellites count is 0 (celestrak first sweep pending?)");
+
+// GEV P3 T16: the rail exercise must have found off-layers in the three
+// domains and enabling them must move the n/m counter (a stuck counter means
+// the LayerLifecycle never engaged — exactly what this probe exists for).
+if (p3Toggled.length === 0)
+  failures.push("P3 rail exercise toggled 0 layers (sea/ground/infra flyouts empty or rail inert)");
+else if (
+  p3CountBefore !== null &&
+  p3CountAfter !== null &&
+  p3CountAfter <= p3CountBefore
+)
+  failures.push(
+    `P3 rail exercise: layer count did not increase (${p3CountBefore} → ${p3CountAfter} after ${p3Toggled.length} toggles)`,
+  );
 if (snap && snap.webgl === "none")
   warnings.push("#cesiumContainer canvas has no WebGL context (SwiftShader missing?)");
 
@@ -406,6 +507,9 @@ if (snap) {
     `detail-kind=${snap.detailKind ?? "-"} detail-empty=${
       snap.detailEmpty ? (snap.detailEmptyText ? "ok" : "blank") : "-"
     } aircraft-coverage=${aircraft?.coverage ?? "-"}`,
+  );
+  console.log(
+    `p3-layers=${p3Toggled.length} toggled, count ${p3CountBefore ?? "-"} → ${p3CountAfter ?? "-"}`,
   );
 }
 for (const note of engineNotes) console.log(`engine-note=${note}`);

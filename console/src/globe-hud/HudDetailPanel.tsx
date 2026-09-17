@@ -27,6 +27,9 @@ const KIND_TITLE: Record<string, string> = {
   flight: "航班 FLIGHT",
   satellite: "卫星 SATELLITE",
   quake: "地震 QUAKE",
+  vessel: "船舶 VESSEL",
+  cctv: "摄像头 CCTV",
+  installation: "军事设施 INSTALLATION",
 };
 
 function formatInt(value: number | null | undefined): string {
@@ -95,6 +98,150 @@ function QuakeBody({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+/** class → bilingual label. Keys mirror the vendor humanize table
+ * (militaryInstallationData.js:24-29,42-52) plus the google-search
+ * 'places_candidate' bucket (policy.js GOOGLE_MILITARY_PLACE_TYPES). */
+const INSTALLATION_CLASS_LABEL: Record<string, string> = {
+  airfield: "军用机场 Airfield",
+  naval_base: "海军基地 Naval base",
+  range: "靶场 Range",
+  barracks: "营房 Barracks",
+  military_land: "军事用地 Military land",
+  base: "军事基地 Base",
+  places_candidate: "搜索候选 Candidate",
+};
+
+function humanizeInstallationClass(value: string): string {
+  if (!value) return "—";
+  return (
+    INSTALLATION_CLASS_LABEL[value] ??
+    value.replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function VesselBody({ data }: { data: Record<string, unknown> }) {
+  // speedKn is already knots: the bridge converts speedMps ÷0.514444
+  // (vessels.js ingestion.js:157 convention) or passes vendor speedKt through.
+  const speedKn = data.speedKn as number | null;
+  const observedAtMs = data.observedAtMs as number | null;
+  return (
+    <>
+      <div className="hud-detail-title">
+        {String(data.name || data.label || "—")}
+      </div>
+      <dl className="hud-detail-fields">
+        <dt>MMSI</dt>
+        <dd>{String(data.mmsi || "—")}</dd>
+        <dt>IMO</dt>
+        <dd>{String(data.imo || "—")}</dd>
+        <dt>类型</dt>
+        <dd>{String(data.type || "—")}</dd>
+        <dt>目的地</dt>
+        <dd>{String(data.destination || "—")}</dd>
+        <dt>航速</dt>
+        <dd>{speedKn == null ? "—" : `${speedKn.toFixed(1)} kn`}</dd>
+        <dt>航向</dt>
+        <dd>
+          {data.courseDeg == null ? "—" : `${Math.round(data.courseDeg as number)}°`}
+        </dd>
+        <dt>船头向</dt>
+        <dd>
+          {data.headingDeg == null ? "—" : `${Math.round(data.headingDeg as number)}°`}
+        </dd>
+        <dt>观测</dt>
+        <dd>{observedAtMs == null ? "—" : formatRelativeTime(observedAtMs)}</dd>
+      </dl>
+    </>
+  );
+}
+
+function CctvBody({ data }: { data: Record<string, unknown> }) {
+  const frameUrl = String(data.frameUrl || "");
+  const live = data.live as boolean | null;
+  return (
+    <>
+      <div className="hud-detail-title">
+        {String(data.name || data.label || "—")}
+      </div>
+      <dl className="hud-detail-fields">
+        <dt>状态</dt>
+        <dd>{live == null ? "—" : live ? "在线" : "离线"}</dd>
+        <dt>城市</dt>
+        <dd>{String(data.city || "—")}</dd>
+        <dt>提供商</dt>
+        <dd>{String(data.provider || "—")}</dd>
+        <dt>源类型</dt>
+        <dd>{String(data.feedType || "—")}</dd>
+        <dt>方位</dt>
+        <dd>
+          {data.headingDeg == null ? "—" : `${Math.round(data.headingDeg as number)}°`}
+          {" / "}
+          {data.fovDeg == null ? "—" : `${Math.round(data.fovDeg as number)}°`}
+          {" / "}
+          {data.pitchDeg == null ? "—" : `${Math.round(data.pitchDeg as number)}°`}
+        </dd>
+      </dl>
+      <div className="hud-detail-actions">
+        {frameUrl ? (
+          // Link semantics ONLY — the HUD never embeds <img>/<video>: live
+          // pixels are rendered by the engine pipeline (cctv/projection.js
+          // monitor plane). The anchor is the operator's jump-off to the feed.
+          <a
+            className="hud-detail-link"
+            href={frameUrl}
+            target="_blank"
+            rel="noreferrer"
+            title="实时画面（新窗口打开 — HUD 不内嵌媒体流）"
+          >
+            实时画面 LIVE
+          </a>
+        ) : (
+          <span className="hud-detail-link disabled" aria-disabled="true">
+            实时画面 不可用
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
+function InstallationBody({ data }: { data: Record<string, unknown> }) {
+  const retrievedAtMs = data.retrievedAtMs as number | null;
+  const sources = (data.sources ?? []) as Array<{ name?: string; id?: string }>;
+  const sourceLabel =
+    sources.length === 0
+      ? "—"
+      : sources
+          .map((source) => source.name ?? source.id ?? "")
+          .filter(Boolean)
+          .join(" · ");
+  const osmType = String(data.osmType || "");
+  const osmId = String(data.osmId || "");
+  return (
+    <>
+      <div className="hud-detail-title">
+        {String(data.name || data.label || "—")}
+      </div>
+      <dl className="hud-detail-fields">
+        <dt>类别</dt>
+        <dd>{humanizeInstallationClass(String(data.class || ""))}</dd>
+        <dt>OSM</dt>
+        <dd>
+          {osmType && osmId ? `${osmType} / ${osmId}` : String(data.id || "—")}
+        </dd>
+        <dt>来源</dt>
+        <dd>{sourceLabel}</dd>
+        <dt>校验</dt>
+        <dd>{String(data.validation || "—")}</dd>
+        <dt>检索</dt>
+        <dd>
+          {retrievedAtMs == null ? "—" : formatRelativeTime(retrievedAtMs)}
+        </dd>
+      </dl>
+    </>
+  );
+}
+
 export function HudDetailPanel() {
   const selection = useGlobeSelection();
   const [collapsed, setCollapsed] = useState(false);
@@ -131,6 +278,11 @@ export function HudDetailPanel() {
                 <SatelliteBody data={selection.data} />
               )}
               {selection.kind === "quake" && <QuakeBody data={selection.data} />}
+              {selection.kind === "vessel" && <VesselBody data={selection.data} />}
+              {selection.kind === "cctv" && <CctvBody data={selection.data} />}
+              {selection.kind === "installation" && (
+                <InstallationBody data={selection.data} />
+              )}
             </>
           )}
         </div>

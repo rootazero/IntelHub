@@ -179,8 +179,9 @@ describe("HudBottomBar", () => {
   });
 
   test("basemap label follows Google-key presence (photoreal vs esri)", () => {
-    // The GEV globe is Google photoreal when keyed, keyless Esri otherwise —
-    // never the P1 2D radar's CARTO DARK style.
+    // Fallback lane (no engine handle): the GEV globe is Google photoreal
+    // when keyed, keyless Esri otherwise — never the P1 2D radar's CARTO
+    // DARK style. The live mapStack lane is covered in hud-live-lanes.test.ts.
     const { unmount } = render(
       <HudBottomBar overview={OVERVIEW} manager={null} googleKey="AIza-key" />,
     );
@@ -198,13 +199,13 @@ describe("HudBottomBar", () => {
     expect(basemapStyleName(undefined)).toBe("ESRI IMAGERY");
   });
 
-  test("renders the static P3 lon/lat placeholder", () => {
-    render(<HudBottomBar overview={OVERVIEW} manager={null} />);
+  test("renders the cursor readout empty until the viewer handle exists", () => {
+    render(<HudBottomBar overview={OVERVIEW} manager={null} viewer={null} />);
     const coords = screen.getByTestId("hud-coords-p3");
     expect(coords).toHaveTextContent("lon —");
     expect(coords).toHaveTextContent("lat —");
-    expect(coords.getAttribute("aria-label")).toContain("P3");
-    expect(coords.getAttribute("title")).toContain("P3");
+    expect(coords.getAttribute("aria-label")).toContain("实时");
+    expect(coords.getAttribute("title")).toContain("pickEllipsoid");
     expect(screen.getByTestId("hud-cursor-lon")).toHaveTextContent("—");
     expect(screen.getByTestId("hud-cursor-lat")).toHaveTextContent("—");
   });
