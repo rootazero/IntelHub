@@ -12,6 +12,8 @@
 //! each method is desugared to `Pin<Box<dyn Future + Send + 'a>>`
 //! (PlannerLlm precedent, planner_llm.rs — "照抄" the existing style).
 
+mod lta;
+mod nyc511;
 mod ontario511;
 mod tfl;
 
@@ -40,10 +42,15 @@ pub trait CityCameraProvider: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CameraRow>>> + Send + 'a>>;
 }
 
-/// The live keyless providers. NYC 511NY + Singapore LTA are T10 — add
-/// them here and both the refresh loop and the health-sampling loop pick
-/// them up with zero other changes (scoped sweep + health cell are keyed
-/// off `provider.id()`).
+/// The live providers. Keyless ones (TfL, Ontario 511, 511NY) are
+/// always registered; key-gated ones (LTA) join only when their env key
+/// is set (shelved-by-design otherwise — the registry IS the gate, so
+/// refresh and health loops need no key logic of their own).
 pub fn providers() -> Vec<&'static dyn CityCameraProvider> {
-    vec![&tfl::Tfl, &ontario511::Ontario511]
+    let mut out: Vec<&'static dyn CityCameraProvider> =
+        vec![&tfl::Tfl, &ontario511::Ontario511, &nyc511::Ny511];
+    if lta::api_key().is_some() {
+        out.push(&lta::Lta);
+    }
+    out
 }
