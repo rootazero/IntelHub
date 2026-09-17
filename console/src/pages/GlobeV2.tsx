@@ -1,0 +1,45 @@
+// GlobeV2 — GEV-engine globe page (T8 skeleton: HUD frame + bootstrap only;
+// T9 adds the layer rail against getComponents().data.dataManager).
+//
+// Engine singleton: Cesium viewers are heavyweight and the engine app owns
+// teardown ordering, so exactly one instance is booted per page load. The
+// module-level `booted` guard (not a ref) survives StrictMode's double
+// mount/unmount, where a ref would be reset by the first unmount and boot a
+// second viewer on the re-mount.
+import { useEffect, useState } from "react";
+import { getKey } from "../api";
+import { makeApiFetch } from "../gev-adapters/http";
+import { createIntelHubGlobe } from "../gev-boot/application";
+import { HudFrame } from "../globe-hud/HudFrame";
+import "../globe-hud/hud.css";
+
+const booted = { current: false };
+
+// Key names follow the P1 globe (src/globe/basemap.ts), fed at build time by
+// scripts/build-console.sh (VITE_CESIUM_ION_KEY / VITE_GOOGLE_MAPS_KEY).
+const GOOGLE_KEY =
+  (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) ?? "";
+const CESIUM_KEY =
+  (import.meta.env.VITE_CESIUM_ION_KEY as string | undefined) ?? "";
+
+export default function GlobeV2() {
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (booted.current) return; // StrictMode second mount skips
+    booted.current = true;
+    const globe = createIntelHubGlobe({
+      // Same-origin hub API; bearer key reuses the console auth store (api.ts).
+      apiFetch: makeApiFetch("", getKey() ?? ""),
+      googleApiKey: GOOGLE_KEY,
+      cesiumToken: CESIUM_KEY,
+    });
+    globe.start().catch((e) => setError(String(e)));
+    // No destroy on unmount: the engine singleton outlives route switches;
+    // route-leave teardown is a P3 decision.
+  }, []);
+
+  if (error)
+    return <div className="hud-fatal">Globe engine failed: {error}</div>;
+  return <HudFrame />;
+}
