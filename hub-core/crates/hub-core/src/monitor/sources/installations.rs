@@ -53,7 +53,16 @@ const QUADRANT_POLITENESS_SECS: u64 = 60;
 /// Retries AFTER the first attempt (exponential backoff off this base).
 const QUADRANT_RETRIES: u32 = 2;
 const RETRY_BASE_SECS: u64 = 30;
-const DEFAULT_ENDPOINT: &str = "https://overpass-api.de/api/interpreter";
+/// 2026-09-17 (T17 315): overpass-api.de Apache-hard-blocks our shared
+/// egress (header-independent 406 — penalty box precedent, gdelt 429).
+/// Ordered fallback mirrors (315-probed 200): kumi → openstreetmap.fr →
+/// osm.ch. `HUB_OVERPASS_URL`/`OVERPASS_URL` override to a single endpoint.
+const DEFAULT_ENDPOINTS: &[&str] = &[
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
+];
 /// Same browser UA as Ctx::new — Overpass fronting (Cloudflare) rejects
 /// honest bot UAs from datacenter ASNs.
 const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -84,17 +93,19 @@ pub fn quadrants() -> [(f64, f64, f64, f64); 4] {
     ]
 }
 
-/// Endpoint resolution: `HUB_OVERPASS_URL` → `OVERPASS_URL` → public default.
-pub fn endpoint() -> String {
+/// Endpoint resolution: `HUB_OVERPASS_URL` → `OVERPASS_URL` (single
+/// override) → the ordered fallback list. Rotation across quadrants
+/// spreads load across mirrors instead of hammering the first one.
+pub fn endpoints() -> Vec<String> {
     for var in ["HUB_OVERPASS_URL", "OVERPASS_URL"] {
         if let Ok(v) = std::env::var(var) {
             let v = v.trim();
             if !v.is_empty() {
-                return v.to_string();
+                return vec![v.to_string()];
             }
         }
     }
-    DEFAULT_ENDPOINT.to_string()
+    DEFAULT_ENDPOINTS.iter().map(|s| s.to_string()).collect()
 }
 
 /// Overpass QL for one quadrant. `out geom qt` is mandatory: only then do
@@ -265,33 +276,52 @@ pub const UPSERT_SQL: &str = "INSERT INTO military_installations \
 
 const STALE_SWEEP_SQL: &str = "DELETE FROM military_installations WHERE fetched_at < $1";
 
-/// POST one quadrant to Overpass with 2 exponential-backoff retries.
+/// POST one quadrant to Overpass: walk the endpoint list (rotated by
+/// `rotate` so quadrants spread across mirrors); per endpoint, 2
+/// exponential-backoff retries. An Apache-level block (406) fails fast to
+/// the NEXT endpoint — it does not lift inside a backoff window.
 async fn fetch_quadrant(
     http: &reqwest::Client,
-    url: &str,
+    urls: &[String],
+    rotate: usize,
     bbox: (f64, f64, f64, f64),
 ) -> Result<Vec<InstallationRow>> {
     let (s, w, n, e) = bbox;
     let query = build_query(s, w, n, e);
     let mut last_err = String::new();
-    for attempt in 0..=QUADRANT_RETRIES {
-        if attempt > 0 {
-            let delay = RETRY_BASE_SECS * (1 << (attempt - 1));
-            tracing::warn!(bbox = ?bbox, attempt, delay_secs = delay, "installations: quadrant retry");
-            tokio::time::sleep(Duration::from_secs(delay)).await;
+    for off in 0..urls.len() {
+        let url = &urls[(rotate + off) % urls.len()];
+        let mut next_endpoint = false;
+        for attempt in 0..=QUADRANT_RETRIES {
+            if attempt > 0 {
+                let delay = RETRY_BASE_SECS * (1 << (attempt - 1));
+                tracing::warn!(bbox = ?bbox, attempt, delay_secs = delay, endpoint = %url, "installations: quadrant retry");
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+            }
+            match http.post(url).form(&[("data", query.as_str())]).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
+                    Ok(doc) => return Ok(parse_elements(&doc)),
+                    Err(err) => last_err = format!("body json: {err}"),
+                },
+                Ok(resp) => {
+                    let status = resp.status();
+                    last_err = format!("HTTP {status} ({url})");
+                    if status.as_u16() == 406 {
+                        tracing::warn!(endpoint = %url, "installations: 406 egress block — next endpoint");
+                        next_endpoint = true;
+                        break;
+                    }
+                }
+                Err(err) => last_err = format!("{err} ({url})"),
+            }
         }
-        match http.post(url).form(&[("data", query.as_str())]).send().await {
-            Ok(resp) if resp.status().is_success() => match resp.json::<Value>().await {
-                Ok(doc) => return Ok(parse_elements(&doc)),
-                Err(err) => last_err = format!("body json: {err}"),
-            },
-            Ok(resp) => last_err = format!("HTTP {}", resp.status()),
-            Err(err) => last_err = err.to_string(),
+        if !next_endpoint && !last_err.is_empty() {
+            tracing::warn!(endpoint = %url, "installations: endpoint exhausted retries — next endpoint");
         }
     }
     Err(HubError::sensor(format!(
-        "installations: quadrant ({s},{w},{n},{e}) failed after {} attempts: {last_err}",
-        QUADRANT_RETRIES + 1
+        "installations: quadrant ({s},{w},{n},{e}) failed on all {} endpoints: {last_err}",
+        urls.len()
     )))
 }
 
@@ -361,13 +391,13 @@ impl Source for Installations {
                 .user_agent(BROWSER_UA)
                 .build()
                 .map_err(|e| HubError::sensor(format!("installations: http client: {e}")))?;
-            let url = endpoint();
+            let urls = endpoints();
             let round_ts = Utc::now();
             let quads = quadrants();
             let mut ok_quadrants = 0usize;
             let mut total_rows = 0usize;
             for (i, bbox) in quads.iter().enumerate() {
-                match fetch_quadrant(&http, &url, *bbox).await {
+                match fetch_quadrant(&http, &urls, i, *bbox).await {
                     Ok(rows) => {
                         total_rows += rows.len();
                         write_quadrant(&ctx.state.pg, &rows, round_ts).await?;
@@ -441,22 +471,27 @@ mod tests {
 
     #[test]
     fn endpoint_resolution_chain() {
+        // env-touching tests race in parallel threads; serialize.
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _g = LOCK.lock().unwrap();
         std::env::remove_var("HUB_OVERPASS_URL");
         std::env::remove_var("OVERPASS_URL");
-        assert_eq!(endpoint(), DEFAULT_ENDPOINT);
+        let list = endpoints();
+        assert_eq!(list.len(), DEFAULT_ENDPOINTS.len());
+        assert_eq!(list[0], "https://overpass-api.de/api/interpreter");
 
         std::env::set_var("OVERPASS_URL", "https://overpass.example.com/api");
-        assert_eq!(endpoint(), "https://overpass.example.com/api");
+        assert_eq!(endpoints(), vec!["https://overpass.example.com/api"]);
 
         // HUB_ prefix wins; blank values fall through
         std::env::set_var("HUB_OVERPASS_URL", "https://hub-wins.example.com");
-        assert_eq!(endpoint(), "https://hub-wins.example.com");
+        assert_eq!(endpoints(), vec!["https://hub-wins.example.com"]);
         std::env::set_var("HUB_OVERPASS_URL", "   ");
-        assert_eq!(endpoint(), "https://overpass.example.com/api");
+        assert_eq!(endpoints(), vec!["https://overpass.example.com/api"]);
 
         std::env::remove_var("HUB_OVERPASS_URL");
         std::env::remove_var("OVERPASS_URL");
-        assert_eq!(endpoint(), DEFAULT_ENDPOINT);
+        assert_eq!(endpoints().len(), DEFAULT_ENDPOINTS.len());
     }
 
     // ---- mil_class derivation ----
