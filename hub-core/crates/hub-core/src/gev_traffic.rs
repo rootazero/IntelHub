@@ -198,6 +198,24 @@ pub fn overpass_upstream_url() -> String {
         .unwrap_or_else(|| DEFAULT_OVERPASS_URL.to_string())
 }
 
+/// Ordered endpoint list for the proxy: env override (single) or the
+/// shared fallback chain (installations.rs owns the list — 2026-09-17
+/// overpass-api.de Apache-406 blocks our egress; mirrors probed 200 from
+/// the 315 egress). An Apache 406 / transport error falls through to the
+/// next mirror; other non-2xx (e.g. 429 rate limit, 400 bad query) are
+/// per-contract passthroughs.
+pub fn overpass_endpoints() -> Vec<String> {
+    for var in ["HUB_OVERPASS_URL", "OVERPASS_URL"] {
+        if let Ok(v) = std::env::var(var) {
+            let v = v.trim();
+            if !v.is_empty() {
+                return vec![v.to_string()];
+            }
+        }
+    }
+    crate::monitor::sources::installations::endpoints()
+}
+
 /// Host portion of the upstream URL for the `x-overpass-upstream` header
 /// (engine reads it for timing). Falls back to the raw string when the URL
 /// doesn't parse.
@@ -300,22 +318,46 @@ pub async fn gev_overpass(
         ));
     }
 
-    let resp = match traffic_http()
-        .post(&upstream)
-        .header(
-            axum::http::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .body(query)
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(error = %redact_reqwest_error(e), "overpass upstream fetch failed");
-            return Err(gev_err(StatusCode::BAD_GATEWAY, "overpass upstream failed"));
+    // Walk the mirror chain: transport errors and Apache-level 406 egress
+    // blocks fall through; genuine API errors (400/429/…) passthrough.
+    let mut last_transport: Option<String> = None;
+    let mut resp = None;
+    let mut used_host = host.clone();
+    for url in &overpass_endpoints() {
+        match traffic_http()
+            .post(url)
+            .header(
+                axum::http::header::CONTENT_TYPE,
+                "application/x-www-form-urlencoded",
+            )
+            .body(query.clone())
+            .send()
+            .await
+        {
+            Ok(r) if r.status().as_u16() == 406 => {
+                tracing::warn!(endpoint = %upstream_host(url), "overpass 406 egress block — next mirror");
+                last_transport = Some(format!("HTTP 406 ({})", upstream_host(url)));
+            }
+            Ok(r) => {
+                used_host = upstream_host(url);
+                resp = Some(r);
+                break;
+            }
+            Err(e) => {
+                let redacted = redact_reqwest_error(e);
+                tracing::warn!(error = %redacted, endpoint = %upstream_host(url), "overpass mirror transport failed — next");
+                last_transport = Some(redacted);
+            }
         }
+    }
+    let Some(resp) = resp else {
+        return Err(gev_err(
+            StatusCode::BAD_GATEWAY,
+            "overpass upstream failed on all mirrors",
+        ));
     };
+    let host = used_host;
+    let _ = last_transport;
     let status = resp.status();
     let content_type = resp
         .headers()
