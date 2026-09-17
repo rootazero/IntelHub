@@ -73,6 +73,10 @@ pub mod adsb;
 // when AISSTREAM_API_KEY/HUB_AISSTREAM_API_KEY is set (opensky pattern);
 // without a key the REST layer serves status "missing-key".
 pub mod ais;
+// GEV P3 (2026-09-17): Overpass military-installations harvest → PG
+// `military_installations` (migration 0020). Keyless, 24h cadence, 4
+// quadrants with ≥60s politeness; restart-safe (<24h → skip round).
+pub mod installations;
 pub mod ripe_as_overview;
 pub mod ipapi_co;
 pub mod ip_api_com;

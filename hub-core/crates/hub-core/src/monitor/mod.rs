@@ -338,6 +338,12 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::ihr_hegemony::IhrHegemony::default()),
         Box::new(sources::misp_second_level_tlds::MispSecondLevelTlds),
     ];
+    // GEV P3 (2026-09-17): military installations — Overpass global
+    // ["military"] harvest → PG military_installations (contracts.md §4).
+    // Keyless, 24h, 4 quadrants with ≥60s politeness + 2× backoff retries;
+    // stale sweep only after a full 4/4 round; hub-restart rounds skip when
+    // data is <24h old (max(fetched_at) probe). Emits no geo Signals.
+    out.push(Box::new(sources::installations::Installations));
     // GEV P3 (2026-09-17): AISStream live vessels — env-gated, opensky
     // pattern. Without AISSTREAM_API_KEY the collector is NOT registered
     // (one startup log line); the T2 REST layer answers the contract's
