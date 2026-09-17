@@ -117,6 +117,21 @@ pub fn endpoints() -> Vec<String> {
     DEFAULT_ENDPOINTS.iter().map(|s| s.to_string()).collect()
 }
 
+/// Split a bbox into 4 equal sub-boxes (row-major: NW, NE, SW, SN... north
+/// row first). Adaptive fallback for quadrants too heavy for any mirror
+/// (T17: q2 EU/NA 504s everywhere at full size).
+pub fn subdivide(bbox: (f64, f64, f64, f64)) -> [(f64, f64, f64, f64); 4] {
+    let (s, w, n, e) = bbox;
+    let lat_mid = (s + n) / 2.0;
+    let lon_mid = (w + e) / 2.0;
+    [
+        (lat_mid, w, n, lon_mid),
+        (lat_mid, lon_mid, n, e),
+        (s, w, lat_mid, lon_mid),
+        (s, lon_mid, lat_mid, e),
+    ]
+}
+
 /// Overpass QL for one quadrant. `out geom qt` is mandatory: only then do
 /// way/relation elements carry `geometry` / `bounds` (without it there is
 /// no footprint and no center fallback — the client contract requires both).
@@ -437,9 +452,34 @@ impl Source for Installations {
                         tracing::info!(quadrant = i, rows = rows.len(), "installations: quadrant upserted");
                     }
                     Err(e) => {
-                        // Old rows for this quadrant keep their previous
-                        // fetched_at — the stale sweep must not see them.
-                        tracing::warn!(quadrant = i, bbox = ?bbox, error = %e, "installations: quadrant failed — keeping previous rows");
+                        // Adaptive subdivision (T17): a quadrant too heavy for
+                        // every mirror (q2 EU/NA 504s at 90°×180°) is retried
+                        // as 4 sub-boxes. Old rows keep their previous
+                        // fetched_at for any sub-box that still fails — the
+                        // stale sweep must not see them.
+                        tracing::warn!(quadrant = i, bbox = ?bbox, error = %e, "installations: quadrant failed — subdividing into 4");
+                        let subs = subdivide(*bbox);
+                        let mut sub_ok = 0usize;
+                        for (j, sb) in subs.iter().enumerate() {
+                            if j > 0 {
+                                tokio::time::sleep(Duration::from_secs(QUADRANT_POLITENESS_SECS)).await;
+                            }
+                            match fetch_quadrant(&http, &urls, i + j + 1, *sb).await {
+                                Ok(rows) => {
+                                    total_rows += rows.len();
+                                    write_quadrant(&ctx.state.pg, &rows, round_ts).await?;
+                                    sub_ok += 1;
+                                    tracing::info!(quadrant = i, sub = j, rows = rows.len(), "installations: sub-quadrant upserted");
+                                }
+                                Err(e2) => {
+                                    tracing::warn!(quadrant = i, sub = j, bbox = ?sb, error = %e2, "installations: sub-quadrant failed — keeping previous rows");
+                                }
+                            }
+                        }
+                        if sub_ok == subs.len() {
+                            ok_quadrants += 1;
+                            tracing::info!(quadrant = i, "installations: quadrant harvested via subdivision");
+                        }
                     }
                 }
                 if i + 1 < quads.len() {
@@ -540,6 +580,23 @@ mod tests {
         let ok_doc: Value = serde_json::from_str(r#"{"version":0.6,"elements":[]}"#).unwrap();
         assert!(ok_doc.get("remark").is_none());
         assert!(ok_doc.get("elements").and_then(Value::as_array).is_some());
+    }
+
+    #[test]
+    fn subdivide_tiles_parent_without_gaps_or_overlap() {
+        let parent = (0.0, -180.0, 90.0, 0.0);
+        let subs = subdivide(parent);
+        assert_eq!(subs.len(), 4);
+        // corners of the parent preserved
+        assert!(subs.iter().any(|b| b.1 == -180.0 && b.3 <= 0.0));
+        assert!(subs.iter().any(|b| b.2 == 90.0));
+        assert!(subs.iter().any(|b| b.0 == 0.0));
+        // all sub-boxes are ordered and half-span
+        for (s2, w2, n2, e2) in subs {
+            assert!(n2 > s2 && e2 > w2);
+            assert!(((n2 - s2) - 45.0).abs() < 1e-9);
+            assert!(((e2 - w2) - 90.0).abs() < 1e-9);
+        }
     }
 
     // ---- mil_class derivation ----
