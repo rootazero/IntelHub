@@ -6,7 +6,9 @@
 //! - `POST /api/v1/gev/overpass` — Overpass QL proxy. Form body (`data=`),
 //!   `[out:json]` whitelist, Redis cache 300s, upstream failure passthrough.
 //! - `GET  /api/v1/gev/tomtom/status` — `{"hasKey": bool}`, always 200.
-//! - `GET  /api/v1/gev/tomtom/flow/{z}/{x}/{y}.pbf` — TomTom flow MVT tile
+//! - `GET  /api/v1/gev/tomtom/flow/{z}/{x}/{y}` — TomTom flow MVT tile
+//!   (the engine's `.pbf` suffix is stripped by the console adapter — axum
+//!   forbids a second segment param; upstream TomTom URL keeps its .pbf)
 //!   proxy, zoom 8..16, Redis cache 120s (aligned with the engine's
 //!   flowSource TTL), key never leaves the server.
 //!

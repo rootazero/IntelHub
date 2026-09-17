@@ -503,7 +503,7 @@ if not tt_key:
     check_shelved("gev: tomtom flow tile proxied",
                   "TOMTOM_API_KEY absent in secrets.env — live flow shelved-by-design (engine falls back to simulated mode)")
 else:
-    st_tf, raw_tf = req_text("/api/v1/gev/tomtom/flow/12/3306/1685.pbf")
+    st_tf, raw_tf = req_text("/api/v1/gev/tomtom/flow/12/3306/1685")
     check("gev: tomtom flow tile proxied",
           st_tf == 200 and len(raw_tf) > 0, f"http={st_tf} bytes={len(raw_tf)}")
 

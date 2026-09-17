@@ -66,7 +66,10 @@ pub fn router() -> Router<Arc<AppState>> {
         // GEV P3: traffic layer sources (overpass proxy + tomtom flow tiles)
         .route("/api/v1/gev/overpass", axum::routing::post(crate::gev_traffic::gev_overpass))
         .route("/api/v1/gev/tomtom/status", get(crate::gev_traffic::gev_tomtom_status))
-        .route("/api/v1/gev/tomtom/flow/{z}/{x}/{y}.pbf", get(crate::gev_traffic::gev_tomtom_flow))
+        // axum forbids two params in one segment, so the route drops the
+        // engine's ".pbf" suffix (the console adapter strips it in the
+        // prefix rewrite — traffic.ts rewriteTrafficPath).
+        .route("/api/v1/gev/tomtom/flow/{z}/{x}/{y}", get(crate::gev_traffic::gev_tomtom_flow))
         // GEV P3: military installations layer source (PG catalog → Overpass elements)
         .route("/api/v1/gev/installations", get(crate::gev_installations::gev_installations))
         // GEV P3: vessels layer source (AIS live snapshot + per-MMSI track)

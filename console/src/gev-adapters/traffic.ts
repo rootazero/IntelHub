@@ -57,10 +57,16 @@ export interface TrafficSource {
   resetFlowTileCache(): void;
 }
 
-/** Exported for tests: pure prefix rewrite, no other mutation of the URL. */
+/** Exported for tests: pure prefix rewrite, no other mutation of the URL.
+ * The engine's flow URLs carry a `.pbf` suffix (flowSource.js:61); the hub
+ * route drops it — axum forbids `{y}.pbf` in one segment (315 boot panic
+ * 2026-09-17), and the suffix is decorative for the proxy anyway. */
 export function rewriteTrafficPath(path: string): string {
   for (const [from, to] of PREFIX_MAP)
-    if (path.startsWith(from)) return to + path.slice(from.length);
+    if (path.startsWith(from)) {
+      const rest = path.slice(from.length);
+      return to + (from === "/api/tomtom/" ? rest.replace(/\.pbf$/, "") : rest);
+    }
   return path;
 }
 
