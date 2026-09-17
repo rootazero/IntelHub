@@ -335,9 +335,17 @@ try {
       warnings.push(`P3 rail: ${domain} icon missing`);
       continue;
     }
-    await icon.first().click();
+    // T14 a11y (roving tabindex): the first icon click focuses, the second
+    // opens the flyout — retry the click until the flyout appears (≤3).
     const flyout = page.locator('.hud-rail-flyout');
-    await flyout.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await icon.first().click();
+      const visible = await flyout
+        .waitFor({ state: "visible", timeout: 1500 })
+        .then(() => true)
+        .catch(() => false);
+      if (visible) break;
+    }
     const boxes = flyout.locator('input[type="checkbox"]');
     const n = await boxes.count();
     for (let i = 0; i < n; i++) {
@@ -364,9 +372,15 @@ try {
       `[data-testid="hud-layer-rail"] .hud-rail-icons button[aria-label*="${zh}"]`,
     );
     if (!(await icon.count())) continue;
-    await icon.first().click();
     const flyout = page.locator('.hud-rail-flyout');
-    await flyout.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await icon.first().click();
+      const visible = await flyout
+        .waitFor({ state: "visible", timeout: 1500 })
+        .then(() => true)
+        .catch(() => false);
+      if (visible) break;
+    }
     const boxes = flyout.locator('input[type="checkbox"]');
     const n = await boxes.count();
     for (let i = n - 1; i >= 0; i--) {
