@@ -59,6 +59,15 @@ fn gev_err(status: StatusCode, msg: &str) -> Response {
     (status, Json(json!({ "error": msg }))).into_response()
 }
 
+/// reqwest's `Error` Display embeds the full request URL — for the TomTom
+/// flow proxy that URL carries `?key=<SECRET>`, so a naive `%e` logging field
+/// would write the API key into hub-core's log (T5+T6 review M1). Strip the
+/// URL before logging. Applied uniformly (overpass too) so no log point has
+/// to reason about which URLs are secret-bearing.
+fn redact_reqwest_error(e: reqwest::Error) -> String {
+    e.without_url().to_string()
+}
+
 // ---------- T6a: TomTom key resolution (opensky.rs env-gate precedent) ----------
 
 /// `HUB_TOMTOM_API_KEY` wins over the bare name when both are set; empty
@@ -143,7 +152,7 @@ pub async fn gev_tomtom_flow(
     let resp = match traffic_http().get(&url).send().await {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(error = %e, z, x, y, "tomtom flow upstream fetch failed");
+            tracing::warn!(error = %redact_reqwest_error(e), z, x, y, "tomtom flow upstream fetch failed");
             return Err(gev_err(StatusCode::BAD_GATEWAY, "tomtom upstream failed"));
         }
     };
@@ -154,7 +163,7 @@ pub async fn gev_tomtom_flow(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
     let body = resp.bytes().await.map_err(|e| {
-        tracing::warn!(error = %e, "tomtom flow body read failed");
+        tracing::warn!(error = %redact_reqwest_error(e), "tomtom flow body read failed");
         gev_err(StatusCode::BAD_GATEWAY, "tomtom upstream failed")
     })?;
     if !status.is_success() {
@@ -301,7 +310,7 @@ pub async fn gev_overpass(
     {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!(error = %e, "overpass upstream fetch failed");
+            tracing::warn!(error = %redact_reqwest_error(e), "overpass upstream fetch failed");
             return Err(gev_err(StatusCode::BAD_GATEWAY, "overpass upstream failed"));
         }
     };
@@ -312,7 +321,7 @@ pub async fn gev_overpass(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
     let bytes = resp.bytes().await.map_err(|e| {
-        tracing::warn!(error = %e, "overpass body read failed");
+        tracing::warn!(error = %redact_reqwest_error(e), "overpass body read failed");
         gev_err(StatusCode::BAD_GATEWAY, "overpass upstream failed")
     })?;
     if !status.is_success() {
@@ -333,4 +342,48 @@ pub async fn gev_overpass(
         )
         .await;
     Ok(overpass_response(bytes, content_type.as_deref(), "miss", &host))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_reqwest_error;
+
+    /// T5+T6 review M1 regression: reqwest's `Error` Display embeds the full
+    /// request URL. For the TomTom flow proxy that URL carries
+    /// `?key=<SECRET>` — a naive `%e` log field would write the key into
+    /// hub-core's log. `redact_reqwest_error` (without_url) must strip it.
+    ///
+    /// The error is built deterministically against 127.0.0.1:1 (connection
+    /// refused — no external network), which still attaches the request URL
+    /// to the error, exactly like a real upstream failure would.
+    #[tokio::test]
+    async fn reqwest_error_redaction_drops_key_and_url() {
+        let url = "http://127.0.0.1:1/traffic/map/4/tile/flow/relative0/12/100/200.pbf?key=SECRET_TOMTOM_KEY&thickness=10";
+        let err = reqwest::Client::builder()
+            .build()
+            .expect("client builds")
+            .get(url)
+            .send()
+            .await
+            .expect_err("connection to 127.0.0.1:1 must fail");
+
+        // Sanity: this error shape really does carry the key-bearing URL —
+        // without this the redaction assertion below would be vacuous.
+        assert!(err.url().is_some(), "reqwest error must carry the request URL");
+        let raw = err.to_string();
+        assert!(
+            raw.contains("SECRET_TOMTOM_KEY"),
+            "sanity: naive Display leaks the key (found: {raw})"
+        );
+
+        let redacted = redact_reqwest_error(err);
+        assert!(
+            !redacted.contains("SECRET_TOMTOM_KEY"),
+            "redacted error must not contain the TomTom key (found: {redacted})"
+        );
+        assert!(
+            !redacted.contains("127.0.0.1"),
+            "redacted error must not contain the request URL at all (found: {redacted})"
+        );
+    }
 }
