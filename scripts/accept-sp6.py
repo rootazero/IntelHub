@@ -339,19 +339,24 @@ def req_text(path, timeout=30):
         return 0, str(e)[:200]
 
 
-# T5 实测 (Ruling 2): per-category floor on the live /globe/satellites
-# response — the six PG-backed GEV TLE groups must each carry >50 sats.
-GEV_TLE_GROUPS = ["stations", "visual", "gps-ops", "glo-ops", "galileo", "geo"]
+# T17 实测 (315 live, 3 consecutive sweeps): real CelesTrak constellation
+# sizes are stations~20 / visual~156 / gps-ops~32 / glo-ops~28 / galileo~32 /
+# geo~567 — four of six groups are PHYSICALLY incapable of >50 (GPS
+# constellation is 31 sats). Floors calibrated to reality with margin: low
+# enough to never false-fail on a healthy upstream, high enough to catch a
+# group that failed to fetch (0 rows) or silently shrank.
+GEV_TLE_FLOORS = {"stations": 10, "visual": 100, "gps-ops": 25,
+                  "glo-ops": 20, "galileo": 20, "geo": 400}
 sat_items = body_s.get("items", []) if isinstance(body_s, dict) else []
 by_cat = {}
 for _it in sat_items:
     if isinstance(_it, dict):
         _c = _it.get("category", "?")
         by_cat[_c] = by_cat.get(_c, 0) + 1
-low_cat = [g for g in GEV_TLE_GROUPS if by_cat.get(g, 0) <= 50]
-check("gev: satellites per-category floor (six groups each >50, total >600)",
+low_cat = [g for g, floor in GEV_TLE_FLOORS.items() if by_cat.get(g, 0) < floor]
+check("gev: satellites per-category floor (six groups calibrated, total >600)",
       not low_cat and isinstance(body_s, dict) and body_s.get("count", 0) > 600,
-      f"per-cat={ {g: by_cat.get(g, 0) for g in GEV_TLE_GROUPS} } total={body_s.get('count') if isinstance(body_s, dict) else '?'}")
+      f"per-cat={ {g: by_cat.get(g, 0) for g in GEV_TLE_FLOORS} } total={body_s.get('count') if isinstance(body_s, dict) else '?'}")
 
 # T13: merged flights snapshot envelope. `coverage` carries the +opensky
 # suffix exactly when an opensky OAuth snapshot is being merged — assert the
