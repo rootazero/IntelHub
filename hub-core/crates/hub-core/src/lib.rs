@@ -13,6 +13,7 @@ pub mod embed;
 pub mod entity_seeder;
 pub mod error;
 pub mod events;
+pub mod gev_cctv;
 pub mod gev_installations;
 pub mod gev_traffic;
 pub mod gev_vessels;

@@ -72,6 +72,9 @@ pub fn router() -> Router<Arc<AppState>> {
         // GEV P3: vessels layer source (AIS live snapshot + per-MMSI track)
         .route("/api/v1/gev/ais-live", get(crate::gev_vessels::gev_ais_live))
         .route("/api/v1/gev/ais-live/track", get(crate::gev_vessels::gev_ais_live_track))
+        // GEV P3: cctv layer source (camera catalog + probe health; frames/media proxied at T12)
+        .route("/api/v1/gev/cctv/sources", get(crate::gev_cctv::gev_cctv_sources))
+        .route("/api/v1/gev/cctv/health", get(crate::gev_cctv::gev_cctv_health))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
