@@ -17,6 +17,7 @@
 // an unknown group, which is a programming error, not a transport state).
 
 import type { ApiFetch } from "./http";
+import type { ReadGroupResult } from "./types";
 
 /** Groups the endpoint serves. Mirrors hub-core api.rs `GEV_TLE_GROUPS` + starlink. */
 const GROUPS = new Set([
@@ -28,12 +29,6 @@ const GROUPS = new Set([
   "geo",
   "starlink",
 ]);
-
-export interface ReadGroupResult {
-  ok: boolean;
-  status: number;
-  text: string;
-}
 
 export interface SatellitesSource {
   label: string;

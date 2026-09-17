@@ -7,7 +7,7 @@ import {
   toEnvelope,
   toGevRecord,
 } from "../aircraft-map";
-import type { AdsbPoint } from "../aircraft-map";
+import type { AdsbPoint } from "../types";
 
 // Field-for-field what hub-core monitor/sources/adsb.rs `snapshot_envelope`
 // emits for one row (`seen` is NOT in the JSON — the hub publishes `age_s`,
