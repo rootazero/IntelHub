@@ -153,46 +153,10 @@ export const radio = {
   },
 };
 
-// ── Traffic (Overpass roads + TomTom flow) ─────────────────────────────────
-// traffic/ingestion.js fetchRoads → `source.requestRoads(...)` must resolve a
-// Response-like `{ ok, status, headers, json() }` whose json() yields
-// `{ roads: [...] }` (Array required). `{ roads: [] }` keeps the road layer
-// empty and non-throwing.
-// traffic/flow.js ensureFlowStatus → `source.getStatus()` must yield
-// `{ hasKey: boolean }`; `false` selects the engine's built-in simulated
-// (keyless) mode and skips live flow entirely — the honest "no live data" path.
-// traffic/flowSource.js fetchFlowForBounds resolves a FLAT ARRAY of flow
-// segments (traffic/flow.js destructures the result directly and passes it to
-// matchFlowToRoads, which requires an array), so the degraded value is `[]`.
-// getFlowSessionStats → `{ tilesFetched }`; resetFlowTileCache is void.
-
-export const traffic = {
-  async requestRoads(): Promise<{
-    ok: boolean;
-    status: number;
-    headers: Headers;
-    json: () => Promise<{ roads: unknown[] }>;
-  }> {
-    return {
-      ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => ({ roads: [] }),
-    };
-  },
-  async getStatus(): Promise<{ hasKey: boolean }> {
-    return { hasKey: false };
-  },
-  async fetchFlowForBounds(): Promise<unknown[]> {
-    return [];
-  },
-  getFlowSessionStats(): { tilesFetched: number } {
-    return { tilesFetched: 0 };
-  },
-  resetFlowTileCache(): void {
-    // no cache to clear in the stub
-  },
-};
+// ── Traffic ────────────────────────────────────────────────────────────────
+// GEV P3 T7 replaced this stub with ./traffic.ts (real source wrapping the
+// engine's own createTrafficSource with a prefix rewrite to hub-proxied
+// /api/v1/gev/overpass + /api/v1/gev/tomtom/*). Stub export removed.
 
 // ── Bikeshare (GBFS) ───────────────────────────────────────────────────────
 // bikeshare/model.js:74 extractStationsArray reads `payload.data.stations`

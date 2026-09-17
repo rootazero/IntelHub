@@ -98,9 +98,9 @@ test("every stub method resolves without throwing", async () => {
   const s = createIntelHubLayerSources({
     apiFetch: async () => new Response("{}"),
   });
-  // P3 T4: installations is real now too — it deliberately throws the
-  // engine's bbox TypeError on misuse (installations.test.ts covers it).
-  const REAL = new Set(["earthquakes", "satellites", "flights", "military", "installations"]);
+  // P3 T4+T7: installations/traffic are real now too — they deliberately throw
+  // the engine's bbox TypeError on misuse (their own test files cover it).
+  const REAL = new Set(["earthquakes", "satellites", "flights", "military", "installations", "traffic"]);
   for (const [layer, methods] of Object.entries(REQUIRED)) {
     if (REAL.has(layer)) continue;
     for (const m of methods) {
