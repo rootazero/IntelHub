@@ -144,10 +144,14 @@ pub async fn gev_tomtom_flow(
         None => return Err(flow_not_configured_response()),
     };
     let cache_key = flow_cache_key(z, x, y);
-    let cached: Option<Vec<u8>> = state
+    // NOTE: redis-rs converts Nil → Ok(vec![]) for Vec<u8> (byte-wise Nil =
+    // empty), so Option<Vec<u8>> cannot distinguish miss from empty — that
+    // bug served "hit"+empty-body on every miss (315, 2026-09-17). The
+    // double Option keeps Nil → Some(None) → miss.
+    let cached: Option<Option<Vec<u8>>> = state
         .redis_timed(redis::cmd("GET").arg(&cache_key).clone(), REDIS_BUDGET_MS)
         .await;
-    if let Some(bytes) = cached {
+    if let Some(Some(bytes)) = cached {
         return Ok(mvt_response(Bytes::from(bytes), None, "hit"));
     }
     let url = flow_tile_upstream_url(&key, z, x, y);
@@ -306,10 +310,12 @@ pub async fn gev_overpass(
     let cache_key = overpass_cache_key(&query);
     let upstream = overpass_upstream_url();
     let host = upstream_host(&upstream);
-    let cached: Option<Vec<u8>> = state
+    // Double Option — see the flow cache read above (redis-rs Nil →
+    // Ok(vec![]) for Vec<u8> would otherwise read every miss as a hit).
+    let cached: Option<Option<Vec<u8>>> = state
         .redis_timed(redis::cmd("GET").arg(&cache_key).clone(), REDIS_BUDGET_MS)
         .await;
-    if let Some(bytes) = cached {
+    if let Some(Some(bytes)) = cached {
         return Ok(overpass_response(
             Bytes::from(bytes),
             Some("application/json"),
