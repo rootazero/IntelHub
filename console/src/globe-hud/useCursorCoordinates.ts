@@ -17,9 +17,16 @@ import * as Cesium from "cesium";
 /** Structural viewer slice — the HUD only needs the pick surface. The
  * globe itself is optional: photoreal scenes hide it (scene.js sets
  * globe.show = false) and a torn scene may not have it at all — Cesium's
- * pickEllipsoid defaults to WGS84 when the ellipsoid arg is undefined. */
+ * pickEllipsoid defaults to WGS84 when the ellipsoid arg is undefined.
+ *
+ * `canvas` is MANDATORY: ScreenSpaceEventHandler's constructor registers
+ * DOM listeners on it (`element.addEventListener`) — passing the scene
+ * object instead crashes the whole HUD tree at mount (T17 315 catch:
+ * "element.addEventListener is not a function"). The vitest fake asserts
+ * this shape so the regression can't hide behind a lenient mock again. */
 export interface CursorViewer {
   scene: {
+    canvas: unknown;
     camera: {
       pickEllipsoid(windowPosition: unknown, ellipsoid?: unknown): unknown;
     };
@@ -67,12 +74,13 @@ export function useCursorCoordinates(
     // surface → stay quiet (em-dash) instead of throwing mid-boot.
     if (
       !v?.scene?.camera ||
+      !v.scene.canvas ||
       typeof v.scene.camera.pickEllipsoid !== "function"
     ) {
       setCoords(null);
       return;
     }
-    const handler = new cesium.ScreenSpaceEventHandler(v.scene);
+    const handler = new cesium.ScreenSpaceEventHandler(v.scene.canvas);
     let moveType: unknown;
     // rAF throttle: Cesium fires MOUSE_MOVE at display rate (60-120 Hz) and
     // every event would otherwise setState → re-render the whole bottom bar.

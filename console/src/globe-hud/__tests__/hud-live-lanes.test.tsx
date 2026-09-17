@@ -111,6 +111,17 @@ function fakeCesium() {
   const calls = { removeInputAction: 0, destroy: 0 };
   const cesium = {
     ScreenSpaceEventHandler: class {
+      // T17 regression guard: the REAL Cesium constructor registers DOM
+      // listeners on its argument (`element.addEventListener`) — passing a
+      // scene object crashes the HUD tree at mount. The fake must reject a
+      // canvas-less argument the same way.
+      constructor(element?: unknown) {
+        if (
+          !element ||
+          typeof (element as { addEventListener?: unknown }).addEventListener !== "function"
+        )
+          throw new TypeError("element.addEventListener is not a function");
+      }
       setInputAction(action: (m: { endPosition?: unknown }) => void, type: unknown) {
         registered.action = action;
         registered.type = type;
@@ -140,6 +151,7 @@ function fakeCesium() {
 function fakeViewer(hit: { lat: number; lon: number } | null) {
   return {
     scene: {
+      canvas: { addEventListener: () => {}, removeEventListener: () => {} },
       camera: {
         pickEllipsoid: (_position: unknown, _ellipsoid: unknown) => hit,
       },
@@ -212,6 +224,7 @@ describe("useCursorCoordinates", () => {
     let hit: { lat: number; lon: number } | null = { lat: 0.1, lon: 0.1 };
     const viewer = {
       scene: {
+        canvas: { addEventListener: () => {}, removeEventListener: () => {} },
         camera: { pickEllipsoid: () => hit },
         globe: { ellipsoid: {} },
       },
@@ -239,6 +252,7 @@ describe("useCursorCoordinates", () => {
     let hit: { lat: number; lon: number } | null = { lat: 0.1, lon: 0.1 };
     const viewer = {
       scene: {
+        canvas: { addEventListener: () => {}, removeEventListener: () => {} },
         camera: { pickEllipsoid: () => hit },
         globe: { ellipsoid: {} },
       },
