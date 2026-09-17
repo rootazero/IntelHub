@@ -3,11 +3,15 @@
 // `Invalid catalog source: <name>` unless every SOURCE_METHODS entry is a
 // function, so this object is the single wiring point.
 //
-// Wave-1 real implementations land in T4-T6 and replace the four entries
-// marked below, consuming `deps.apiFetch`. Every other entry stays a contract
-// stub until its own wave (T3 goal: layers enable, render empty, never throw).
+// Wave-1 real implementations (T4-T6) replace the flights/military/satellites/
+// earthquakes entries, consuming `deps.apiFetch`. Every other entry stays a
+// contract stub until its own wave (T3 goal: layers enable, render empty, never
+// throw). The stub exports for the four wave-1 layers are kept in ./stubs.ts
+// because the contract guard (T12) still introspects them.
 
 import { earthquakesSource } from "./earthquakes";
+import { flightsSource } from "./flights";
+import { militarySource } from "./military";
 import { satellitesSource } from "./satellites";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
@@ -23,8 +27,8 @@ export function createIntelHubLayerSources(deps: {
   const { apiFetch } = deps;
 
   return {
-    flights: stubs.flights, // T6 → real OpenSky snapshot source
-    military: stubs.military, // T6 → real military snapshot source
+    flights: flightsSource(apiFetch), // T6 → real adsb.lol snapshot source
+    military: militarySource(apiFetch), // T6 → real military snapshot source
     satellites: satellitesSource(apiFetch), // T5 → real CelesTrak group source
     earthquakes: earthquakesSource(apiFetch), // T4 → real USGS snapshot source
     vessels: stubs.vessels,

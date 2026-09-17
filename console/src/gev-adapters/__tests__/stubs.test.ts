@@ -46,7 +46,12 @@ test("stub getSnapshot resolves to empty-degraded envelope", async () => {
   });
   const env = await (s as any).vessels.getSnapshot({}, {});
   expect(env.records).toEqual([]);
-  expect(env.status).toBe("unavailable");
+  // Engine vocabulary (T3 review I-1): freshness "unknown" is the degraded
+  // signal the ingestion checks, and `status` is an HTTP-ish code, not an enum.
+  expect(env.freshness).toBe("unknown");
+  expect(env.observedAtMs).toBeNull();
+  expect(env.ageMs).toBeNull();
+  expect(env.status).toBe(503);
 });
 
 // T3's stated goal is "layer enables, renders empty, never throws". The engine
@@ -56,13 +61,13 @@ test("stub getSnapshot resolves to empty-degraded envelope", async () => {
 //
 // Only STUB layers are checked here: the wave-1 real sources deliberately throw
 // on contract misuse (earthquakes → HTTP error, satellites → unknown group
-// TypeError, see ./satellites.test.ts) — that is their specified behavior, not
-// a stub-resilience regression.
+// TypeError, flights/military → HTTP error, see their own test files) — that is
+// their specified behavior, not a stub-resilience regression.
 test("every stub method resolves without throwing", async () => {
   const s = createIntelHubLayerSources({
     apiFetch: async () => new Response("{}"),
   });
-  const REAL = new Set(["earthquakes", "satellites"]);
+  const REAL = new Set(["earthquakes", "satellites", "flights", "military"]);
   for (const [layer, methods] of Object.entries(REQUIRED)) {
     if (REAL.has(layer)) continue;
     for (const m of methods) {
