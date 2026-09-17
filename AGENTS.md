@@ -94,7 +94,7 @@ done
 ```
 
 - **测试 VM 验收**：`KEY=$(ssh -o BatchMode=yes IntelHub-test '...')` + 同样的脚本
-- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 30 passed + 3 shelved + 0 failed（共 33 项，5 项 GEV P2 新增：per-category 卫星地板/六组各>50+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE；opensky OAuth 缺席时 shelved；shelved 不计 failure、退码只看 failed） · sp7 24 · sp8 18 · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
+- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 30+3shelved/0f（共 33 项，GEV P2 新增 6 检查位：per-category 卫星地板（10/100/25/20/20/400 按真实星座规模校准）+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE、opensky OAuth 缺席 shelved；shelved 不计 failure、退码只看 failed） · sp7 16+11shelved · sp8 39+2shelved · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
 
 ## 健康检查速查
 
