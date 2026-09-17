@@ -385,16 +385,20 @@ pub async fn gev_overpass(
         return Ok(upstream_error_response(status, Bytes::from(bytes.to_vec())));
     }
     let bytes = Bytes::from(bytes.to_vec());
-    let _: Option<String> = state
-        .redis_timed(
-            redis::cmd("SETEX")
-                .arg(&cache_key)
-                .arg(OVERPASS_CACHE_TTL_SECS)
-                .arg(bytes.as_ref())
-                .clone(),
-            REDIS_BUDGET_MS,
-        )
-        .await;
+    // Never cache an empty 200 (degraded-mirror poison, 315 2026-09-17):
+    // it would serve a false empty for the full TTL.
+    if !bytes.is_empty() {
+        let _: Option<String> = state
+            .redis_timed(
+                redis::cmd("SETEX")
+                    .arg(&cache_key)
+                    .arg(OVERPASS_CACHE_TTL_SECS)
+                    .arg(bytes.as_ref())
+                    .clone(),
+                REDIS_BUDGET_MS,
+            )
+            .await;
+    }
     Ok(overpass_response(bytes, content_type.as_deref(), "miss", &host))
 }
 
