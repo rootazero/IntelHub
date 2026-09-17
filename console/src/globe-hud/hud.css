@@ -552,3 +552,15 @@
 .hud-bar-stat.bad b {
   color: #ff4d6d;
 }
+
+/* P3 placeholder: static lon/lat readout muted until live wiring lands. */
+.hud-bar-coords {
+  gap: 5px;
+  color: #9aa4b2;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-bar-coord-sep {
+  opacity: 0.5;
+}
