@@ -345,6 +345,23 @@ def req_text(path, timeout=30):
         return 0, str(e)[:200]
 
 
+def req_text_raw(method, path, body=None, extra_headers=None, timeout=30):
+    """Method/body-general raw-text call (GEV P3: POST /overpass). Same
+    (status, text) contract as req_text; error bodies truncated."""
+    headers = {"Authorization": f"Bearer {KEY}"}
+    if extra_headers:
+        headers.update(extra_headers)
+    data = body.encode("utf-8") if isinstance(body, str) else body
+    r = urllib.request.Request(BASE + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")[:200]
+    except Exception as e:
+        return 0, str(e)[:200]
+
+
 # T17 实测 (315 live, 3 consecutive sweeps): real CelesTrak constellation
 # sizes are stations~20 / visual~156 / gps-ops~32 / glo-ops~28 / galileo~32 /
 # geo~567 — four of six groups are PHYSICALLY incapable of >50 (GPS
@@ -420,6 +437,97 @@ else:
     v_os = redis("HGET", "hub:monitor:health", "opensky")
     check("opensky OAuth configured (health cell ok)",
           '"state":"ok"' in v_os.replace(" ", ""), v_os[:120])
+
+# ---- GEV P3: vessels/installations/traffic/cctv endpoints (2026-09-17) ----
+
+# T2: vessels ais-live. Without AISSTREAM_API_KEY the collector is not
+# registered (env-gated) and the endpoint must STILL answer 200 with
+# status:"missing-key" (contract §5: the vendor chip is driven by the
+# status field, never by HTTP 503) — that shape is a hard check. With a
+# key, rows must flow (count>0) — anything else means the WS collector
+# or Redis snapshot regressed.
+ais_id = secret("HUB_AISSTREAM_API_KEY") or secret("AISSTREAM_API_KEY")
+st_v, body_v = req("/api/v1/gev/ais-live")
+check("gev: ais-live envelope 200 + contract status field",
+      st_v == 200 and isinstance(body_v, dict) and isinstance(body_v.get("rows"), list)
+      and body_v.get("status") in ("missing-key", "connecting", "live", "stale", "reconnecting", "down", "auth-failed"),
+      f"http={st_v} status={body_v.get('status') if isinstance(body_v, dict) else '?'!r}")
+if not ais_id:
+    check_shelved("gev: ais-live rows flowing",
+                  "AISSTREAM_API_KEY absent in secrets.env — WS collector shelved-by-design")
+else:
+    check("gev: ais-live rows flowing",
+          st_v == 200 and isinstance(body_v, dict) and len(body_v.get("rows", [])) > 0,
+          f"rows={len(body_v.get('rows', [])) if isinstance(body_v, dict) else '?'} status={body_v.get('status') if isinstance(body_v, dict) else '?'}")
+
+# T4: installations — T3 harvests OSM military=* into PG on a 24h cadence
+# (first-round runs at startup when the table is empty). rows>0 in PG AND
+# the bbox endpoint serving a 1° box around a known-dense region
+# (Ramstein AB, Germany: 49.4N 7.6E) with the contract envelope.
+n_mi = pg1("SELECT count(*) FROM military_installations")
+st_i, body_i = req("/api/v1/gev/installations?south=49.0&west=7.0&north=49.8&east=8.0")
+els_i = body_i.get("elements", []) if isinstance(body_i, dict) else []
+check("gev: installations catalog rows>0 + bbox endpoint envelope",
+      n_mi > 0 and st_i == 200 and isinstance(els_i, list)
+      and isinstance(body_i, dict) and "retrievedAt" in body_i and "saturated" in body_i,
+      f"pg_rows={n_mi} http={st_i} elements={len(els_i) if isinstance(els_i, list) else '?'} status={body_i.get('status') if isinstance(body_i, dict) else '?'}")
+# bbox validation: the inverted/oversized contract branches must 400.
+st_i400, _ = req("/api/v1/gev/installations?south=49.8&west=7.0&north=49.0&east=8.0")
+check("gev: installations bbox validation 400s on inverted box",
+      st_i400 == 400, f"http={st_i400}")
+
+# T5: overpass proxy — a tiny bbox query round-trips (hard check: keyless
+# upstream; failure = proxy or egress regression, stays visible). Body
+# whitelist behavior is unit-tested hub-side; here the live path matters.
+import urllib.parse as _up
+_ql = '[out:json][timeout:25];(way["highway"~"^(motorway)$"](10.0,106.0,10.5,106.5););out geom qt;'
+st_o, raw_o = req_text_raw("POST", "/api/v1/gev/overpass",
+                           "data=" + _up.quote(_ql),
+                           {"Content-Type": "application/x-www-form-urlencoded"}, timeout=40)
+try:
+    body_o = json.loads(raw_o) if raw_o else None
+except Exception:
+    body_o = None
+check("gev: overpass proxy round-trip (200 + elements array)",
+      st_o == 200 and isinstance(body_o, dict) and isinstance(body_o.get("elements"), list),
+      f"http={st_o} body={raw_o[:120]}")
+
+# T6: tomtom status always answers {hasKey:bool}; the flow tile proxy is
+# shelved without TOMTOM_API_KEY (503 by design), hard with one.
+st_ts, body_ts = req("/api/v1/gev/tomtom/status")
+check("gev: tomtom status hasKey boolean",
+      st_ts == 200 and isinstance(body_ts, dict) and isinstance(body_ts.get("hasKey"), bool),
+      f"http={st_ts} body={body_ts}")
+tt_key = secret("HUB_TOMTOM_API_KEY") or secret("TOMTOM_API_KEY")
+if not tt_key:
+    check_shelved("gev: tomtom flow tile proxied",
+                  "TOMTOM_API_KEY absent in secrets.env — live flow shelved-by-design (engine falls back to simulated mode)")
+else:
+    st_tf, raw_tf = req_text("/api/v1/gev/tomtom/flow/12/3306/1685.pbf")
+    check("gev: tomtom flow tile proxied",
+          st_tf == 200 and len(raw_tf) > 0, f"http={st_tf} bytes={len(raw_tf)}")
+
+# T8-T11: cctv catalog — static loader (259 rows) + live providers (TfL
+# ~890 / Ontario ~944 / 511NY ~2933) → sources>0 hard check. The frame
+# proxy spot-check walks up to 3 catalog cameras before failing (single
+# town-hall host outages must not fail the suite, but a fully broken
+# proxy must).
+st_cs, body_cs = req("/api/v1/gev/cctv/sources")
+srcs = body_cs.get("sources", []) if isinstance(body_cs, dict) else []
+check("gev: cctv catalog sources>0 (static+live providers)",
+      st_cs == 200 and len(srcs) > 200,
+      f"http={st_cs} sources={len(srcs)}")
+_frame_ok = False
+_frame_note = "no camera with url in catalog"
+for _cam in [c for c in srcs if isinstance(c, dict) and c.get("url")][:3]:
+    _id = _cam.get("id")
+    _st_f, _raw_f = req_text(f"/api/v1/gev/cctv/frame/{_up.quote(str(_id), safe='')}", timeout=20)
+    if _st_f == 200:
+        _frame_ok = True
+        _frame_note = f"id={_id} bytes={len(_raw_f)}"
+        break
+    _frame_note = f"id={_id} http={_st_f}"
+check("gev: cctv frame proxy spot check (200 image)", _frame_ok, _frame_note)
 
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
