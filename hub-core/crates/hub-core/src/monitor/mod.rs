@@ -349,6 +349,13 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // Keyless, idempotent; missing vendor dir degrades to a warn, never
     // a boot failure. Emits no geo Signals (catalog, celestrak precedent).
     out.push(Box::new(sources::cctv::CctvLoader));
+    // GEV P3 (2026-09-17): CCTV live city providers (T9) — keyless TfL
+    // JamCams + Ontario 511 catalogs refresh hourly (provider-scoped
+    // stale sweep; a failed provider keeps its rows + error health cell).
+    // cctv-health probes a rotating 3-per-provider frame sample every
+    // 5min, annotating health_status/health_checked_at. NYC/LTA = T10.
+    out.push(Box::new(sources::cctv::refresh::CctvRefresh));
+    out.push(Box::new(sources::cctv::refresh::CctvHealth));
     // GEV P3 (2026-09-17): AISStream live vessels — env-gated, opensky
     // pattern. Without AISSTREAM_API_KEY the collector is NOT registered
     // (one startup log line); the T2 REST layer answers the contract's
