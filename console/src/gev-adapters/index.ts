@@ -13,6 +13,7 @@ import { earthquakesSource } from "./earthquakes";
 import { flightsSource } from "./flights";
 import { militarySource } from "./military";
 import { satellitesSource } from "./satellites";
+import { vesselsSource } from "./vessels";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
 
@@ -31,7 +32,7 @@ export function createIntelHubLayerSources(deps: {
     military: militarySource(apiFetch), // T6 → real military snapshot source
     satellites: satellitesSource(apiFetch), // T5 → real CelesTrak group source
     earthquakes: earthquakesSource(apiFetch), // T4 → real USGS snapshot source
-    vessels: stubs.vessels,
+    vessels: vesselsSource(apiFetch), // T2 (GEV P3) → real AIS live snapshot source
     firms: stubs.firms,
     cables: stubs.cables,
     alpr: stubs.alpr,
