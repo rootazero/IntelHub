@@ -55,14 +55,23 @@ const QUADRANT_RETRIES: u32 = 2;
 const RETRY_BASE_SECS: u64 = 30;
 /// 2026-09-17 (T17 315): overpass-api.de Apache-hard-blocks our shared
 /// egress (header-independent 406 — penalty box precedent, gdelt 429).
-/// Ordered fallback mirrors (315-probed 200): kumi → openstreetmap.fr →
-/// osm.ch. `HUB_OVERPASS_URL`/`OVERPASS_URL` override to a single endpoint.
+/// Ordered fallback mirrors (315-probed 200): kumi → openstreetmap.fr.
+/// overpass.osm.ch is EXCLUDED: it serves a Switzerland-only extract —
+/// 200 + elements:[] with NO remark for off-extract quadrants, which is
+/// indistinguishable from a genuinely empty quadrant and armed the
+/// full-round sweep with false empties (q2 EU/NA wiped once on 315).
+/// `HUB_OVERPASS_URL`/`OVERPASS_URL` override to a single endpoint.
 const DEFAULT_ENDPOINTS: &[&str] = &[
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.fr/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
 ];
+
+/// Full-round sweep floor: a global OSM military harvest is always 5-figure
+/// (T17 315 measured 13.7K with one quadrant missing). A round below this
+/// floor means mirrors are serving degraded/empty bodies — skip the sweep
+/// (defense in depth under the remark-detection).
+const SWEEP_MIN_ROWS: usize = 5000;
 /// Same browser UA as Ctx::new — Overpass fronting (Cloudflare) rejects
 /// honest bot UAs from datacenter ASNs.
 const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
@@ -257,10 +266,13 @@ pub fn should_skip_round(last: Option<DateTime<Utc>>, now: DateTime<Utc>, min_ag
     last.is_some_and(|t| now.signed_duration_since(t) < min_age)
 }
 
-/// Stale sweep runs only on a fully successful round: `ok == total`.
-/// A partial round keeps the failed quadrant's old rows untouched.
-pub fn full_refresh(ok: usize, total: usize) -> bool {
-    ok == total
+/// Stale sweep runs only on a fully successful round: `ok == total`
+/// AND the round harvested a plausible global volume (SWEEP_MIN_ROWS —
+/// 315 measured 13.7K rows with a quadrant missing; a "successful" round
+/// under the floor means a mirror served false-empty bodies, which the
+/// remark check cannot always catch — osm.ch partial-extract incident).
+pub fn full_refresh(ok: usize, total: usize, rows: usize) -> bool {
+    ok == total && rows >= SWEEP_MIN_ROWS
 }
 
 pub const UPSERT_SQL: &str = "INSERT INTO military_installations \
@@ -435,7 +447,7 @@ impl Source for Installations {
                 }
             }
 
-            if full_refresh(ok_quadrants, quads.len()) {
+            if full_refresh(ok_quadrants, quads.len(), total_rows) {
                 let r = sqlx::query(STALE_SWEEP_SQL)
                     .bind(round_ts)
                     .execute(&ctx.state.pg)
@@ -657,10 +669,16 @@ mod tests {
     }
 
     #[test]
-    fn stale_sweep_only_on_full_refresh() {
-        assert!(full_refresh(4, 4));
-        assert!(!full_refresh(3, 4)); // partial round keeps failed quadrant rows
-        assert!(!full_refresh(0, 4));
+    fn stale_sweep_gate() {
+        assert!(full_refresh(4, 4, 10_000));
+        assert!(!full_refresh(3, 4, 10_000)); // partial round keeps failed quadrant rows
+        assert!(!full_refresh(0, 4, 10_000));
+        // false-empty armor: 4/4 "success" below the global floor must not sweep
+        assert!(!full_refresh(4, 4, 0));
+        assert!(!full_refresh(4, 4, SWEEP_MIN_ROWS - 1));
+        assert!(full_refresh(4, 4, SWEEP_MIN_ROWS));
+        // partial-extract mirrors are excluded from the default chain
+        assert!(!DEFAULT_ENDPOINTS.iter().any(|u| u.contains("osm.ch")));
     }
 
     // ---- upsert SQL shape (param binding contract) ----
