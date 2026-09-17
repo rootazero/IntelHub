@@ -52,8 +52,13 @@ pub fn tle_epoch_to_utc(line1: &str) -> Option<DateTime<Utc>> {
 }
 
 pub fn celestrak_groups() -> Vec<String> {
+    // GEV P2 (T5): realigned to the engine's six core groups
+    // (gev-engine/src/layers/satellites/policy.js CATALOG_GROUPS). starlink is
+    // served on demand via the /api/v1/gev/celestrak/starlink proxy — it never
+    // enters PG (P1 spec decision, carried forward). weather/gnss/military are
+    // retired; their stale rows are cleaned by migration 0019.
     std::env::var("HUB_CELESTRAK_GROUPS")
-        .unwrap_or_else(|_| "stations,visual,weather,gnss,military".to_string())
+        .unwrap_or_else(|_| "stations,visual,gps-ops,glo-ops,galileo,geo".to_string())
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -170,6 +175,9 @@ mod tests {
     #[test]
     fn default_groups_match_spec() {
         std::env::remove_var("HUB_CELESTRAK_GROUPS");
-        assert_eq!(celestrak_groups(), vec!["stations", "visual", "weather", "gnss", "military"]);
+        assert_eq!(
+            celestrak_groups(),
+            vec!["stations", "visual", "gps-ops", "glo-ops", "galileo", "geo"]
+        );
     }
 }

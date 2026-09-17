@@ -160,15 +160,24 @@ fn apply_tick(
     snap.retain(|_, (_, seen_abs)| now - *seen_abs <= STALE_SECS);
     let mut all: Vec<(AdsbPoint, i64)> = snap.values().cloned().collect();
     all.sort_by(|a, b| a.0.hex.cmp(&b.0.hex));
-    snapshot_envelope(&all, now, last_tick)
+    snapshot_envelope(&all, now, last_tick, "hotspots+mil+squawk", CYCLE_SECS)
 }
 
-pub fn snapshot_envelope(aircraft: &[(AdsbPoint, i64)], now: i64, last_tick: &str) -> serde_json::Value {
+/// Full-rewrite envelope (hex-sorted). `coverage`/`cycle_secs` are params so
+/// the OpenSky OAuth collector (GEV P2 T13) can reuse the exact same shape
+/// with its own values (`opensky` / 300).
+pub fn snapshot_envelope(
+    aircraft: &[(AdsbPoint, i64)],
+    now: i64,
+    last_tick: &str,
+    coverage: &str,
+    cycle_secs: i64,
+) -> serde_json::Value {
     json!({
         "ts": chrono::Utc::now().to_rfc3339(),
         "count": aircraft.len(),
-        "coverage": "hotspots+mil+squawk",
-        "cycle_secs": CYCLE_SECS,
+        "coverage": coverage,
+        "cycle_secs": cycle_secs,
         "last_tick": last_tick,
         "aircraft": aircraft.iter().map(|(a, seen_abs)| json!({
             "hex": a.hex, "flight": a.flight, "lat": a.lat, "lon": a.lon,
@@ -177,6 +186,80 @@ pub fn snapshot_envelope(aircraft: &[(AdsbPoint, i64)], now: i64, last_tick: &st
             "age_s": now - seen_abs,
         })).collect::<Vec<_>>(),
     })
+}
+
+/// Ruling 3 (GEV P2 T13): REST read-time merge of the adsb.lol rotating
+/// snapshot (`AIRCRAFT_KEY`, TTL 300s) with the OpenSky OAuth full snapshot
+/// (`opensky::OPENSKY_AIRCRAFT_KEY`, TTL 120s). Dedupe by hex, fresher wins
+/// (smaller `age_s`); when either side lacks age info the adsb row wins
+/// (adsb priority, ruling). The adsb envelope is preserved verbatim except
+/// `count`/`coverage`/`aircraft`, so with no OpenSky snapshot the response
+/// is byte-identical to the pre-merge shape (`hotspots+mil+squawk`,
+/// `last_tick`, `cycle_secs` — T15's sp6 globe check relies on this).
+pub(crate) fn merge_globe_snapshots(adsb: Option<&serde_json::Value>, opensky: Option<&serde_json::Value>) -> serde_json::Value {
+    fn rows(v: Option<&serde_json::Value>) -> Vec<serde_json::Value> {
+        v.and_then(|e| e.get("aircraft"))
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default()
+    }
+    let adsb_rows = rows(adsb);
+    let os_rows = rows(opensky);
+    if os_rows.is_empty() {
+        return match adsb {
+            Some(env) => env.clone(),
+            None => json!({ "stale": true, "aircraft": [] }),
+        };
+    }
+    let age_of = |r: &serde_json::Value| r.get("age_s").and_then(|a| a.as_f64());
+    fn hex_of(r: &serde_json::Value) -> &str {
+        r.get("hex").and_then(|h| h.as_str()).unwrap_or("")
+    }
+    let mut by_hex: HashMap<String, serde_json::Value> = HashMap::new();
+    for r in adsb_rows {
+        let h = hex_of(&r);
+        if !h.is_empty() {
+            by_hex.insert(h.to_string(), r);
+        }
+    }
+    for r in os_rows {
+        let h = hex_of(&r);
+        if h.is_empty() {
+            continue;
+        }
+        let replace = match by_hex.get(h) {
+            None => true,
+            Some(cur) => match (age_of(&r), age_of(cur)) {
+                // Both sides aged → fresher (smaller age_s) wins.
+                (Some(os_age), Some(ad_age)) => os_age < ad_age,
+                // Any missing age → adsb priority (ruling).
+                _ => false,
+            },
+        };
+        if replace {
+            by_hex.insert(h.to_string(), r);
+        }
+    }
+    let mut merged: Vec<serde_json::Value> = by_hex.into_values().collect();
+    merged.sort_by(|a, b| hex_of(a).cmp(hex_of(b)));
+    let mut out = match adsb {
+        Some(env) => env.clone(),
+        None => json!({}),
+    };
+    // Backward-compatible coverage concat: `hotspots+mil+squawk` +
+    // `+opensky` (idempotent — never double-append).
+    let base_cov = adsb
+        .and_then(|e| e.get("coverage"))
+        .and_then(|c| c.as_str())
+        .filter(|c| !c.is_empty());
+    out["coverage"] = match base_cov {
+        Some(c) if c.contains("opensky") => json!(c),
+        Some(c) => json!(format!("{c}+opensky")),
+        None => json!("opensky"),
+    };
+    out["count"] = json!(merged.len());
+    out["aircraft"] = json!(merged);
+    out
 }
 
 pub struct Adsb {
@@ -454,7 +537,7 @@ mod tests {
     #[test]
     fn snapshot_envelope_shape() {
         let ac = AdsbPoint { flight: Some("X".into()), lat: 1.0, lon: 2.0, alt_m: 100.0, mil: true, ..mk("abc", 0.0) };
-        let env = snapshot_envelope(&[(ac, 970)], 1000, "squawk7700");
+        let env = snapshot_envelope(&[(ac, 970)], 1000, "squawk7700", "hotspots+mil+squawk", CYCLE_SECS);
         assert_eq!(env["count"], 1);
         assert_eq!(env["coverage"], "hotspots+mil+squawk");
         assert_eq!(env["cycle_secs"], 210);
@@ -463,5 +546,100 @@ mod tests {
         assert_eq!(env["aircraft"][0]["hex"], "abc");
         assert_eq!(env["aircraft"][0]["mil"], true);
         assert_eq!(env["aircraft"][0]["age_s"], 30);
+    }
+
+    // ---------- GEV P2 T13: REST read-time merge (Ruling 3) ----------
+
+    fn adsb_env(rows: serde_json::Value) -> serde_json::Value {
+        let count = rows.as_array().map(|a| a.len()).unwrap_or(0);
+        json!({
+            "ts": "2026-09-17T00:00:00Z",
+            "count": count,
+            "coverage": "hotspots+mil+squawk",
+            "cycle_secs": 210,
+            "last_tick": "mil",
+            "aircraft": rows,
+        })
+    }
+
+    fn ac_row(hex: &str, age_s: Option<i64>, mil: bool) -> serde_json::Value {
+        let mut r = json!({
+            "hex": hex, "flight": hex.to_uppercase(), "lat": 1.0, "lon": 2.0,
+            "alt_m": 1000, "gs": 250.0, "track": 90.0, "squawk": null, "mil": mil,
+        });
+        if let Some(a) = age_s {
+            r["age_s"] = json!(a);
+        }
+        r
+    }
+
+    #[test]
+    fn merge_fresher_wins_by_age_s() {
+        let adsb = adsb_env(json!([
+            ac_row("aa", Some(100), true),
+            ac_row("bb", Some(50), false),
+        ]));
+        let opensky = json!({
+            "count": 2, "coverage": "opensky",
+            "aircraft": [ac_row("aa", Some(5), false), ac_row("cc", Some(9), false)],
+        });
+        let m = merge_globe_snapshots(Some(&adsb), Some(&opensky));
+        // aa: opensky age 5 < adsb age 100 → opensky row wins.
+        // bb: only in adsb → kept. cc: only in opensky → added.
+        assert_eq!(m["count"], 3);
+        let rows = m["aircraft"].as_array().unwrap();
+        assert_eq!(rows.iter().map(|r| r["hex"].as_str().unwrap()).collect::<Vec<_>>(), vec!["aa", "bb", "cc"]);
+        let aa = rows.iter().find(|r| r["hex"] == "aa").unwrap();
+        assert_eq!(aa["age_s"], 5);
+        assert_eq!(aa["mil"], false, "opensky row replaced the adsb mil row");
+    }
+
+    #[test]
+    fn merge_adsb_wins_when_age_missing() {
+        let adsb = adsb_env(json!([ac_row("aa", Some(100), true)]));
+        // Opensky row without age_s → adsb priority (ruling).
+        let opensky = json!({"aircraft": [ac_row("aa", None, false)]});
+        let m = merge_globe_snapshots(Some(&adsb), Some(&opensky));
+        assert_eq!(m["count"], 1);
+        assert_eq!(m["aircraft"][0]["mil"], true, "adsb row kept");
+        // And when the ADSB row lacks age: adsb still wins.
+        let adsb2 = adsb_env(json!([ac_row("aa", None, true)]));
+        let m2 = merge_globe_snapshots(Some(&adsb2), Some(&opensky));
+        assert_eq!(m2["aircraft"][0]["mil"], true);
+    }
+
+    #[test]
+    fn merge_coverage_concat_is_backward_compatible() {
+        let adsb = adsb_env(json!([ac_row("aa", Some(10), false)]));
+        // No opensky snapshot → byte-level fields preserved, coverage unchanged.
+        let m = merge_globe_snapshots(Some(&adsb), None);
+        assert_eq!(m["coverage"], "hotspots+mil+squawk");
+        assert_eq!(m["last_tick"], "mil");
+        assert_eq!(m["cycle_secs"], 210);
+        assert_eq!(m["count"], 1);
+        // Empty opensky aircraft → same.
+        let empty_os = json!({"aircraft": [], "coverage": "opensky"});
+        let m = merge_globe_snapshots(Some(&adsb), Some(&empty_os));
+        assert_eq!(m["coverage"], "hotspots+mil+squawk");
+        // With opensky rows → +opensky suffix, exactly once.
+        let os = json!({"aircraft": [ac_row("cc", Some(3), false)], "coverage": "opensky"});
+        let m = merge_globe_snapshots(Some(&adsb), Some(&os));
+        assert_eq!(m["coverage"], "hotspots+mil+squawk+opensky");
+        let m_again = merge_globe_snapshots(Some(&m), Some(&os));
+        assert_eq!(m_again["coverage"], "hotspots+mil+squawk+opensky", "idempotent — never double-append");
+    }
+
+    #[test]
+    fn merge_opensky_only_and_both_missing() {
+        let os = json!({"count": 1, "coverage": "opensky", "aircraft": [ac_row("cc", Some(3), false)]});
+        // adsb snapshot dead, opensky alive → opensky rows still served.
+        let m = merge_globe_snapshots(None, Some(&os));
+        assert_eq!(m["count"], 1);
+        assert_eq!(m["coverage"], "opensky");
+        assert_eq!(m["aircraft"][0]["hex"], "cc");
+        // Both missing → the historical stale envelope shape.
+        let m = merge_globe_snapshots(None, None);
+        assert_eq!(m["stale"], true);
+        assert_eq!(m["aircraft"].as_array().unwrap().len(), 0);
     }
 }

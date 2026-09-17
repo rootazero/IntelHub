@@ -213,6 +213,7 @@ VITE_CESIUM_ION_KEY  → Cesium World Terrain + Ion 影像
 
 - Rust 单测：`parse_tle_catalog` / `merge_aircraft` / `classify_notable`；集成测试 `tests/globe_collectors.rs`（仿现有 tests 模式）
 - console：`probe-globe.mjs`（仿 probe-monitor.mjs headless 模式）——无 pageerror、canvas 存在、航空计数 > 0、STALE 徽章逻辑正确
+  > **已退役（GEV P2 T16）**：该探针删除，后继为 `console/probe-gev.mjs`（P1 自建 globe 页已由 GlobeV2 取代）。
 - 构建守卫：Globe chunk 独立 lazy 分包，其他页面 chunk 体积不变
 
 ### 6.2 验收
