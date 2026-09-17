@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/bilawalsidhu/gods-eye-view",
+  "pinned_sha": "a65d9d85f1faa06ae7df235d7fa8a29b026b7a5b",
+  "synced_at": "2026-09-17",
+  "excludes": [".git", "server", "src/standalone", "src/ui/templates", "src/data/local_data", "docs", "build", "index.html", "style.css", "public"]
+}
