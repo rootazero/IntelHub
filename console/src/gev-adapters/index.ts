@@ -9,10 +9,14 @@
 // throw). The stub exports for the four wave-1 layers are kept in ./stubs.ts
 // because the contract guard (T12) still introspects them.
 
+import { cctvSource } from "./cctv";
 import { earthquakesSource } from "./earthquakes";
 import { flightsSource } from "./flights";
 import { militarySource } from "./military";
 import { satellitesSource } from "./satellites";
+import { installationsSource } from "./installations";
+import { trafficSource } from "./traffic";
+import { vesselsSource } from "./vessels";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
 
@@ -31,16 +35,16 @@ export function createIntelHubLayerSources(deps: {
     military: militarySource(apiFetch), // T6 → real military snapshot source
     satellites: satellitesSource(apiFetch), // T5 → real CelesTrak group source
     earthquakes: earthquakesSource(apiFetch), // T4 → real USGS snapshot source
-    vessels: stubs.vessels,
+    vessels: vesselsSource(apiFetch), // T2 (GEV P3) → real AIS live snapshot source
     firms: stubs.firms,
     cables: stubs.cables,
     alpr: stubs.alpr,
     launches: stubs.launches,
-    cctv: stubs.cctv,
+    cctv: cctvSource(apiFetch), // T13 (GEV P3) → real hub catalog + frame/media proxy
     radio: stubs.radio,
-    traffic: stubs.traffic,
+    traffic: trafficSource(apiFetch), // T7 (GEV P3) → real hub-proxied Overpass + TomTom flow
     bikeshare: stubs.bikeshare,
-    installations: stubs.installations,
+    installations: installationsSource(apiFetch), // T4 (GEV P3) → real OSM military catalog source
     // T3 I-2: without this entry the transit layer silently falls back to the
     // engine's own unauthenticated /api/transit source (stubs.ts header).
     transit: stubs.transit,

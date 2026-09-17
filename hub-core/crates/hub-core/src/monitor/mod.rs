@@ -119,7 +119,7 @@ pub trait SeriesCollector: Send + Sync {
 
 /// Phase-A source set (spec §3). Order defines first-run stagger, not priority.
 pub fn registry() -> Vec<Box<dyn Source>> {
-    vec![
+    let mut out: Vec<Box<dyn Source>> = vec![
         Box::new(sources::usgs::Usgs),
         Box::new(sources::noaa::Noaa),
         Box::new(sources::firms::Firms),
@@ -337,7 +337,36 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::romainmarcoux_malicious_ip::RomainmarcouxMaliciousIp),
         Box::new(sources::ihr_hegemony::IhrHegemony::default()),
         Box::new(sources::misp_second_level_tlds::MispSecondLevelTlds),
-    ]
+    ];
+    // GEV P3 (2026-09-17): military installations — Overpass global
+    // ["military"] harvest → PG military_installations (contracts.md §4).
+    // Keyless, 24h, 4 quadrants with ≥60s politeness + 2× backoff retries;
+    // stale sweep only after a full 4/4 round; hub-restart rounds skip when
+    // data is <24h old (max(fetched_at) probe). Emits no geo Signals.
+    out.push(Box::new(sources::installations::Installations));
+    // GEV P3 (2026-09-17): CCTV static catalog base load (T8) — vendor
+    // cctv_sources.*.json → PG cctv_cameras (0021, contracts.md §3).
+    // Keyless, idempotent; missing vendor dir degrades to a warn, never
+    // a boot failure. Emits no geo Signals (catalog, celestrak precedent).
+    out.push(Box::new(sources::cctv::CctvLoader));
+    // GEV P3 (2026-09-17): CCTV live city providers (T9) — keyless TfL
+    // JamCams + Ontario 511 catalogs refresh hourly (provider-scoped
+    // stale sweep; a failed provider keeps its rows + error health cell).
+    // cctv-health probes a rotating 3-per-provider frame sample every
+    // 5min, annotating health_status/health_checked_at. NYC/LTA = T10.
+    out.push(Box::new(sources::cctv::refresh::CctvRefresh));
+    out.push(Box::new(sources::cctv::refresh::CctvHealth));
+    // GEV P3 (2026-09-17): AISStream live vessels — env-gated, opensky
+    // pattern. Without AISSTREAM_API_KEY the collector is NOT registered
+    // (one startup log line); the T2 REST layer answers the contract's
+    // status:"missing-key" envelope (vendor chip copy, contracts.md §5).
+    match sources::ais::api_key() {
+        Some(_) => out.push(Box::new(sources::ais::Ais::default())),
+        None => tracing::info!(
+            "ais: no AISSTREAM_API_KEY — collector not registered; /api/ais-live will report status 'missing-key'"
+        ),
+    }
+    out
 }
 
 /// SP6B series/event collectors (spec §3). Order defines first-run stagger.

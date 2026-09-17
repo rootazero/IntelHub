@@ -152,6 +152,40 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
       );
   });
 
+  // ── GEV P3 anchors (T15): traffic / cctv / installations vendor seams ──
+
+  test("traffic source still posts QL to /api/overpass and reads tomtom status/flow", () => {
+    const src = readVendor("src/layers/traffic/source.js");
+    expect(src).toContain("/api/overpass");
+    expect(src).toContain("[out:json]");
+    expect(src).toContain("/api/tomtom/status");
+    expect(src).toMatch(/hasKey/);
+    const flow = readVendor("src/layers/traffic/flowSource.js");
+    expect(flow).toContain("/api/tomtom/flow/");
+    expect(flow).toMatch(/\.pbf/);
+    const decode = readVendor("src/layers/traffic/flowDecode.js");
+    expect(decode).toContain("Traffic flow"); // MVT layer name
+    expect(decode).toMatch(/traffic_level/);
+  });
+
+  test("cctv source still hits the four /api/cctv endpoints and mp4/hls/webm video set", () => {
+    const policy = readVendor("src/layers/cctv/sourcePolicy.js");
+    for (const k of ["/api/cctv/frame", "/api/cctv/sources", "/api/cctv/health", "/api/cctv/media"])
+      expect(policy, `sourcePolicy pins ${k}`).toContain(k);
+    const model = readVendor("src/layers/cctv/model.js");
+    // T8 review M1 anchor: mjpeg must NOT be a video feed type
+    expect(model).toMatch(/isVideoFeedType/);
+    expect(model).not.toMatch(/mjpeg['"]\s*\)/); // no mjpeg in the video branch call
+  });
+
+  test("installations source still reads /api/military-installations with elements+saturated envelope", () => {
+    const src = readVendor("src/layers/installations/source.js");
+    expect(src).toContain("/api/military-installations");
+    expect(src).toMatch(/payload\?\.elements/);
+    expect(src).toMatch(/saturated/);
+    expect(src).toMatch(/elementCap/);
+  });
+
   test("wave-1 snapshot status is a number across fresh/stale/degraded — never pinned to 200 (T6 M-3)", async () => {
     // Ruling T6 M-3: a stale upstream snapshot is INTENTIONALLY framed as
     // status 503 (aircraft-map.ts toEnvelope — "stale-200 responses get 503"),

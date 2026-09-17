@@ -94,6 +94,65 @@ const QUAKE_RECORD = {
   properties: { mag: 5.2, place: "新疆喀什", time: 1750000000000 },
 };
 
+// P3 vendor context shapes (grep-verified, 2026-09-17):
+//   vessels/selection.js:195-203 — layerId 'ais-live-vessels', properties
+//     mmsi/type/speedKt/course/destination, name via record.label.
+const VESSEL_RECORD = {
+  id: "ais-477123400",
+  layerId: "ais-live-vessels",
+  layerName: "Live AIS Vessels",
+  label: "COSCO PACIFIC",
+  latitude: 31.2,
+  longitude: 122.8,
+  properties: {
+    mmsi: "477123400",
+    type: "Container Ship",
+    speedKt: 12.345,
+    course: 271,
+    destination: "Shanghai",
+  },
+};
+
+//   installations/rendering.js:121-137 — layerId 'military-installations'
+//     (policy.js:1), id 'osm:<type>:<id>', properties class/validation/
+//     retrievedAt (ISO).
+const INSTALLATION_RECORD = {
+  id: "osm:way:123",
+  layerId: "military-installations",
+  layerName: "Mapped Military Installations",
+  label: "Nellis AFB",
+  latitude: 36.24,
+  longitude: -115.03,
+  properties: {
+    class: "airfield",
+    primaryType: null,
+    placeTypes: [],
+    validation: "unreviewed",
+    retrievedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(),
+  },
+};
+
+//   cctv — NO vendor contextStore write exists (grep 0 hits under
+//     layers/cctv/); record shape is forward-compat per contracts §3.
+const CCTV_RECORD = {
+  id: "cctv-1",
+  layerId: "cctv",
+  layerName: "CCTV",
+  label: "QEW West of Thompson Road",
+  latitude: 42.91,
+  longitude: -78.96,
+  properties: {
+    city: "Ontario",
+    provider: "RWIS (MTO)",
+    feedType: "image",
+    headingDeg: 90,
+    fovDeg: 74,
+    pitchDeg: -17,
+    frameUrl: "/api/cctv/frame/cctv-1",
+    live: true,
+  },
+};
+
 // ---- describe 1: the bridge ------------------------------------------------
 
 describe("useGlobeSelection", () => {
@@ -192,6 +251,72 @@ describe("HudDetailPanel", () => {
     // 1750000000000 is far in the past relative to now → absolute date, not
     // a minutes-ago string.
     expect(screen.getByText(/2025/)).toBeInTheDocument();
+  });
+
+  test("vessel template: name, mmsi, kn speed, course, destination", async () => {
+    render(<HudDetailPanel />);
+    await select(VESSEL_RECORD);
+    expect(screen.getByText("COSCO PACIFIC")).toBeInTheDocument();
+    expect(screen.getByText("477123400")).toBeInTheDocument();
+    // speedKt passes through as knots (12.345 → "12.3 kn").
+    expect(screen.getByText("12.3 kn")).toBeInTheDocument();
+    expect(screen.getByText("271°")).toBeInTheDocument();
+    expect(screen.getByText("Shanghai")).toBeInTheDocument();
+    // Vendor context does not publish imo/heading/observedAt → honest dashes.
+    expect(screen.getByText("船舶 VESSEL")).toBeInTheDocument();
+  });
+
+  test("vessel bridge converts a full VesselRecord speedMps to knots", async () => {
+    const { result } = renderHook(() => useGlobeSelection());
+    await select({
+      ...VESSEL_RECORD,
+      properties: { ...VESSEL_RECORD.properties, speedKt: undefined, speedMps: 5.14444 },
+    });
+    expect(result.current.kind).toBe("vessel");
+    // 5.14444 m/s ÷ 0.514444 = 10 kn exactly.
+    expect((result.current.data as { speedKn: number }).speedKn).toBeCloseTo(
+      10,
+      3,
+    );
+  });
+
+  test("installation template: name, class label, osm ref, relative retrieval", async () => {
+    render(<HudDetailPanel />);
+    await select(INSTALLATION_RECORD);
+    expect(screen.getByText("Nellis AFB")).toBeInTheDocument();
+    expect(screen.getByText("军用机场 Airfield")).toBeInTheDocument();
+    expect(screen.getByText("way / 123")).toBeInTheDocument();
+    expect(screen.getByText("unreviewed")).toBeInTheDocument();
+    // retrievedAt 3h ago → relative time (the bridge parses the ISO string).
+    expect(screen.getByText("3 小时前")).toBeInTheDocument();
+  });
+
+  test("cctv template: metadata rows + LIVE link, never an embedded media element", async () => {
+    render(<HudDetailPanel />);
+    await select(CCTV_RECORD);
+    expect(screen.getByText("QEW West of Thompson Road")).toBeInTheDocument();
+    expect(screen.getByText("Ontario")).toBeInTheDocument();
+    expect(screen.getByText("RWIS (MTO)")).toBeInTheDocument();
+    expect(screen.getByText("image")).toBeInTheDocument();
+    expect(screen.getByText("90° / 74° / -17°")).toBeInTheDocument();
+    expect(screen.getByText("在线")).toBeInTheDocument();
+    const live = screen.getByRole("link", { name: /实时画面/ });
+    expect(live).toHaveAttribute("href", "/api/cctv/frame/cctv-1");
+    expect(live).toHaveAttribute("target", "_blank");
+    // GPU texture rendering is the engine pipeline's job — the HUD must not
+    // embed img/video DOM.
+    expect(document.querySelector(".hud-detail img, .hud-detail video")).toBeNull();
+  });
+
+  test("cctv template without a feed renders the disabled entry", async () => {
+    render(<HudDetailPanel />);
+    await select({
+      ...CCTV_RECORD,
+      properties: { ...CCTV_RECORD.properties, frameUrl: "", live: false },
+    });
+    expect(screen.getByText("离线")).toBeInTheDocument();
+    expect(screen.getByText("实时画面 不可用")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /实时画面/ })).toBeNull();
   });
 
   test("collapse handle hides the body and expands again", async () => {

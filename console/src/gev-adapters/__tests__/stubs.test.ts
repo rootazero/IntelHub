@@ -98,7 +98,10 @@ test("every stub method resolves without throwing", async () => {
   const s = createIntelHubLayerSources({
     apiFetch: async () => new Response("{}"),
   });
-  const REAL = new Set(["earthquakes", "satellites", "flights", "military"]);
+  // P3 T4+T7+T13: installations/traffic/cctv are real now too — bbox
+  // TypeErrors (installations/traffic) and no-arg getFrameUrl misuse
+  // (cctv) throw by contract (their own test files cover them).
+  const REAL = new Set(["earthquakes", "satellites", "flights", "military", "installations", "traffic", "cctv"]);
   for (const [layer, methods] of Object.entries(REQUIRED)) {
     if (REAL.has(layer)) continue;
     for (const m of methods) {
