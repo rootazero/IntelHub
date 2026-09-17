@@ -11,6 +11,8 @@ import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
 import { HudFrame } from "../globe-hud/HudFrame";
+import { HudLayerRail } from "../globe-hud/HudLayerRail";
+import type { RailManager } from "../globe-hud/HudLayerRail";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -24,6 +26,11 @@ const CESIUM_KEY =
 
 export default function GlobeV2() {
   const [error, setError] = useState<string | null>(null);
+  // T9: the layer rail drives the data-phase LayerLifecycle. Surfaced via
+  // state (not a ref) so the rail mounts after start() resolves; StrictMode's
+  // double effect keeps state, and the module-level `booted` guard ensures
+  // start() runs once.
+  const [railManager, setRailManager] = useState<RailManager | null>(null);
 
   useEffect(() => {
     if (booted.current) return; // StrictMode second mount skips
@@ -34,12 +41,24 @@ export default function GlobeV2() {
       googleApiKey: GOOGLE_KEY,
       cesiumToken: CESIUM_KEY,
     });
-    globe.start().catch((e) => setError(String(e)));
+    globe
+      .start()
+      .then(() => {
+        const components = globe.getComponents() as {
+          data?: { dataManager?: RailManager };
+        };
+        setRailManager(components?.data?.dataManager ?? null);
+      })
+      .catch((e) => setError(String(e)));
     // No destroy on unmount: the engine singleton outlives route switches;
     // route-leave teardown is a P3 decision.
   }, []);
 
   if (error)
     return <div className="hud-fatal">Globe engine failed: {error}</div>;
-  return <HudFrame />;
+  return (
+    <HudFrame
+      left={railManager ? <HudLayerRail manager={railManager} /> : null}
+    />
+  );
 }

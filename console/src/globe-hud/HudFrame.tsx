@@ -6,10 +6,17 @@
 //   #data-toggles           — engine LayerPresentation mount point (hidden;
 //                             IntelHub owns its own layer UI, but the element
 //                             must exist for engine code that queries it)
-//   [data-hud="top|left|right|bottom"] — four edge rails (T9 fills them)
+//   [data-hud="top|left|right|bottom"] — four edge rails (T9 fills left)
 import type { ReactNode } from "react";
 
-export function HudFrame({ children }: { children?: ReactNode }) {
+export function HudFrame({
+  left,
+  children,
+}: {
+  /** T9 layer-rail content for the left edge slot. */
+  left?: ReactNode;
+  children?: ReactNode;
+}) {
   return (
     <div className="hud-root">
       <div id="cesiumContainer" className="hud-canvas" />
@@ -18,7 +25,9 @@ export function HudFrame({ children }: { children?: ReactNode }) {
       </div>
       <div id="data-toggles" hidden />
       <div className="hud-edge hud-top" data-hud="top" />
-      <div className="hud-edge hud-left" data-hud="left" />
+      <div className="hud-edge hud-left" data-hud="left">
+        {left}
+      </div>
       <div className="hud-edge hud-right" data-hud="right" />
       <div className="hud-edge hud-bottom" data-hud="bottom" />
       {children}
