@@ -3,12 +3,12 @@
 //
 // Vendor surface (console/gev-engine/src/maps/controller.js, read-only):
 //   getActiveId()     → stack id, e.g. 'photoreal' | 'esri-imagery'
-//                       (MapSourceController, controller.js:44-50)
+//                       (MapSourceController, controller.js:69-71)
 //   getActiveStack()  → descriptor {id, label} from maps/catalog.js
 //                       ('Google 3D' / 'Esri Satellite' / …)
 // Live changes broadcast as window CustomEvent 'gev:map-stack-changed' with
 // detail = getState(status) — {activeId, activeStack, status, lastError}
-// (app/scene.js:105-110; getState at controller.js:52-64). The photoreal
+// (app/scene.js:105-110; getState at controller.js:78-86). The photoreal
 // tile-failure fallback path lands there too: _watchProvider re-runs
 // setStack(fallback.id) and then emits 'error' (controller.js:284-310), so
 // the event lane carries every effective-stack change.

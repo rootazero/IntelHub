@@ -14,13 +14,16 @@
 import { useEffect, useState } from "react";
 import * as Cesium from "cesium";
 
-/** Structural viewer slice — the HUD only needs the pick surface. */
+/** Structural viewer slice — the HUD only needs the pick surface. The
+ * globe itself is optional: photoreal scenes hide it (scene.js sets
+ * globe.show = false) and a torn scene may not have it at all — Cesium's
+ * pickEllipsoid defaults to WGS84 when the ellipsoid arg is undefined. */
 export interface CursorViewer {
   scene: {
     camera: {
       pickEllipsoid(windowPosition: unknown, ellipsoid?: unknown): unknown;
     };
-    globe: { ellipsoid?: unknown };
+    globe?: { ellipsoid?: unknown } | null;
   };
 }
 
@@ -71,25 +74,39 @@ export function useCursorCoordinates(
     }
     const handler = new cesium.ScreenSpaceEventHandler(v.scene);
     let moveType: unknown;
+    // rAF throttle: Cesium fires MOUSE_MOVE at display rate (60-120 Hz) and
+    // every event would otherwise setState → re-render the whole bottom bar.
+    // Keep only the LATEST pick per frame; the pending frame is cancelled on
+    // teardown so no setState escapes an unmounted bar.
+    let pending: CursorCoordinates | null = null;
+    let frame: number | null = null;
+    const flush = () => {
+      frame = null;
+      setCoords(pending);
+    };
     handler.setInputAction((movement) => {
       const cartesian = v.scene.camera.pickEllipsoid(
         movement.endPosition,
-        v.scene.globe.ellipsoid,
+        v.scene.globe?.ellipsoid,
       );
-      if (!cartesian) {
-        setCoords(null);
-        return;
-      }
-      const cartographic = cesium.Cartographic.fromCartesian(cartesian);
-      setCoords({
-        lat: cesium.Math.toDegrees(cartographic.latitude),
-        lon: cesium.Math.toDegrees(cartographic.longitude),
-      });
+      pending = cartesian
+        ? (() => {
+            const cartographic =
+              cesium.Cartographic.fromCartesian(cartesian);
+            return {
+              lat: cesium.Math.toDegrees(cartographic.latitude),
+              lon: cesium.Math.toDegrees(cartographic.longitude),
+            };
+          })()
+        : null; // off-globe pick → clear the readout
+      if (frame == null) frame = requestAnimationFrame(flush);
     }, (moveType = cesium.ScreenSpaceEventType.MOUSE_MOVE));
     return () => {
       // removeInputAction BEFORE destroy: destroy alone detaches the DOM
       // listeners, but the explicit removal keeps the contract honest and
-      // mirrors the engine's own teardown idiom.
+      // mirrors the engine's own teardown idiom. The pending rAF dies too —
+      // otherwise a last mousemove could setState after unmount.
+      if (frame != null) cancelAnimationFrame(frame);
       handler.removeInputAction(moveType);
       handler.destroy();
     };

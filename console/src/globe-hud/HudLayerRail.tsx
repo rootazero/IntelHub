@@ -124,18 +124,24 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
     setOpenDomainId((current) => (current === domainId ? null : domainId));
   };
 
-  // ---- menubar keyboard model (T14 a11y) ---------------------------------
+  // ---- rail keyboard model (T14 a11y, review r1) ---------------------------
   // role=menubar/menuitem already marked (T9). Roving tabindex: only the
   // icon at focusIndex is a Tab stop; Arrow keys move focus AND open that
   // domain's flyout (mirrors the mouseenter lane); Home/End jump; Escape
   // closes the flyout and returns focus to the icon that opened it.
+  //
+  // The keydown handler lives on the OUTER .hud-rail container, NOT the
+  // menubar div: the flyout (a menubar sibling holding the layer
+  // checkboxes) bubbles its key events up here, so Escape/arrows keep
+  // working after the operator Tabs into the flyout — without this the
+  // flyout was a keyboard trap.
   const focusIcon = (index: number) => {
     const clamped = (index + DOMAINS.length) % DOMAINS.length;
     setFocusIndex(clamped);
     iconRefs.current[clamped]?.focus();
   };
 
-  const onMenubarKeyDown = (event: ReactKeyboardEvent) => {
+  const onRailKeyDown = (event: ReactKeyboardEvent) => {
     switch (event.key) {
       case "ArrowDown":
       case "ArrowRight": {
@@ -202,6 +208,7 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
     <div
       className={`hud-rail${collapsed ? " collapsed" : ""}`}
       data-testid="hud-layer-rail"
+      onKeyDown={onRailKeyDown}
       onMouseLeave={armAutoClose}
       onMouseEnter={cancelAutoClose}
     >
@@ -216,12 +223,7 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
         {collapsed ? "▸" : "◂"}
       </button>
       {!collapsed && (
-        <div
-          className="hud-rail-icons"
-          role="menubar"
-          aria-label="图层域"
-          onKeyDown={onMenubarKeyDown}
-        >
+        <div className="hud-rail-icons" role="menubar" aria-label="图层域">
           {DOMAINS.map((domain, index) => (
             <button
               key={domain.id}

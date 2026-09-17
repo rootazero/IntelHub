@@ -40,7 +40,7 @@ export interface GlobeSelection {
  *
  * P3 layer ids (grep-verified against the vendor tree, 2026-09-17):
  *   vessels       → 'ais-live-vessels'      (gev-engine/src/layers/vessels/selection.js:195 —
- *                    registerSelectedContext writes layerId: 'ais-live-vessels'; properties at :196-203)
+ *                    registerSelectedContext writes layerId: 'ais-live-vessels'; properties at :201-207)
  *   installations → 'military-installations' (gev-engine/src/layers/installations/policy.js:1 LAYER_ID;
  *                    context write at layers/installations/rendering.js:121-137)
  *   cctv          → NO vendor contextStore write exists: `grep -rn 'registerEntityContext|selectEntityContext'
@@ -148,7 +148,7 @@ export function normalizeSelection(record: unknown): GlobeSelection {
         },
       };
     case "vessel": {
-      // Vendor context record (layers/vessels/selection.js:196-203) publishes
+      // Vendor context record (layers/vessels/selection.js:201-207) publishes
       // mmsi / type / speedKt / course / destination under properties, with
       // the vessel name as record.label. The contracts' full VesselRecord
       // (sources/live/vessels.js:4-26) additionally carries imo / heading /
@@ -157,7 +157,7 @@ export function normalizeSelection(record: unknown): GlobeSelection {
       const idStr = String(rec.id ?? "");
       const speedKn =
         typeof p.speedKt === "number"
-          ? p.speedKt // already knots (selection.js:200 speedKt: record.speed)
+          ? p.speedKt // already knots (selection.js:203 speedKt: record.speed)
           : typeof p.speedMps === "number"
             ? p.speedMps / 0.514444 // m/s → kn (ingestion.js:157 convention)
             : null;
