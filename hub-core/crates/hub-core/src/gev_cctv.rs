@@ -15,11 +15,23 @@
 //! consumes id/status/sourceKind/label/message/updatedAt; rows come from
 //! the T9 `cctv-health` probe annotations. Cameras never probed are
 //! reported `unknown` (health.js:24-36 tolerates that).
+//!
+//! T12 media proxy: `/frame/{id}` serves the camera's stored frame_url
+//! through the hub (10s Redis cache, 15s upstream timeout, 8MB cap) and
+//! `/media/{id}` streams mp4 (concurrency-capped 4 → 429, 30s timeout).
+//! SSRF is structurally impossible: the client supplies only the camera
+//! id; the fetch URL comes exclusively from the PG catalog (hub-curated
+//! providers). Same-origin serving is also what allows the engine's
+//! WebGL texture path to consume frames/video without canvas taint
+//! (projection.js — the GPU rendering requirement). HLS media answers
+//! 501 in P3: a playlist proxy needs segment-URL rewriting, deferred to
+//! P4 (511NY cameras carry static frames too, so they degrade to image).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
@@ -144,6 +156,248 @@ pub async fn gev_cctv_health(State(state): State<Arc<AppState>>) -> Result<Json<
     Ok(Json(json!({ "cameras": rows.iter().map(health_row_json).collect::<Vec<_>>() })))
 }
 
+// ── T12: frame / media proxy ─────────────────────────────────────────────
+
+/// Dedicated proxy client (OnceLock, gev_traffic.rs pattern). 15s: frame
+/// hosts are small city servers; the shared 25s ceiling would let a hung
+/// town-hall server pin the request too long for a 10s-refresh UI.
+fn cctv_http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .user_agent("IntelHub/1.0 (+cctv frame proxy)")
+            .build()
+            .expect("cctv proxy client builds")
+    })
+}
+
+/// Frame cache TTL: matches the engine's ACTIVE_FRAME_REFRESH_MS=10000
+/// (sourcePolicy.js) so every client refresh wave hits one upstream fetch.
+pub const FRAME_CACHE_TTL_SECS: u64 = 10;
+/// Hard cap on a proxied frame body (town-hall servers occasionally serve
+/// multi-MB pngs; 8MB covers every observed case with headroom).
+pub const FRAME_MAX_BYTES: usize = 8 * 1024 * 1024;
+/// Media (mp4) proxy cap: concurrent streams + per-request timeout.
+pub const MEDIA_MAX_CONCURRENT: usize = 4;
+pub const MEDIA_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn frame_cache_key(id: &str) -> String {
+    format!("hub:gev:cctv:frame:{id}")
+}
+
+/// Sanitize an upstream Content-Type to the image family the engine's
+/// `new Image()` accepts; anything else (or missing) → jpeg default.
+pub fn sanitize_frame_content_type(raw: Option<&str>) -> &'static str {
+    match raw.map(|s| s.split(';').next().unwrap_or("").trim().to_lowercase()) {
+        Some(ref t) if t == "image/png" => "image/png",
+        Some(ref t) if t == "image/gif" => "image/gif",
+        Some(ref t) if t == "image/webp" => "image/webp",
+        _ => "image/jpeg",
+    }
+}
+
+/// Look up the fetch URL for a camera id. The client NEVER supplies a
+/// URL — SSRF is impossible by construction (catalog-curated hosts only).
+async fn lookup_urls(
+    state: &AppState,
+    id: &str,
+) -> Result<(Option<String>, Option<String>, String), Response> {
+    sqlx::query_as::<_, (Option<String>, Option<String>, String)>(
+        "SELECT frame_url, media_url, feed_type FROM cctv_cameras WHERE id = $1 AND active",
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await
+    .map_err(|e| {
+        tracing::warn!(error = %e, "gev cctv url lookup failed");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "cctv catalog unavailable"})),
+        )
+            .into_response()
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "unknown or inactive camera id"})),
+        )
+            .into_response()
+    })
+}
+
+pub async fn gev_cctv_frame(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    let (frame_url, _, _) = match lookup_urls(&state, &id).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(url) = frame_url else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "camera has no frame feed"})),
+        )
+            .into_response();
+    };
+
+    // Cache: Redis hash {data, ct} with TTL (binary-safe).
+    let key = frame_cache_key(&id);
+    let cached: Option<std::collections::HashMap<String, Vec<u8>>> = state
+        .redis_timed(redis::cmd("HGETALL").arg(&key).clone(), 2000)
+        .await;
+    if let Some(map) = cached {
+        if let (Some(data), Some(ct)) = (map.get("data"), map.get("ct")) {
+            return (
+                [(axum::http::header::CONTENT_TYPE, String::from_utf8_lossy(ct).to_string())],
+                data.clone(),
+            )
+                .into_response();
+        }
+    }
+
+    let resp = match cctv_http().get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame upstream fetch failed");
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "frame upstream failed"})),
+            )
+                .into_response();
+        }
+    };
+    if !resp.status().is_success() {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("frame upstream HTTP {}", resp.status())})),
+        )
+            .into_response();
+    }
+    let ct = sanitize_frame_content_type(
+        resp.headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+    );
+    let body = match resp.bytes().await {
+        Ok(b) if b.len() <= FRAME_MAX_BYTES => b,
+        Ok(_) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "frame exceeds size cap"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame body read failed");
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "frame body read failed"})),
+            )
+                .into_response();
+        }
+    };
+
+    // Best-effort cache write (degrade to plain proxy on Redis trouble,
+    // starlink-proxy precedent).
+    let _: Option<()> = state
+        .redis_timed(
+            redis::cmd("HSET")
+                .arg(&key)
+                .arg("data")
+                .arg(body.as_ref())
+                .arg("ct")
+                .arg(ct)
+                .clone(),
+            2000,
+        )
+        .await;
+    let _: Option<()> = state
+        .redis_timed(
+            redis::cmd("EXPIRE").arg(&key).arg(FRAME_CACHE_TTL_SECS).clone(),
+            2000,
+        )
+        .await;
+
+    ([(axum::http::header::CONTENT_TYPE, ct)], body).into_response()
+}
+
+/// Media concurrency guard: process-wide semaphore, 429 on saturation
+/// (plan: 并发上限 4; frame path is cached and needs no cap).
+static MEDIA_SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+
+fn media_slots() -> &'static tokio::sync::Semaphore {
+    MEDIA_SLOTS.get_or_init(|| tokio::sync::Semaphore::new(MEDIA_MAX_CONCURRENT))
+}
+
+pub async fn gev_cctv_media(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
+    let (_, media_url, feed_type) = match lookup_urls(&state, &id).await {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(url) = media_url else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "camera has no media feed"})),
+        )
+            .into_response();
+    };
+    // HLS playlist proxying needs segment-URL rewriting — deferred to P4.
+    // (511NY hls cameras also carry static frames, so the layer still
+    // shows them through the frame path.)
+    if feed_type == "hls" {
+        return (
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"error": "hls media proxy not implemented in P3"})),
+        )
+            .into_response();
+    }
+    let Ok(_permit) = media_slots().try_acquire() else {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"error": "media concurrency cap reached"})),
+        )
+            .into_response();
+    };
+    let resp = match tokio::time::timeout(MEDIA_TIMEOUT, cctv_http().get(&url).send()).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e.to_string(), camera = %id, "cctv media upstream fetch failed");
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"error": "media upstream failed"})),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(json!({"error": "media upstream timeout"})),
+            )
+                .into_response();
+        }
+    };
+    if !resp.status().is_success() {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("media upstream HTTP {}", resp.status())})),
+        )
+            .into_response();
+    }
+    let ct = resp
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("video/mp4")
+        .to_string();
+    let body = resp.bytes().await.unwrap_or_default();
+    ([(axum::http::header::CONTENT_TYPE, ct)], body).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +477,33 @@ mod tests {
         let mut r = row();
         r.health_status = None; // never probed
         assert_eq!(health_row_json(&r)["status"], json!("unknown"));
+    }
+
+    // ---- T12: frame/media proxy pure-function surface ----
+
+    #[test]
+    fn frame_content_type_sanitized_to_image_family() {
+        assert_eq!(sanitize_frame_content_type(Some("image/png")), "image/png");
+        assert_eq!(sanitize_frame_content_type(Some("image/jpeg; charset=binary")), "image/jpeg");
+        assert_eq!(sanitize_frame_content_type(Some("text/html")), "image/jpeg");
+        assert_eq!(sanitize_frame_content_type(Some("application/octet-stream")), "image/jpeg");
+        assert_eq!(sanitize_frame_content_type(None), "image/jpeg");
+    }
+
+    #[test]
+    fn frame_cache_key_namespaced_per_camera() {
+        assert_eq!(frame_cache_key("tfl:x"), "hub:gev:cctv:frame:tfl:x");
+        assert_eq!(media_slots().available_permits(), MEDIA_MAX_CONCURRENT);
+    }
+
+    #[tokio::test]
+    async fn media_semaphore_429s_beyond_cap() {
+        let sem = media_slots();
+        let permits: Vec<_> = (0..MEDIA_MAX_CONCURRENT)
+            .map(|_| sem.try_acquire().expect("slot available"))
+            .collect();
+        assert!(sem.try_acquire().is_err()); // 5th → 429 path
+        drop(permits);
+        assert!(sem.try_acquire().is_ok());
     }
 }

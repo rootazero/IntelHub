@@ -102,7 +102,12 @@ pub fn parse_ny511(doc: &Value) -> Vec<CameraRow> {
         if frame_url.is_none() && media_url.is_none() {
             continue;
         }
-        let feed_type = if media_url.is_some() { "hls" } else { "image" };
+        // P3 note: media_url (hls m3u8) is stored for the P4 playlist
+        // proxy, but feed_type stays "image" — the hub's /media endpoint
+        // answers 501 for hls (T12), and the engine projects via frame
+        // for image-type cameras, so these cameras render today instead
+        // of breaking on an unimplemented media path.
+        let feed_type = "image";
         let roadway = cam.get("RoadwayName").and_then(Value::as_str).unwrap_or("");
         let name = cam
             .get("Name")
@@ -165,7 +170,8 @@ mod tests {
         assert_eq!(rows.len(), 2); // disabled dropped
         let hls = &rows[0];
         assert_eq!(hls.id, "ny511:Skyline-10213");
-        assert_eq!(hls.feed_type, "hls");
+        // feed_type stays image in P3 (media proxy is mp4-only; hls 501s)
+        assert_eq!(hls.feed_type, "image");
         assert!(hls.media_url.as_ref().unwrap().ends_with(".m3u8"));
         assert_eq!(hls.frame_url.as_deref(), Some("https://511ny.org/map/Cctv/4436"));
         assert_eq!(hls.provider, "ny511");
