@@ -268,7 +268,9 @@ pub fn parse_ws_text(text: &str) -> ParsedMsg {
             // Sog is double knots / Cog is double degrees per the schema
             // explorer — pass through, only range-guarding absurd values.
             let speed = f64_of(pr, "Sog").filter(|s| (0.0..=110.0).contains(s));
-            let course = f64_of(pr, "Cog").filter(|c| (0.0..=360.0).contains(c));
+            // AIS 360.0 = course not available (symmetric with heading 511):
+            // valid COG is [0, 360).
+            let course = f64_of(pr, "Cog").filter(|c| (0.0..360.0).contains(c));
             // AIS 511 = heading not available.
             let heading = i64_of(pr, "TrueHeading")
                 .filter(|h| (0..=359).contains(h))
@@ -331,6 +333,12 @@ pub fn upsert_position(
     }
     rec.epoch = Some(epoch);
     let ring = tracks.entry(mmsi.to_string()).or_default();
+    // Same-epoch duplicate frame (aisstream retransmits slot repeats):
+    // refresh the record fields above but do NOT append a second track
+    // point — the ring would smear one fix into a fake two-point leg.
+    if ring.back().map_or(false, |p| p.t == epoch) {
+        return;
+    }
     ring.push_back(TrackPoint { lat, lon, t: epoch });
     while ring.len() > TRACK_CAP {
         ring.pop_front();
@@ -379,6 +387,24 @@ pub fn backoff_secs(attempt: u32) -> u64 {
 /// crate — zero-new-crate constraint; caller passes timestamp nanos).
 pub fn jitter_ms(nanos: u64, base_secs: u64) -> u64 {
     nanos % (base_secs.saturating_mul(250).saturating_add(1))
+}
+
+/// Backoff scheduling shared by EVERY non-auth reconnect path (pure):
+/// server-initiated close (Ok(None)/stream error/Close frame), silent-kill,
+/// and dial transport errors. Review round 1: without this, a server that
+/// accepts the handshake then immediately closed dropped the socket but left
+/// `next_attempt_epoch` unset — Phase 3 re-dialled IN THE SAME TICK and the
+/// exponential backoff never engaged (hard 15s/tick reconnect hammer).
+pub fn schedule_reconnect(reconnect_attempt: &mut u32, next_attempt_epoch: &mut Option<i64>, now: i64, nanos: u64) {
+    *reconnect_attempt += 1;
+    let base = backoff_secs(*reconnect_attempt);
+    let wait = base + jitter_ms(nanos, base) / 1000;
+    *next_attempt_epoch = Some(now + wait as i64);
+}
+
+/// Pure Phase-3 gate: is a dial due this tick?
+pub fn reconnect_due(next_attempt_epoch: Option<i64>, now: i64) -> bool {
+    next_attempt_epoch.map_or(true, |t| now >= t)
 }
 
 /// Envelope status for the connected case (pure). `silent_secs` = now minus
@@ -625,6 +651,13 @@ impl super::super::Source for Ais {
                 }
                 if drop_socket {
                     drop(sock);
+                    if !inner.auth_failed {
+                        // Server closed on us (Ok(None)/stream error/Close) —
+                        // schedule backoff so Phase 3 does NOT re-dial in
+                        // the same tick. The auth path above already set
+                        // its own 1h cooldown and must not be overwritten.
+                        schedule_reconnect(&mut inner.reconnect_attempt, &mut inner.next_attempt_epoch, now, nanos);
+                    }
                 } else {
                     inner.sock = Some(sock);
                 }
@@ -639,19 +672,22 @@ impl super::super::Source for Ais {
                 if silent.map_or(false, |s| s > SILENT_KILL_SECS) {
                     tracing::warn!(silent_secs = silent, "ais stream silent > 300s; dropping socket");
                     drop(sock);
-                    inner.reconnect_attempt += 1;
-                    let base = backoff_secs(inner.reconnect_attempt);
-                    let wait = base + jitter_ms(nanos, base) / 1000;
-                    inner.next_attempt_epoch = Some(now + wait as i64);
+                    schedule_reconnect(&mut inner.reconnect_attempt, &mut inner.next_attempt_epoch, now, nanos);
                 } else {
                     inner.sock = Some(sock);
                 }
             }
 
             // ---- Phase 3: (re)connect when due ---------------------------
-            if inner.sock.is_none() && !inner.auth_failed {
-                let due = inner.next_attempt_epoch.map_or(true, |t| now >= t);
-                if due {
+            // The auth_failed latch performs a REAL retry once its 1h
+            // cooldown expires (rejected key may have been rotated server
+            // side); a still-invalid key re-arms the latch for another hour.
+            if inner.sock.is_none() && reconnect_due(inner.next_attempt_epoch, now) {
+                if inner.auth_failed {
+                    tracing::warn!("ais: auth-failed cooldown expired — re-trying the API key once");
+                    inner.auth_failed = false;
+                }
+                {
                     match dial(&key).await {
                         Ok(sock) => {
                             tracing::info!(attempt = inner.reconnect_attempt, "ais stream connected");
@@ -671,11 +707,8 @@ impl super::super::Source for Ais {
                             inner.next_attempt_epoch = Some(now + wait.max(1));
                         }
                         Err(DialError::Transport(e)) => {
-                            inner.reconnect_attempt += 1;
-                            let base = backoff_secs(inner.reconnect_attempt);
-                            let wait = base + jitter_ms(nanos, base) / 1000;
-                            tracing::warn!(attempt = inner.reconnect_attempt, wait_secs = wait, error = %e, "aisstream dial failed");
-                            inner.next_attempt_epoch = Some(now + wait as i64);
+                            schedule_reconnect(&mut inner.reconnect_attempt, &mut inner.next_attempt_epoch, now, nanos);
+                            tracing::warn!(attempt = inner.reconnect_attempt, next_attempt = ?inner.next_attempt_epoch, error = %e, "aisstream dial failed");
                         }
                     }
                 }
@@ -776,12 +809,25 @@ mod tests {
 
     #[test]
     fn parse_position_report_heading_511_is_unavailable() {
-        let p = parse_ws_text(&pos_report(123456789, 0.0, 360.0, 511, 1.0, 2.0));
+        let p = parse_ws_text(&pos_report(123456789, 0.0, 359.9, 511, 1.0, 2.0));
         match p {
             ParsedMsg::Position { speed, course, heading, .. } => {
                 assert_eq!(heading, None, "AIS 511 = heading not available");
                 assert_eq!(speed, Some(0.0));
-                assert_eq!(course, Some(360.0));
+                assert!(course.is_some());
+            }
+            other => panic!("unexpected parse: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_course_360_is_not_available() {
+        // AIS spec: COG 360.0° = not available (symmetric with heading 511).
+        match parse_ws_text(&pos_report(123456789, 10.0, 360.0, 90, 1.0, 2.0)) {
+            ParsedMsg::Position { speed, course, heading, .. } => {
+                assert_eq!(course, None, "COG 360.0 = not available");
+                assert_eq!(speed, Some(10.0), "other fields unaffected");
+                assert_eq!(heading, Some(90.0));
             }
             other => panic!("unexpected parse: {other:?}"),
         }
@@ -939,7 +985,23 @@ mod tests {
         assert!(tr.contains_key("edge"));
     }
 
-    // ---------- track ring ----------
+    // ---------- track ring ---------
+
+    #[test]
+    fn track_ring_skips_same_epoch_duplicates() {
+        // aisstream retransmits slot repeats: two PositionReports for the
+        // same vessel in the same second must yield ONE ring point, not a
+        // fake two-point leg.
+        let mut recs = HashMap::new();
+        let mut tr = TrackMap::new();
+        upsert_position(&mut recs, &mut tr, "777", 10.0, 20.0, Some(5.0), None, None, 1000);
+        upsert_position(&mut recs, &mut tr, "777", 10.0, 20.0, Some(5.0), None, None, 1000);
+        assert_eq!(tr["777"].len(), 1, "same-epoch duplicate appends no point");
+        // A fresher second still appends normally.
+        upsert_position(&mut recs, &mut tr, "777", 10.1, 20.1, Some(5.0), None, None, 1001);
+        assert_eq!(tr["777"].len(), 2);
+        assert_eq!(tr["777"].back().unwrap().t, 1001);
+    }
 
     #[test]
     fn track_ring_caps_at_50_front_drop() {
@@ -976,6 +1038,62 @@ mod tests {
         }
         assert_eq!(jitter_ms(42, 1), 42 % 251);
         assert_eq!(jitter_ms(7, 0), 0);
+    }
+
+    #[test]
+    fn server_close_schedules_backoff_not_same_tick_redial() {
+        // Review round 1: a server that accepts the handshake then
+        // immediately closes must engage the exponential backoff — dial 2
+        // must wait ≥ backoff(1), dial 3 ≥ backoff(1)+backoff(2), and NEVER
+        // happen in the same tick as the close. (1s tick granularity here so
+        // the pure scheduler is measured exactly, unquantized by the 15s
+        // production tick.)
+        let mut attempt = 0u32;
+        let mut next: Option<i64> = None;
+        let mut dials: Vec<i64> = vec![];
+        let mut now = 0i64;
+        for _ in 0..300 {
+            if reconnect_due(next, now) {
+                dials.push(now);
+                // Server accepts, then closes within the same tick →
+                // Phase 1 drop_socket path (non-auth).
+                schedule_reconnect(&mut attempt, &mut next, now, 0);
+            }
+            now += 1;
+        }
+        // With zero jitter the spacing is exactly the backoff sum.
+        assert_eq!(dials[1] - dials[0], backoff_secs(1) as i64, "dial 2 waits backoff(1), not 0");
+        assert_eq!(dials[2] - dials[0], backoff_secs(1) as i64 + backoff_secs(2) as i64,
+            "dial 3 waits backoff(1)+backoff(2), not 1s");
+        assert!(dials.windows(2).all(|w| w[1] > w[0]), "no same-tick re-dial");
+        assert!(dials.len() <= 10, "throttled vs the 300-dial no-backoff baseline: {}", dials.len());
+    }
+
+    #[test]
+    fn auth_failed_latch_retries_once_per_hour() {
+        // Review round 1: the auth latch must perform a REAL retry once the
+        // 1h cooldown expires (key may have been rotated server side); a
+        // still-rejected key re-arms the latch for another hour. Before the
+        // fix the `!auth_failed` gate made "retry in 1h" a lie: never again.
+        let mut auth_failed = false;
+        let mut next: Option<i64> = None;
+        let mut dials: Vec<i64> = vec![];
+        let mut now = 0i64;
+        for _ in 0..(4 * 3600 / 15) {
+            if reconnect_due(next, now) {
+                if auth_failed {
+                    // Phase 3: cooldown expired — real retry, latch cleared.
+                    auth_failed = false;
+                }
+                dials.push(now);
+                // Upstream still rejects → re-arm for another hour.
+                auth_failed = true;
+                next = Some(now + AUTH_RETRY_SECS);
+            }
+            now += 15;
+        }
+        assert_eq!(dials, vec![0, 3600, 7200, 10_800], "exactly one dial per hour");
+        assert!(auth_failed, "latch re-armed after the final rejection");
     }
 
     // ---------- status state machine ----------
