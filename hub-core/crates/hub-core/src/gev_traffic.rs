@@ -338,6 +338,16 @@ pub async fn gev_overpass(
                 tracing::warn!(endpoint = %upstream_host(url), "overpass 406 egress block — next mirror");
                 last_transport = Some(format!("HTTP 406 ({})", upstream_host(url)));
             }
+            // 200 with an empty body is a degraded mirror (kumi/osm.fr do
+            // this under load — 315 2026-09-17), not a valid empty result
+            // (a real empty Overpass answer is a JSON envelope with an
+            // empty elements array, never zero bytes).
+            Ok(r) if r.status().is_success()
+                && r.content_length() == Some(0) =>
+            {
+                tracing::warn!(endpoint = %upstream_host(url), "overpass 200 empty body — next mirror");
+                last_transport = Some(format!("HTTP 200 empty ({})", upstream_host(url)));
+            }
             Ok(r) => {
                 used_host = upstream_host(url);
                 resp = Some(r);
