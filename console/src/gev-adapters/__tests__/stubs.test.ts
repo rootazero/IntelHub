@@ -1,7 +1,8 @@
 // Explicit vitest imports (repo convention, cf. gev-boot/__tests__/define.test.ts):
 // vitest.config.ts sets globals:true for the runtime, but `tsc -b` does not load
 // vitest/globals types, so bare `test`/`expect` break `npm run build`.
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import type { ApiFetch } from "../http";
 import { createIntelHubLayerSources } from "../index";
 
 // Mirrors SOURCE_METHODS in console/gev-engine/src/app/constructCatalog.js:26-47.
@@ -29,6 +30,11 @@ const REQUIRED: Record<string, string[]> = {
   firms: ["getSnapshot"],
   earthquakes: ["getSnapshot"],
   cables: ["fetch"],
+  // Not in SOURCE_METHODS (the engine layer validates it itself,
+  // transit/index.js:34-41), but the catalog consumes sources.transit
+  // (constructCatalog.js:127) — the stub must be registered here so the
+  // engine's own unauthenticated /api/transit fallback never engages (T3 I-2).
+  transit: ["requestSnapshot", "getHistory"],
 };
 
 test("sources cover every SOURCE_METHODS entry", () => {
@@ -38,6 +44,31 @@ test("sources cover every SOURCE_METHODS entry", () => {
   for (const [layer, methods] of Object.entries(REQUIRED))
     for (const m of methods)
       expect(typeof (s as any)[layer]?.[m], `${layer}.${m}`).toBe("function");
+});
+
+// T3 M-4: the factory is the single wiring point, so these spy assertions go
+// through createIntelHubLayerSources (not the per-source factories) — they
+// prove the real wave-1 sources close over the injected transport. If a future
+// refactor drops the apiFetch closure ("transport not wired"), the spy never
+// fires and this test fails.
+test("factory-wired real sources call the injected apiFetch", async () => {
+  const apiFetch = vi.fn<ApiFetch>(async (path) => {
+    const body =
+      path === "/api/v1/gev/earthquakes"
+        ? []
+        : path.startsWith("/api/v1/globe/aircraft")
+          ? { ts: "2026-09-17T12:00:00.000Z", aircraft: [] }
+          : ""; // satellites readGroup → res.text()
+    return new Response(JSON.stringify(body), { status: 200 });
+  });
+  const s = createIntelHubLayerSources({ apiFetch });
+  await (s as any).flights.getSnapshot();
+  await (s as any).earthquakes.getSnapshot();
+  await (s as any).satellites.readGroup("visual");
+  const paths = apiFetch.mock.calls.map((call) => call[0]);
+  expect(paths).toContain("/api/v1/globe/aircraft");
+  expect(paths).toContain("/api/v1/gev/earthquakes");
+  expect(paths).toContain("/api/v1/gev/celestrak/visual");
 });
 
 test("stub getSnapshot resolves to empty-degraded envelope", async () => {

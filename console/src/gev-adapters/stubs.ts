@@ -1,4 +1,4 @@
-// Contract-valid, read-only stubs for the 14 GEV layer sources.
+// Contract-valid, read-only stubs for the 15 GEV layer sources.
 //
 // Goal (P2 T3): every layer can be enabled and renders empty WITHOUT throwing
 // and WITHOUT fabricating data. These are pure data objects — no engine
@@ -241,5 +241,38 @@ export const installations = {
 export const satellites = {
   async readGroup(): Promise<{ ok: boolean; status: number; text: string }> {
     return { ok: false, status: 501, text: "" };
+  },
+};
+
+// ── Transit (GTFS-realtime vehicles) ───────────────────────────────────────
+// layers/transit/index.js:34-41 validates `requestSnapshot` + `getHistory`
+// are functions — and without an explicit entry the catalog passes
+// `sources.transit === undefined`, so the layer silently falls back to the
+// engine's own createTransitSource() (source.js default parameter), which
+// polls the same-origin UNauthenticated /api/transit/vehicles/<feed>. That is
+// the exact failure T3 I-2 rules out: the stub keeps the layer enabled and
+// honest instead.
+// ingestion.js:439-452 reads `{ ok, status, headers, json() }` off the
+// requestSnapshot result and takes `snapshot.vehicles || []` (line 205) from
+// json(); a 503 + `{ vehicles: [] }` lands the feed in its ordinary
+// "temporarily unavailable" state. trails.js:257 iterates `payload.epochs`
+// from getHistory, so the degraded history is `{ epochs: [] }`.
+
+export const transit = {
+  async requestSnapshot(): Promise<{
+    ok: boolean;
+    status: number;
+    headers: Headers;
+    json: () => Promise<{ vehicles: unknown[] }>;
+  }> {
+    return {
+      ok: false,
+      status: 503,
+      headers: new Headers(),
+      json: async () => ({ vehicles: [] }),
+    };
+  },
+  async getHistory(): Promise<{ epochs: unknown[] }> {
+    return { epochs: [] };
   },
 };

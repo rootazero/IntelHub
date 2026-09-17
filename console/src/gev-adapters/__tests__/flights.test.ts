@@ -14,8 +14,12 @@ import { flightsSource } from "../flights";
 // positions (live probe: 38 null flights, 23 null gs, 60 null track, 57 null
 // squawk out of 520 rows), and the hub emits them as JSON null rather than
 // dropping the keys. `seen` is not in the envelope at all.
-const TS = "2026-09-17T00:59:09.029094120+00:00"; // real hub format: +00:00, 9 fractional digits
-const TS_MS = Date.parse(TS);
+// Clock-relative epoch: the adapter now degrades AGED snapshots on its own
+// (aircraft-map.ts toEnvelope, ruling 8 — ageMs > 120 s ⇒ stale), so a
+// fresh-snapshot fixture must be recent at RUN time, not pinned to the probe
+// moment. Row content still mirrors the live probe cited above.
+const TS_MS = Date.now() - 30_000;
+const TS = new Date(TS_MS).toISOString();
 const AIRCRAFT = [
   {
     age_s: 243,

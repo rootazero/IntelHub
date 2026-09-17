@@ -167,7 +167,11 @@ export function toEnvelope(
 ): SnapshotEnvelope<GevAircraftRecord> {
   const observedAtMs = snapshotEpochMs(env);
   const ageMs = observedAtMs == null ? null : Math.max(0, nowMs - observedAtMs);
-  const stale = env.stale === true;
+  // Engine parity (aircraft.js:92): the hub's stale flag OR an aged snapshot
+  // is stale. freshness/status below derive from this single boolean, so an
+  // old-but-unflagged snapshot degrades as one unit (T6 I-2 / ruling 8).
+  const stale =
+    env.stale === true || (ageMs != null && ageMs > 120_000);
   return {
     records,
     complete: true,
