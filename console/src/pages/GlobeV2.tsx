@@ -10,10 +10,13 @@ import { useEffect, useState } from "react";
 import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
+import { HudBottomBar } from "../globe-hud/HudBottomBar";
 import { HudFrame } from "../globe-hud/HudFrame";
 import { HudDetailPanel } from "../globe-hud/HudDetailPanel";
 import { HudLayerRail } from "../globe-hud/HudLayerRail";
 import type { RailManager } from "../globe-hud/HudLayerRail";
+import { HudTopBar } from "../globe-hud/HudTopBar";
+import { useOverview } from "../globe-hud/useOverview";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -32,6 +35,9 @@ export default function GlobeV2() {
   // double effect keeps state, and the module-level `booted` guard ensures
   // start() runs once.
   const [railManager, setRailManager] = useState<RailManager | null>(null);
+  // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
+  // bottom: collector health + counts) — see useOverview.
+  const overviewState = useOverview();
 
   useEffect(() => {
     if (booted.current) return; // StrictMode second mount skips
@@ -59,8 +65,16 @@ export default function GlobeV2() {
     return <div className="hud-fatal">Globe engine failed: {error}</div>;
   return (
     <HudFrame
+      top={<HudTopBar overview={overviewState.overview} />}
       left={railManager ? <HudLayerRail manager={railManager} /> : null}
       right={<HudDetailPanel />}
+      bottom={
+        <HudBottomBar
+          overview={overviewState.overview}
+          manager={railManager}
+          error={overviewState.error}
+        />
+      }
     />
   );
 }
