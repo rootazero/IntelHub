@@ -253,3 +253,126 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── T10 detail panel ────────────────────────────────────────────────────
+   Right-edge resident panel for the selected globe target. Same dark
+   translucent token family as .hud-edge / .hud-rail (no new colors); the
+   right slot hugs the panel width (mirrors the T9 .hud-left:has(> .hud-rail)
+   rule) and follows its collapse state. */
+.hud-right:has(> .hud-detail) {
+  width: auto;
+  min-width: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.hud-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  height: 100%;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.hud-detail.collapsed {
+  width: 16px;
+  padding: 8px 1px;
+}
+
+.hud-detail-handle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.hud-detail-handle:hover {
+  color: #e6edf3;
+}
+
+.hud-detail.collapsed .hud-detail-body {
+  display: none;
+}
+
+.hud-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 18px; /* clear the collapse handle */
+  overflow-y: auto;
+}
+
+.hud-detail-empty {
+  padding: 12px 4px;
+  color: #9aa4b2;
+  font-size: 12px;
+  text-align: center;
+}
+
+.hud-detail-kind {
+  font-size: 10px;
+  color: #ff9500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hud-detail-title {
+  font-size: 14px;
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-detail-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid rgba(154, 164, 178, 0.2);
+}
+
+.hud-detail-fields dt {
+  color: #9aa4b2;
+}
+
+.hud-detail-fields dd {
+  margin: 0;
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-detail-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hud-detail-link {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 149, 0, 0.55);
+  border-radius: 6px;
+  color: #ff9500;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.hud-detail-link:hover {
+  background: rgba(255, 149, 0, 0.15);
+  color: #e6edf3;
+}
