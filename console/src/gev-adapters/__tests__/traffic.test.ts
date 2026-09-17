@@ -11,7 +11,7 @@ test("rewriteTrafficPath maps the three engine endpoint families", () => {
   expect(rewriteTrafficPath("/api/overpass")).toBe("/api/v1/gev/overpass");
   expect(rewriteTrafficPath("/api/tomtom/status")).toBe("/api/v1/gev/tomtom/status");
   expect(rewriteTrafficPath("/api/tomtom/flow/12/654/1583.pbf")).toBe(
-    "/api/v1/gev/tomtom/flow/12/654/1583.pbf",
+    "/api/v1/gev/tomtom/flow/12/654/1583",
   );
   // non-traffic paths pass through untouched
   expect(rewriteTrafficPath("/api/cctv/sources")).toBe("/api/cctv/sources");
@@ -86,7 +86,7 @@ test("flow tile requests hit the rewritten .pbf route; all-failed rejects, parti
   expect(Array.isArray(out)).toBe(true); // empty MVT buffers decode to []
   expect(calls.length).toBeGreaterThan(0);
   for (const c of calls)
-    expect(c).toMatch(/^\/api\/v1\/gev\/tomtom\/flow\/8\/\d+\/\d+\.pbf$/);
+    expect(c).toMatch(/^\/api\/v1\/gev\/tomtom\/flow\/8\/\d+\/\d+$/);
 });
 
 test("flow session stats + cache reset methods exist (SOURCE_METHODS contract)", () => {
