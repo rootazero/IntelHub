@@ -302,8 +302,14 @@ except Exception:
 # valid-JSON-non-dict (e.g. a bare string/array) must not crash .get() below
 if not isinstance(snap, dict):
     snap = {}
-check("globe: aircraft snapshot fresh (count>100)",
-      int(snap.get("count", 0)) > 100,
+# Count floor calibrated 2026-09-17 (T18 410 deploy): snapshot = trailing
+# 600s unique aircraft, but tick latency varies with upstream state (measured
+# 60-75s/tick under load → a 13-tick cycle spans ~15min > 600s retention), so
+# the count oscillates with cycle phase: trough 79-86 at squawk7700, peak 429.
+# count>100 was a coin flip; >50 still catches a dead collector/empty upstream
+# while tolerating slow-tick phases. Freshness carries the liveness signal.
+check("globe: aircraft snapshot fresh (count>50)",
+      int(snap.get("count", 0)) > 50,
       f"count={snap.get('count', 0)} last_tick={snap.get('last_tick')}")
 
 n_sat = pg1("SELECT count(*) FROM satellites")
@@ -362,8 +368,8 @@ check("gev: satellites per-category floor (six groups calibrated, total >600)",
 # suffix exactly when an opensky OAuth snapshot is being merged — assert the
 # base prefix (startswith), never exact equality.
 cov = str(body_a.get("coverage", "")) if isinstance(body_a, dict) else ""
-check("gev: flights snapshot envelope (count>100, coverage tolerant)",
-      st_a == 200 and int(body_a.get("count", 0)) > 100 and cov.startswith("hotspots+mil+squawk"),
+check("gev: flights snapshot envelope (count>50, coverage tolerant)",
+      st_a == 200 and isinstance(body_a, dict) and int(body_a.get("count", 0)) > 50 and cov.startswith("hotspots+mil+squawk"),
       f"http={st_a} count={body_a.get('count') if isinstance(body_a, dict) else '?'} coverage={cov!r}")
 
 # T4: earthquake layer rows (JSON array body — every row M2.5+ by the
