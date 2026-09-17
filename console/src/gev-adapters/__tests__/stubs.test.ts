@@ -53,11 +53,18 @@ test("stub getSnapshot resolves to empty-degraded envelope", async () => {
 // guards most calls with its own try/catch, but the stub methods themselves
 // must always resolve — an unhandled rejection here would surface as a layer
 // that fails to enable rather than one that simply shows nothing.
+//
+// Only STUB layers are checked here: the wave-1 real sources deliberately throw
+// on contract misuse (earthquakes → HTTP error, satellites → unknown group
+// TypeError, see ./satellites.test.ts) — that is their specified behavior, not
+// a stub-resilience regression.
 test("every stub method resolves without throwing", async () => {
   const s = createIntelHubLayerSources({
     apiFetch: async () => new Response("{}"),
   });
-  for (const [layer, methods] of Object.entries(REQUIRED))
+  const REAL = new Set(["earthquakes", "satellites"]);
+  for (const [layer, methods] of Object.entries(REQUIRED)) {
+    if (REAL.has(layer)) continue;
     for (const m of methods) {
       try {
         await (s as any)[layer][m]();
@@ -65,4 +72,5 @@ test("every stub method resolves without throwing", async () => {
         throw new Error(`${layer}.${m} rejected: ${String(error)}`);
       }
     }
+  }
 });
