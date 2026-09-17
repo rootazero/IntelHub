@@ -75,6 +75,10 @@ pub fn router() -> Router<Arc<AppState>> {
         // GEV P3: cctv layer source (camera catalog + probe health; frames/media proxied at T12)
         .route("/api/v1/gev/cctv/sources", get(crate::gev_cctv::gev_cctv_sources))
         .route("/api/v1/gev/cctv/health", get(crate::gev_cctv::gev_cctv_health))
+        // GEV P3 T12: frame proxy (10s cache) + mp4 media stream (cap 4, 429);
+        // hls → 501 until the P4 playlist proxy. SSRF-impossible: ids only.
+        .route("/api/v1/gev/cctv/frame/{id}", get(crate::gev_cctv::gev_cctv_frame))
+        .route("/api/v1/gev/cctv/media/{id}", get(crate::gev_cctv::gev_cctv_media))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
