@@ -14,21 +14,41 @@
 //     brief. The engine's own createApplicationData has a hard catalog
 //     dependency (data.js:27), but the IntelHub bootstrap does not call the
 //     engine's data/tools factories at all (see below), so no phase change.
-//   * Engine createApplicationData is NOT used: it mounts a #data-toggles
-//     widget, requires controls.styleManager, and hard-requires the catalog
-//     (data.js:27). Engine createApplicationTools is NOT used either: it
-//     destructures controls.styleManager and data.dataManager (tools.js:20-23)
-//     and installs the scope mask + engine chrome. Both stay stubbed at `{}`;
-//     T9 wires IntelHub's own data/layer sidebar against
-//     getComponents().scene.catalog, and layers are constructed but not yet
-//     registered into a LayerLifecycle data manager.
+//   * Engine createApplicationTools is NOT used: it destructures
+//     controls.styleManager and data.dataManager (tools.js:20-23) and installs
+//     the scope mask + engine chrome — IntelHub's HUD owns that chrome. It
+//     stays stubbed at `{}`.
+//
+// Ruling 9 (T8): the DATA phase IS wired, but with IntelHub's own createData
+// following the vendor recipe printed in gev-engine/src/app/data.js
+// (verified against src/data/lifecycle.js):
+//   new LayerLifecycle(viewer, { allowQaRegistration: false })
+//   → per-layer register() → attachDataManager?.() → attachMapStackController?.()
+//   → finalizeRegistrations(catalog.metadata) → defer(destroyAll())
+// Engine createApplicationData itself is NOT called: it additionally mounts
+// the engine's LayerPresentation into #data-toggles and requires
+// controls.styleManager, both engine chrome the IntelHub HUD replaces (T9).
+// T9's layer rail drives enable/disable via getComponents().data.dataManager.
 
 import { createApplication } from "gev-engine/src/app/application.js";
 import { createApplicationScene } from "gev-engine/src/app/scene.js";
 import { createApplicationCatalog } from "gev-engine/src/app/constructCatalog.js";
+import { LayerLifecycle } from "gev-engine/src/data/lifecycle.js";
 import { setScopeMaskEnabled } from "gev-engine/src/scopeMask.js";
 import { createIntelHubRequestServices } from "./request-services";
 import { createIntelHubLayerSources } from "../gev-adapters";
+
+// Default-enabled layer set (controller ruling 9). The vendor data.js has NO
+// default-enable logic of its own (lifecycle entries start disabled; upstream
+// enables come from state restoration, which IntelHub does not run), so the
+// initial set is an IntelHub policy decision: the four wave-1 live layers on,
+// everything else off.
+const DEFAULT_ENABLED_LAYERS = [
+  "flights",
+  "military",
+  "satellites",
+  "earthquakes",
+] as const;
 
 export interface IntelHubGlobeOptions {
   /** Authenticated hub transport, shared by adapters + future P4/P5 services. */
@@ -68,9 +88,46 @@ export function createIntelHubGlobe(opts: IntelHubGlobeOptions) {
       scene.catalog = catalog;
       return { catalog };
     },
-    // Engine data/tools phases are deliberately stubbed (file header) — the
-    // IntelHub HUD owns its own layer UI instead of #data-toggles.
-    createData: async () => ({}),
+    // Data phase (Ruling 9): register the catalog into a LayerLifecycle data
+    // manager following the vendor data.js recipe. createData is sync — the
+    // engine awaits the factory's return like any other phase.
+    createData: ({ scene, controls, signal, defer }: any) => {
+      void signal;
+      const { viewer, mapStackController } = scene;
+      const { catalog } = controls;
+      // Vendor data.js:27 — the catalog is a hard requirement of this phase.
+      if (!catalog?.layers || !catalog?.metadata)
+        throw new TypeError("An application layer catalog is required");
+      const dataManager = new LayerLifecycle(viewer, {
+        allowQaRegistration: false,
+      });
+      defer(async () => {
+        await dataManager.destroyAll();
+        if (dataManager.layers.size)
+          throw new Error(
+            `Data layers could not be destroyed: ${[...dataManager.layers.keys()].join(", ")}`,
+          );
+      });
+      for (const layer of catalog.layers) dataManager.register(layer);
+      for (const layer of catalog.layers) layer.attachDataManager?.(dataManager);
+      for (const layer of catalog.layers)
+        layer.attachMapStackController?.(mapStackController);
+      // Seals registration; catalog.metadata is the LAYER_STATE_REGISTRY array
+      // of {id, token, disposition} and must cover every registered layer.
+      dataManager.finalizeRegistrations(catalog.metadata);
+      // Fire-and-forget: enabling runs each layer's init/enable/first-update
+      // (which hits live sources via apiFetch) on the per-layer queue —
+      // blocking start() on first data would delay the page for no UX gain.
+      for (const id of DEFAULT_ENABLED_LAYERS) {
+        void Promise.resolve(
+          dataManager.setEnabled(id, true, { origin: "programmatic" }),
+        ).catch((e) => console.warn(`[gev] enable ${id} failed:`, e));
+      }
+      // T9's rail reaches the manager via getComponents().data.dataManager.
+      return { dataManager, lifecycle: dataManager };
+    },
+    // Engine tools phase is deliberately stubbed (file header) — IntelHub's
+    // HUD owns its own layer UI instead of the engine chrome installed here.
     createTools: async () => ({}),
   });
   return {

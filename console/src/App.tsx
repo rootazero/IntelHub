@@ -19,7 +19,9 @@ import Agents from "./pages/Agents";
 import Audit from "./pages/Audit";
 import System from "./pages/System";
 
-const Globe = lazy(() => import("./pages/Globe"));
+const GlobeV2 = lazy(() => import("./pages/GlobeV2"));
+
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 const NAV = [
   ["/", "nav.monitor"],
@@ -172,7 +174,9 @@ function Shell() {
             path="/globe"
             element={
               <Suspense fallback={<div className="p-4 text-dim">Loading globe…</div>}>
-                <Globe />
+                <ErrorBoundary>
+                  <GlobeV2 />
+                </ErrorBoundary>
               </Suspense>
             }
           />

@@ -1,0 +1,84 @@
+/* GEV globe HUD frame (T8 skeleton). Dark full-viewport canvas with four
+   translucent edge rails; left/right rails collapse to zero width via
+   .collapsed (T9 wires the toggle). */
+
+.hud-root {
+  position: fixed;
+  inset: 0;
+  background: #030509;
+  overflow: hidden;
+}
+
+.hud-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Engine boot progress — engine writes loaderStatus text; keep it quiet. */
+#loading-screen {
+  position: absolute;
+  inset: auto 8px 8px auto;
+  opacity: 0.6;
+  font-size: 11px;
+  color: #9aa4b2;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Edge rails */
+.hud-edge {
+  position: absolute;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  transition: width 0.2s ease, height 0.2s ease;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.hud-top {
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  height: 48px;
+}
+
+.hud-bottom {
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  height: 120px;
+}
+
+.hud-left {
+  top: 64px;
+  bottom: 136px;
+  left: 8px;
+  width: 280px;
+}
+
+.hud-right {
+  top: 64px;
+  bottom: 136px;
+  right: 8px;
+  width: 320px;
+}
+
+.hud-left.collapsed,
+.hud-right.collapsed {
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hud-fatal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff9500;
+  font-size: 13px;
+  background: #030509;
+  z-index: 30;
+}
