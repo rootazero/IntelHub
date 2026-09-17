@@ -59,6 +59,8 @@ pub fn router() -> Router<Arc<AppState>> {
         // Globe P1 (read-only, auth middleware inherited)
         .route("/api/v1/globe/aircraft", get(console_globe_aircraft))
         .route("/api/v1/globe/satellites", get(console_globe_satellites))
+        // GEV P2: earthquake layer source (geo_events kind='quake')
+        .route("/api/v1/gev/earthquakes", get(gev_earthquakes))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
@@ -892,6 +894,79 @@ async fn console_globe_satellites(
     Ok(Json(json!({ "count": items.len(), "items": items })))
 }
 
+// ---------- GEV P2: earthquake layer source (geo_events kind='quake') ----------
+
+/// Map one `geo_events` quake row to the row shape the vendored GEV earthquakes
+/// layer destructures — `{stableId, usgsId, lon, lat, depthKm, mag, place, time}`
+/// (console/gev-engine/src/layers/earthquakes/index.js:86, mirrors
+/// `normalizeEarthquakeSnapshot` in layers/earthquakes/records.js).
+///
+/// `payload` is the raw USGS `properties` object (usgs.rs `Signal::payload`), so
+/// it carries `mag`/`place`/`time` (ms epoch) but NOT `depthKm`: depth lives in
+/// GeoJSON `geometry.coordinates[2]` and was never copied into properties. Hence
+/// `depthKm` is null for every USGS row — the engine tolerates it
+/// (`depthColor(depthKm || 0)`, `num(raw?.depth) -> null`).
+///
+/// `time` is payload `time` when present, else `occurred_at` parsed to ms epoch,
+/// else null — the field is number|null in every branch (the engine reads it as
+/// USGS epoch ms via `num()`), so it never leaks an ISO string.
+fn quake_row(
+    stable_id: String,
+    usgs_id: String,
+    lon: f64,
+    lat: f64,
+    payload: Option<Value>,
+    occurred: String,
+) -> Value {
+    let p = payload.unwrap_or_default();
+    let time = p.get("time").cloned().unwrap_or_else(|| {
+        chrono::DateTime::parse_from_rfc3339(&occurred)
+            .map(|d| json!(d.timestamp_millis()))
+            .unwrap_or(Value::Null)
+    });
+    json!({
+        "stableId": stable_id,
+        "usgsId": usgs_id,
+        "lon": lon,
+        "lat": lat,
+        "depthKm": p.get("depthKm").cloned().unwrap_or(Value::Null),
+        "mag": p.get("mag").cloned().unwrap_or(Value::Null),
+        "place": p.get("place").cloned().unwrap_or(Value::Null),
+        "time": time,
+    })
+}
+
+async fn gev_earthquakes(State(state): State<Arc<AppState>>) -> Result<Json<Value>, Response> {
+    // external_id is the USGS feature id (stableId + usgsId are the same value:
+    // IntelHub has no second id for a quake, and the engine uses stableId only as
+    // the Cesium entity key / dedupe key).
+    type Row = (String, String, f64, f64, Option<Value>, String);
+    let rows = sqlx::query_as::<_, Row>(
+        r#"SELECT external_id, external_id, lon, lat, payload,
+                  to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+             FROM geo_events
+            WHERE kind = 'quake'
+              AND occurred_at > now() - interval '24 hours'
+              AND lat IS NOT NULL AND lon IS NOT NULL
+            ORDER BY occurred_at DESC
+            LIMIT 500"#,
+    )
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| {
+        hub_err(crate::error::HubError::sensor(format!(
+            "gev earthquakes query: {e}"
+        )))
+    })?;
+    let out: Vec<Value> = rows
+        .into_iter()
+        .map(|(stable_id, usgs_id, lon, lat, payload, occurred)| {
+            quake_row(stable_id, usgs_id, lon, lat, payload, occurred)
+        })
+        .collect();
+    Ok(Json(Value::Array(out)))
+}
+
 // ---------- SP5: external evidence push (Huginn bridge, §50 Evidence Event) ----------
 
 #[derive(Debug, Deserialize)]
@@ -1523,3 +1598,50 @@ async fn list_series(Query(q): Query<SeriesQuery>) -> Json<Value> {
         "series": filtered,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quake_row_maps_geo_event() {
+        let ev = serde_json::json!({"mag": 5.1, "place": "10km S of X", "time": 1758000000000i64});
+        let row = quake_row("ext-1".into(), "ext-1".into(), 140.1, 35.2, Some(ev), "2026-09-17T00:00:00Z".into());
+        assert_eq!(row["mag"], 5.1);
+        assert_eq!(row["stableId"], "ext-1");
+        assert_eq!(row["time"], 1758000000000i64);
+        assert!(row["depthKm"].is_null());
+    }
+
+    #[test]
+    fn quake_row_keeps_contract_shape_for_null_payload() {
+        // jsonb is NOT NULL in geo_events, but the mapping must still produce
+        // every contract key (never `undefined`) if a legacy/empty payload lands.
+        let row = quake_row("us7000abcd".into(), "us7000abcd".into(), -117.0, 34.1, None, "2026-09-17T00:00:00Z".into());
+        for key in [
+            "stableId", "usgsId", "lon", "lat", "depthKm", "mag", "place", "time",
+        ] {
+            assert!(row.get(key).is_some(), "missing key {key}");
+        }
+        assert!(row["mag"].is_null());
+        assert!(row["place"].is_null());
+        assert!(row["depthKm"].is_null());
+        // `time` falls back to occurred_at as ms epoch, never an ISO string.
+        assert_eq!(row["time"], 1789603200000i64);
+    }
+
+    #[test]
+    fn quake_row_passes_through_payload_fields() {
+        // depthKm is absent from USGS properties; when a producer does supply it
+        // the mapping must not silently drop it.
+        let ev = serde_json::json!({"mag": 6.2, "place": "off Honshu", "time": 1757500000000i64, "depthKm": 40.5});
+        let row = quake_row("us1".into(), "us1".into(), 142.3, 38.3, Some(ev), "2026-09-17T00:00:00Z".into());
+        assert_eq!(row["lon"], 142.3);
+        assert_eq!(row["lat"], 38.3);
+        assert_eq!(row["depthKm"], 40.5);
+        assert_eq!(row["usgsId"], "us1");
+        assert_eq!(row["mag"], 6.2);
+        assert_eq!(row["place"], "off Honshu");
+    }
+}
+
