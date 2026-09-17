@@ -21,8 +21,9 @@ import "../globe-hud/hud.css";
 
 const booted = { current: false };
 
-// Key names follow the P1 globe (src/globe/basemap.ts), fed at build time by
-// scripts/build-console.sh (VITE_CESIUM_ION_KEY / VITE_GOOGLE_MAPS_KEY).
+// Key names follow the P1 globe build-time chain, fed by
+// scripts/build-console.sh (VITE_CESIUM_ION_KEY / VITE_GOOGLE_MAPS_KEY); the
+// P1 reader (src/globe/basemap.ts) was retired in T16.
 const GOOGLE_KEY =
   (import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined) ?? "";
 const CESIUM_KEY =
