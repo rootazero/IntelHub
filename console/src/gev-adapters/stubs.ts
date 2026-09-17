@@ -205,31 +205,10 @@ export const bikeshare = {
   },
 };
 
-// ── Military installations (OSM + Google Places) ───────────────────────────
-// installations/ingestion.js:55-69 → payload.saturated (bool) and
-// `payload.records.filter(...)`. The real source spreads
-// normalizeMilitaryInstallations()'s `{ records, droppedCount }` and adds
-// `status` + `saturated`. searchNearby (ingestion reads `payload.places`)
-// returns `{ places: [] }`.
-
-export const installations = {
-  async getMappedSites(): Promise<{
-    records: unknown[];
-    droppedCount: number;
-    status: "unavailable";
-    saturated: boolean;
-  }> {
-    return {
-      records: [],
-      droppedCount: 0,
-      status: "unavailable",
-      saturated: false,
-    };
-  },
-  async searchNearby(): Promise<{ places: unknown[] }> {
-    return { places: [] };
-  },
-};
+// ── Military installations ─────────────────────────────────────────────────
+// GEV P3 T4 replaced this stub with ./installations.ts (real source wrapping
+// the engine's own createInstallationSource with a path rewrite). The stub
+// export is removed (same convention as vessels in T2).
 
 // ── Satellites (CelesTrak) ─────────────────────────────────────────────────
 // satellites/ingestion.js:31 → `source.readGroup(path, { signal })` returns
