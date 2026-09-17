@@ -59,6 +59,10 @@ pub fn router() -> Router<Arc<AppState>> {
         // Globe P1 (read-only, auth middleware inherited)
         .route("/api/v1/globe/aircraft", get(console_globe_aircraft))
         .route("/api/v1/globe/satellites", get(console_globe_satellites))
+        // GEV P2: earthquake layer source (geo_events kind='quake')
+        .route("/api/v1/gev/earthquakes", get(gev_earthquakes))
+        // GEV P2: satellites layer source (PG TLE catalog + starlink proxy)
+        .route("/api/v1/gev/celestrak/{group}", get(gev_celestrak))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
@@ -839,7 +843,11 @@ async fn console_metrics_summary(
 async fn console_globe_aircraft(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
-    let blob: Option<String> = state
+    // Ruling 3 (GEV P2 T13): two independent snapshots — adsb.lol rotating
+    // (`hub:globe:aircraft`, TTL 300s) and OpenSky OAuth full vectors
+    // (`hub:globe:aircraft:opensky`, TTL 120s) — merged by hex at read time
+    // (fresher age_s wins; adsb priority without age info).
+    let adsb_blob: Option<String> = state
         .redis_timed(
             redis::cmd("GET")
                 .arg(crate::monitor::sources::adsb::AIRCRAFT_KEY)
@@ -847,13 +855,22 @@ async fn console_globe_aircraft(
             2000,
         )
         .await;
-    let parsed = blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
-    match parsed {
-        Some(v) => Ok(Json(v)),
-        // Snapshot missing/corrupt = collector dead >300s (SNAPSHOT_TTL_SECS).
-        // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
-        None => Ok(Json(json!({ "stale": true, "aircraft": [] }))),
-    }
+    let opensky_blob: Option<String> = state
+        .redis_timed(
+            redis::cmd("GET")
+                .arg(crate::monitor::sources::opensky::OPENSKY_AIRCRAFT_KEY)
+                .clone(),
+            2000,
+        )
+        .await;
+    let adsb = adsb_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let opensky = opensky_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    // Both missing/corrupt = both collectors dead (adsb >300s, opensky >120s).
+    // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
+    Ok(Json(crate::monitor::sources::adsb::merge_globe_snapshots(
+        adsb.as_ref(),
+        opensky.as_ref(),
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -890,6 +907,208 @@ async fn console_globe_satellites(
         })
         .collect();
     Ok(Json(json!({ "count": items.len(), "items": items })))
+}
+
+// ---------- GEV P2: earthquake layer source (geo_events kind='quake') ----------
+
+/// Map one `geo_events` quake row to the row shape the vendored GEV earthquakes
+/// layer destructures — `{stableId, usgsId, lon, lat, depthKm, mag, place, time}`
+/// (console/gev-engine/src/layers/earthquakes/index.js:86, mirrors
+/// `normalizeEarthquakeSnapshot` in layers/earthquakes/records.js).
+///
+/// `payload` is the raw USGS `properties` object (usgs.rs `Signal::payload`), so
+/// it carries `mag`/`place`/`time` (ms epoch) but NOT `depthKm`: depth lives in
+/// GeoJSON `geometry.coordinates[2]` and was never copied into properties. Hence
+/// `depthKm` is null for every USGS row — the engine tolerates it
+/// (`depthColor(depthKm || 0)`, `num(raw?.depth) -> null`).
+///
+/// `time` is payload `time` when present, else `occurred_at` parsed to ms epoch,
+/// else null — the field is number|null in every branch (the engine reads it as
+/// USGS epoch ms via `num()`), so it never leaks an ISO string.
+fn quake_row(
+    stable_id: String,
+    usgs_id: String,
+    lon: f64,
+    lat: f64,
+    payload: Option<Value>,
+    occurred: String,
+) -> Value {
+    let p = payload.unwrap_or_default();
+    let time = p.get("time").cloned().unwrap_or_else(|| {
+        chrono::DateTime::parse_from_rfc3339(&occurred)
+            .map(|d| json!(d.timestamp_millis()))
+            .unwrap_or(Value::Null)
+    });
+    json!({
+        "stableId": stable_id,
+        "usgsId": usgs_id,
+        "lon": lon,
+        "lat": lat,
+        "depthKm": p.get("depthKm").cloned().unwrap_or(Value::Null),
+        "mag": p.get("mag").cloned().unwrap_or(Value::Null),
+        "place": p.get("place").cloned().unwrap_or(Value::Null),
+        "time": time,
+    })
+}
+
+async fn gev_earthquakes(State(state): State<Arc<AppState>>) -> Result<Json<Value>, Response> {
+    // external_id is the USGS feature id (stableId + usgsId are the same value:
+    // IntelHub has no second id for a quake, and the engine uses stableId only as
+    // the Cesium entity key / dedupe key).
+    // T4 review carry-forward (T5 commit): every row is M2.5+ by construction
+    // of the upstream USGS `2.5_day.geojson` feed — THAT upstream contract is
+    // what guarantees magnitude, not any filtering here or in the engine (the
+    // `mag < 2.5` discard in the engine's records.js is only a second gate).
+    // The NOT NULL guard rejects rows whose payload lost `mag` upstream, which
+    // the engine would drop as unverifiable anyway.
+    type Row = (String, String, f64, f64, Option<Value>, String);
+    let rows = sqlx::query_as::<_, Row>(
+        r#"SELECT external_id, external_id, lon, lat, payload,
+                  to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+             FROM geo_events
+            WHERE kind = 'quake'
+              AND occurred_at > now() - interval '24 hours'
+              AND lat IS NOT NULL AND lon IS NOT NULL
+              AND payload->>'mag' IS NOT NULL
+            ORDER BY occurred_at DESC
+            LIMIT 500"#,
+    )
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| {
+        hub_err(crate::error::HubError::sensor(format!(
+            "gev earthquakes query: {e}"
+        )))
+    })?;
+    let out: Vec<Value> = rows
+        .into_iter()
+        .map(|(stable_id, usgs_id, lon, lat, payload, occurred)| {
+            quake_row(stable_id, usgs_id, lon, lat, payload, occurred)
+        })
+        .collect();
+    Ok(Json(Value::Array(out)))
+}
+
+// ---------- GEV P2: satellites layer source (PG TLE catalog + starlink proxy) ----------
+
+/// GEV six core groups — mirrors the celestrak collector's default
+/// `celestrak_groups()` and the engine's CATALOG_GROUPS
+/// (gev-engine/src/layers/satellites/policy.js). starlink is served via proxy,
+/// not from PG (see `starlink_tle`).
+const GEV_TLE_GROUPS: &[&str] = &["stations", "visual", "gps-ops", "glo-ops", "galileo", "geo"];
+
+const STARLINK_TLE_KEY: &str = "hub:globe:tle:starlink";
+const STARLINK_TLE_URL: &str =
+    "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle";
+const STARLINK_TLE_TTL_SECS: u64 = 6 * 3600;
+
+/// Three-line TLE block per record (name / line1 / line2), blocks joined by a
+/// single newline with a trailing newline — byte-compatible with CelesTrak's
+/// own gp.php?FORMAT=tle layout, which is what the engine's `parseTLE` consumes.
+fn tle_text(rows: &[(String, String, String)]) -> String {
+    rows.iter()
+        .map(|(n, a, b)| format!("{n}\n{a}\n{b}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
+}
+
+fn tle_plain(text: String) -> Response {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        text,
+    )
+        .into_response()
+}
+
+/// HTTP client for monitor-style upstream calls from the REST layer —
+/// identical config to `monitor::Ctx::new` (the celestrak collector's fetch
+/// path): browser UA (celestrak.org sits behind Cloudflare; honest bot UAs get
+/// challenged) + 25s timeout. Deliberately NOT `state.http`, which carries the
+/// honest `intelhub-core` UA for our own API peers.
+fn monitor_http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(25))
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+            .build()
+            .expect("monitor http client build")
+    })
+}
+
+async fn gev_celestrak(
+    State(state): State<Arc<AppState>>,
+    Path(group): Path<String>,
+) -> Result<Response, Response> {
+    if group == "starlink" {
+        return starlink_tle(&state).await;
+    }
+    if !GEV_TLE_GROUPS.contains(&group.as_str()) {
+        return Err(err(StatusCode::NOT_FOUND, "unknown group".into()));
+    }
+    type Row = (String, String, String);
+    let rows = sqlx::query_as::<_, Row>(
+        "SELECT name, tle_line1, tle_line2 FROM satellites WHERE category = $1 ORDER BY name",
+    )
+    .bind(&group)
+    .fetch_all(&state.pg)
+    .await
+    .map_err(|e| {
+        hub_err(crate::error::HubError::sensor(format!(
+            "gev celestrak {group}: {e}"
+        )))
+    })?;
+    Ok(tle_plain(tle_text(&rows)))
+}
+
+/// starlink is deliberately absent from the PG catalog (P1 spec decision,
+/// carried into GEV P2): the ~7000-sat constellation is too volatile for the
+/// 6h per-category full-replace cadence and would dwarf the six core groups.
+/// Serve it as a thin proxied passthrough cached in Redis for one collector
+/// interval. Upstream failure passes through as 502 and never poisons the cache.
+async fn starlink_tle(state: &AppState) -> Result<Response, Response> {
+    let cached: Option<String> = state
+        .redis_timed(redis::cmd("GET").arg(STARLINK_TLE_KEY).clone(), 2000)
+        .await;
+    if let Some(text) = cached {
+        return Ok(tle_plain(text));
+    }
+    let resp = monitor_http().get(STARLINK_TLE_URL).send().await;
+    let text = match resp {
+        Ok(r) if r.status().is_success() => match r.text().await {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(error = %e, "celestrak starlink body read failed");
+                return Err(err(StatusCode::BAD_GATEWAY, "celestrak upstream failed".into()));
+            }
+        },
+        Ok(r) => {
+            tracing::warn!(status = %r.status(), "celestrak starlink upstream failed");
+            return Err(err(StatusCode::BAD_GATEWAY, "celestrak upstream failed".into()));
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "celestrak starlink upstream failed");
+            return Err(err(StatusCode::BAD_GATEWAY, "celestrak upstream failed".into()));
+        }
+    };
+    // A 200 with no parseable TLE triples is an upstream anomaly (error page,
+    // format change) — treat it like a failure and do NOT cache it.
+    if crate::monitor::sources::celestrak::parse_tle_catalog(&text).is_empty() {
+        tracing::warn!(bytes = text.len(), "celestrak starlink returned no TLE triples");
+        return Err(err(StatusCode::BAD_GATEWAY, "celestrak upstream failed".into()));
+    }
+    let _: Option<String> = state
+        .redis_timed(
+            redis::cmd("SETEX")
+                .arg(STARLINK_TLE_KEY)
+                .arg(STARLINK_TLE_TTL_SECS)
+                .arg(&text)
+                .clone(),
+            2000,
+        )
+        .await;
+    Ok(tle_plain(text))
 }
 
 // ---------- SP5: external evidence push (Huginn bridge, §50 Evidence Event) ----------
@@ -1523,3 +1742,62 @@ async fn list_series(Query(q): Query<SeriesQuery>) -> Json<Value> {
         "series": filtered,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quake_row_maps_geo_event() {
+        let ev = serde_json::json!({"mag": 5.1, "place": "10km S of X", "time": 1758000000000i64});
+        let row = quake_row("ext-1".into(), "ext-1".into(), 140.1, 35.2, Some(ev), "2026-09-17T00:00:00Z".into());
+        assert_eq!(row["mag"], 5.1);
+        assert_eq!(row["stableId"], "ext-1");
+        assert_eq!(row["time"], 1758000000000i64);
+        assert!(row["depthKm"].is_null());
+    }
+
+    #[test]
+    fn quake_row_keeps_contract_shape_for_null_payload() {
+        // jsonb is NOT NULL in geo_events, but the mapping must still produce
+        // every contract key (never `undefined`) if a legacy/empty payload lands.
+        let row = quake_row("us7000abcd".into(), "us7000abcd".into(), -117.0, 34.1, None, "2026-09-17T00:00:00Z".into());
+        for key in [
+            "stableId", "usgsId", "lon", "lat", "depthKm", "mag", "place", "time",
+        ] {
+            assert!(row.get(key).is_some(), "missing key {key}");
+        }
+        assert!(row["mag"].is_null());
+        assert!(row["place"].is_null());
+        assert!(row["depthKm"].is_null());
+        // `time` falls back to occurred_at as ms epoch, never an ISO string.
+        assert_eq!(row["time"], 1789603200000i64);
+    }
+
+    #[test]
+    fn quake_row_passes_through_payload_fields() {
+        // depthKm is absent from USGS properties; when a producer does supply it
+        // the mapping must not silently drop it.
+        let ev = serde_json::json!({"mag": 6.2, "place": "off Honshu", "time": 1757500000000i64, "depthKm": 40.5});
+        let row = quake_row("us1".into(), "us1".into(), 142.3, 38.3, Some(ev), "2026-09-17T00:00:00Z".into());
+        assert_eq!(row["lon"], 142.3);
+        assert_eq!(row["lat"], 38.3);
+        assert_eq!(row["depthKm"], 40.5);
+        assert_eq!(row["usgsId"], "us1");
+        assert_eq!(row["mag"], 6.2);
+        assert_eq!(row["place"], "off Honshu");
+    }
+
+    #[test]
+    fn tle_text_three_line_blocks() {
+        let s = tle_text(&[("ISS".into(), "1 ..".into(), "2 ..".into())]);
+        assert_eq!(s, "ISS\n1 ..\n2 ..\n");
+        // Byte-compatible with CelesTrak gp.php?FORMAT=tle layout.
+        let s = tle_text(&[
+            ("A".into(), "1 a".into(), "2 a".into()),
+            ("B".into(), "1 b".into(), "2 b".into()),
+        ]);
+        assert_eq!(s, "A\n1 a\n2 a\nB\n1 b\n2 b\n");
+    }
+}
+

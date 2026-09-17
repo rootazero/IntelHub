@@ -124,7 +124,7 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         Box::new(sources::noaa::Noaa),
         Box::new(sources::firms::Firms),
         Box::new(sources::gdelt::Gdelt),
-        Box::new(sources::opensky::OpenSky),
+        Box::new(sources::opensky::OpenSky::default()),
         // Globe P1: CelesTrak TLE catalog → PG satellites (dual with adsb.rs;
         // catalog direct-writes via ctx.state, emits no geo Signals).
         Box::new(sources::celestrak::Celestrak),

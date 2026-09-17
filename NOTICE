@@ -1,0 +1,5 @@
+gods-eye-view — MIT License — Copyright (c) Bilawal Sidhu
+Vendored under console/gev-engine/ (see console/gev-engine/LICENSE).
+Bundled upstream data packs (CC BY-NC-SA submarine cables, ODbL OSM
+extracts) are NOT vendored; equivalent data is ingested into IntelHub
+with attribution (see docs/superpowers/specs/2026-09-17-gev-engine-fusion-design.md §2).

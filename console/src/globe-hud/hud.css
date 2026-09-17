@@ -1,0 +1,566 @@
+/* GEV globe HUD frame (T8 skeleton). Dark full-viewport canvas with four
+   translucent edge rails; left/right rails collapse to zero width via
+   .collapsed (T9 wires the toggle). */
+
+.hud-root {
+  position: fixed;
+  inset: 0;
+  background: #030509;
+  overflow: hidden;
+}
+
+.hud-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Engine boot progress — engine writes loaderStatus text; keep it quiet. */
+#loading-screen {
+  position: absolute;
+  inset: auto 8px 8px auto;
+  opacity: 0.6;
+  font-size: 11px;
+  color: #9aa4b2;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* Edge rails */
+.hud-edge {
+  position: absolute;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  transition: width 0.2s ease, height 0.2s ease;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.hud-top {
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  height: 48px;
+}
+
+.hud-bottom {
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  height: 120px;
+}
+
+.hud-left {
+  top: 64px;
+  bottom: 136px;
+  left: 8px;
+  width: 280px;
+}
+
+.hud-right {
+  top: 64px;
+  bottom: 136px;
+  right: 8px;
+  width: 320px;
+}
+
+.hud-left.collapsed,
+.hud-right.collapsed {
+  width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hud-fatal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff9500;
+  font-size: 13px;
+  background: #030509;
+  z-index: 30;
+}
+
+/* ── T9 layer rail ───────────────────────────────────────────────────────
+   Domain-icon column + hover flyout. Uses the same dark translucent token
+   family as .hud-edge (no new colors). When the rail occupies the left
+   slot, the slot hugs the rail width instead of the T8 placeholder 280px
+   and follows its collapse state. */
+.hud-left:has(> .hud-rail) {
+  width: auto;
+  min-width: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.hud-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 44px;
+  height: 100%;
+  padding: 6px 4px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+}
+
+.hud-rail.collapsed {
+  width: 14px;
+  padding: 6px 1px;
+}
+
+.hud-rail-handle {
+  flex: none;
+  width: 100%;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hud-rail-handle:hover {
+  color: #e6edf3;
+}
+
+.hud-rail-icons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-rail.collapsed .hud-rail-icons {
+  display: none;
+}
+
+.hud-rail-icon {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  filter: grayscale(0.6);
+  opacity: 0.75;
+}
+
+.hud-rail-icon:hover,
+.hud-rail-icon.open {
+  background: rgba(154, 164, 178, 0.15);
+  border-color: rgba(154, 164, 178, 0.35);
+  opacity: 1;
+}
+
+/* Active = at least one layer of the domain effectively enabled. */
+.hud-rail-icon.active {
+  filter: none;
+  opacity: 1;
+  border-color: rgba(255, 149, 0, 0.55);
+}
+
+.hud-rail-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff9500;
+}
+
+.hud-rail-flyout {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 8px);
+  width: 232px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.82);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 8px;
+  z-index: 12;
+}
+
+.hud-rail-flyout-title {
+  font-size: 12px;
+  color: #e6edf3;
+  padding: 2px 4px 8px;
+  border-bottom: 1px solid rgba(154, 164, 178, 0.2);
+  margin-bottom: 6px;
+}
+
+.hud-rail-flyout-sub {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #9aa4b2;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hud-rail-flyout ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud-rail-flyout label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #9aa4b2;
+  cursor: pointer;
+}
+
+.hud-rail-flyout label:hover {
+  background: rgba(154, 164, 178, 0.12);
+}
+
+.hud-rail-flyout label.on {
+  color: #e6edf3;
+}
+
+.hud-rail-flyout input[type="checkbox"] {
+  accent-color: #ff9500;
+  margin: 0;
+}
+
+.hud-rail-layer-icon {
+  width: 16px;
+  text-align: center;
+}
+
+.hud-rail-layer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── T10 detail panel ────────────────────────────────────────────────────
+   Right-edge resident panel for the selected globe target. Same dark
+   translucent token family as .hud-edge / .hud-rail (no new colors); the
+   right slot hugs the panel width (mirrors the T9 .hud-left:has(> .hud-rail)
+   rule) and follows its collapse state. */
+.hud-right:has(> .hud-detail) {
+  width: auto;
+  min-width: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.hud-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  height: 100%;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.hud-detail.collapsed {
+  width: 16px;
+  padding: 8px 1px;
+}
+
+.hud-detail-handle {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.hud-detail-handle:hover {
+  color: #e6edf3;
+}
+
+.hud-detail.collapsed .hud-detail-body {
+  display: none;
+}
+
+.hud-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 18px; /* clear the collapse handle */
+  overflow-y: auto;
+}
+
+.hud-detail-empty {
+  padding: 12px 4px;
+  color: #9aa4b2;
+  font-size: 12px;
+  text-align: center;
+}
+
+.hud-detail-kind {
+  font-size: 10px;
+  color: #ff9500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hud-detail-title {
+  font-size: 14px;
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-detail-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid rgba(154, 164, 178, 0.2);
+}
+
+.hud-detail-fields dt {
+  color: #9aa4b2;
+}
+
+.hud-detail-fields dd {
+  margin: 0;
+  color: #e6edf3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-detail-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.hud-detail-link {
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 149, 0, 0.55);
+  border-radius: 6px;
+  color: #ff9500;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.hud-detail-link:hover {
+  background: rgba(255, 149, 0, 0.15);
+  color: #e6edf3;
+}
+
+/* ── T11 top / bottom bars ───────────────────────────────────────────────
+   Thin single-row status strips. Same dark translucent token family as
+   .hud-edge / .hud-rail / .hud-detail (no new colors); the top/bottom slots
+   hug the bars instead of the T8 48px/120px placeholders and follow the T9/T10
+   :has() pattern (the slot keeps only its geometry). */
+.hud-top:has(> .hud-bar),
+.hud-bottom:has(> .hud-bar) {
+  height: auto;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+/* The bottom strip (~34px) is far shorter than the T8 120px placeholder, so
+   the side rails end just above it: 8px gap + strip + 8px gap. */
+.hud-root:has(.hud-bottom .hud-bar) .hud-left,
+.hud-root:has(.hud-bottom .hud-bar) .hud-right {
+  bottom: 58px;
+}
+
+/* Same for the top: 8 + strip + 8 instead of the T8 64px. */
+.hud-root:has(.hud-top .hud-bar) .hud-left,
+.hud-root:has(.hud-top .hud-bar) .hud-right {
+  top: 50px;
+}
+
+.hud-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  color: #9aa4b2;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hud-bar-grow {
+  flex: 1;
+}
+
+.hud-bar-sep {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  background: rgba(154, 164, 178, 0.25);
+}
+
+/* ── top bar ── */
+.hud-bar-mark {
+  flex: none;
+}
+
+.hud-bar-brand {
+  flex: none;
+  color: #e6edf3;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.hud-bar-sub {
+  flex: none;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hud-bar-search {
+  flex: 0 1 260px;
+  min-width: 120px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 6px;
+  background: rgba(154, 164, 178, 0.08);
+  color: #9aa4b2;
+  font-size: 11px;
+}
+
+.hud-bar-search:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.hud-bar-alert {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 6px;
+  color: #9aa4b2;
+  text-decoration: none;
+}
+
+.hud-bar-alert:hover {
+  border-color: rgba(255, 149, 0, 0.55);
+  color: #e6edf3;
+}
+
+.hud-bar-alert-count {
+  color: #e6edf3;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-bar-alert.hot .hud-bar-alert-count {
+  color: #ff9500;
+}
+
+.hud-bar-clock {
+  flex: none;
+  color: #e6edf3;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* ── bottom bar ── */
+.hud-bar-sources {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-bar-src {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #9aa4b2;
+  text-decoration: none;
+}
+
+.hud-bar-src:hover {
+  color: #e6edf3;
+}
+
+.hud-src-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ffb84c; /* warn — unproven/unknown collector */
+}
+
+.hud-src-dot.ok {
+  background: #4ade80;
+}
+
+.hud-src-dot.bad {
+  background: #ff4d6d;
+}
+
+.hud-bar-stat {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.hud-bar-stat b {
+  color: #e6edf3;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-bar-stat.bad,
+.hud-bar-stat.bad b {
+  color: #ff4d6d;
+}
+
+/* P3 placeholder: static lon/lat readout muted until live wiring lands. */
+.hud-bar-coords {
+  gap: 5px;
+  color: #9aa4b2;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-bar-coord-sep {
+  opacity: 0.5;
+}
