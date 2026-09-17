@@ -13,6 +13,7 @@ import { earthquakesSource } from "./earthquakes";
 import { flightsSource } from "./flights";
 import { militarySource } from "./military";
 import { satellitesSource } from "./satellites";
+import { installationsSource } from "./installations";
 import { vesselsSource } from "./vessels";
 import * as stubs from "./stubs";
 import type { ApiFetch } from "./http";
@@ -41,7 +42,7 @@ export function createIntelHubLayerSources(deps: {
     radio: stubs.radio,
     traffic: stubs.traffic,
     bikeshare: stubs.bikeshare,
-    installations: stubs.installations,
+    installations: installationsSource(apiFetch), // T4 (GEV P3) → real OSM military catalog source
     // T3 I-2: without this entry the transit layer silently falls back to the
     // engine's own unauthenticated /api/transit source (stubs.ts header).
     transit: stubs.transit,
