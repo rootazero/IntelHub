@@ -6,20 +6,39 @@
 // /globe route now mounts GlobeV2 (T8) with an engine-owned Cesium canvas, and
 // the P1 page is retired in T16 — the old assertions would have silently
 // "passed" against a page they no longer describe. probe-globe.mjs is kept as a
-// one-line delegator to this file and deleted in T16.
+// 13-line pass-through to this file and deleted in T16.
 //
 // Asserted (T8-T11 DOM contract + engine boot order):
-//   [data-hud="top|left|right|bottom"]   four-edge HUD frame (T8)
+//   [data-hud="top|left|right|bottom"]   four-edge HUD frame, each edge
+//                                        individually (T8)
 //   #cesiumContainer canvas              engine viewer mounted + non-zero size
 //   [data-testid="hud-top-bar"]          T11 top bar
 //   [data-testid="hud-bottom-bar"]       T11 bottom bar
 //   [data-testid="hud-detail-panel"]     T10 right detail panel
+//   .hud-detail-empty                    T10 empty state: present + non-empty
+//                                        whenever the panel kind is "none"
 //   [data-testid="hud-layer-rail"]       T9 rail — rendered only after the
 //                                        engine's start() promise resolved, so
 //                                        it doubles as a boot-order assertion
 //                                        (scene → data phase → HUD rail)
+//   [data-testid="hud-layer-rail"]
+//     .hud-rail-icons button             T9 domain icons, not just the
+//                                        always-present collapse handle
 //   [data-testid="hud-layer-count"]      numeric "n/m" ⇒ dataManager attached
-//
+//   #loading-screen>.loader-status       text must not start with "Error" —
+//                                        engine failure path (gev-engine/src/
+//                                        main.js:13) writes "Error: …" here
+//   #loading-screen height               < viewport height: a bottom-right
+//                                        status chip (T8/HudFrame.tsx:33 +
+//                                        globe-hud/hud.css:18), NOT a
+//                                        full-screen boot overlay
+//   REST listKey + envelope              GET /api/v1/globe/{aircraft,satellites}
+//                                        must be 2xx JSON AND carry the
+//                                        declared list key (`aircraft`/`items`)
+//                                        as an array, plus at least one of the
+//                                        endpoint's envelope fields (aircraft:
+//                                        coverage|stale) — shape drift WARNs
+
 // NOT asserted: `window.__godsEyeView`. The engine's tools phase is deliberately
 // stubbed in gev-boot/application.ts (IntelHub's HUD owns the chrome), so the
 // debug handle never exists — the layer readout is taken from the DOM instead.
@@ -31,7 +50,8 @@
 // reported (0 is a first-rotation timing artifact, not a defect).
 //
 // Report-only (never fails): which basemap provider actually answered on the
-// wire, the HUD's build-time basemap label, the engine loader text, and the
+// wire, the HUD's build-time basemap label, the loader text itself (only its
+// "Error" prefix is gated), the loader chip size, the rail-icon count, and the
 // WebGL context kind. The Google → Cesium ion → Esri fallback is a deployment
 // property (which keys the VM build injected), not a code property.
 //
@@ -169,6 +189,20 @@ try {
       canvasSize: canvas ? `${canvas.width}x${canvas.height}` : null,
       webgl,
       rootChildren: document.getElementById("root")?.childElementCount ?? 0,
+      railIcons: document.querySelectorAll(
+        '[data-testid="hud-layer-rail"] .hud-rail-icons button',
+      ).length,
+      detailEmpty: q(".hud-detail-empty"),
+      detailEmptyText: text(".hud-detail-empty"),
+      detailCollapsed:
+        document
+          .querySelector('[data-testid="hud-detail-panel"]')
+          ?.classList.contains("collapsed") ?? null,
+      loaderScreenPresent: !!document.getElementById("loading-screen"),
+      loaderScreenHeight:
+        document.getElementById("loading-screen")?.getBoundingClientRect()
+          .height ?? null,
+      viewportHeight: window.innerHeight,
       topBar: q('[data-testid="hud-top-bar"]'),
       bottomBar: q('[data-testid="hud-bottom-bar"]'),
       detailPanel: q('[data-testid="hud-detail-panel"]'),
@@ -213,7 +247,7 @@ try {
     };
   };
 
-  const readCount = async (path, listKey) => {
+  const readCount = async (path, listKey, atLeastOneOf = []) => {
     try {
       const res = await readJson(path);
       if (!res.ok || res.body === null) {
@@ -224,9 +258,36 @@ try {
         failures.push(`REST ${path} → ${detail}`);
         return { error: detail };
       }
-      const list = Array.isArray(res.body[listKey]) ? res.body[listKey] : [];
+      // Envelope-shape drift is reported, never fatal (the values are data, the
+      // shape is code) — but silently reading a renamed key as "0 rows" is how
+      // a broken API reads as a quiet zero.
+      const list = Array.isArray(res.body[listKey]) ? res.body[listKey] : null;
+      if (list === null)
+        warnings.push(
+          `REST ${path} → "${listKey}" is not an array (envelope shape changed?)`,
+        );
+      if (typeof res.body.count !== "number")
+        warnings.push(`REST ${path} → "count" is not numeric`);
+      // A healthy envelope carries at least one of `atLeastOneOf`. For aircraft
+      // that is `coverage` (live adsb/opensky merge) or `stale:true` (both
+      // snapshots missing — adsb.rs:211); the fresh path deliberately has no
+      // `stale` key, so demanding it per-endpoint would WARN on every healthy
+      // run. Satellites declares neither field (count+items only).
+      if (
+        atLeastOneOf.length &&
+        !atLeastOneOf.some((field) => field in res.body)
+      )
+        warnings.push(
+          `REST ${path} → none of [${atLeastOneOf.join(", ")}] present (envelope shape changed?)`,
+        );
       return {
-        count: typeof res.body.count === "number" ? res.body.count : list.length,
+        count:
+          typeof res.body.count === "number"
+            ? res.body.count
+            : (list?.length ?? 0),
+        // When `count` was absent we fall back to the list length — don't let
+        // that inference masquerade as "the first adsb rotation hasn't run".
+        countInferred: typeof res.body.count !== "number",
         stale: res.body.stale === true,
         coverage: typeof res.body.coverage === "string" ? res.body.coverage : null,
       };
@@ -236,7 +297,10 @@ try {
     }
   };
 
-  aircraft = await readCount("/api/v1/globe/aircraft", "aircraft");
+  aircraft = await readCount("/api/v1/globe/aircraft", "aircraft", [
+    "coverage",
+    "stale",
+  ]);
   satellites = await readCount("/api/v1/globe/satellites", "items");
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
@@ -250,10 +314,44 @@ if (snap) {
   if (!snap.canvasPresent) failures.push("#cesiumContainer has no canvas child");
   else if (!snap.canvas) failures.push("#cesiumContainer canvas is zero-sized");
   if (!snap.rootChildren) failures.push("#root is empty (React root unmounted)");
+  // Four-edge frame: every edge is a gate (the brief's "all four true").
+  for (const [edge, present] of Object.entries(snap.hud))
+    if (!present) failures.push(`[data-hud="${edge}"] missing`);
   if (!snap.topBar) failures.push('[data-testid="hud-top-bar"] missing');
   if (!snap.bottomBar) failures.push('[data-testid="hud-bottom-bar"] missing');
   if (!snap.detailPanel) failures.push('[data-testid="hud-detail-panel"] missing');
   if (snap.fatal) failures.push(`.hud-fatal shown: ${snap.fatal}`);
+  // T9: the collapse handle exists in both states, so "rail present" says
+  // nothing about the domain icons — count them.
+  if (!snap.railIcons)
+    failures.push(
+      '[data-testid="hud-layer-rail"] has no .hud-rail-icons button (collapsed rail or missing domain icons)',
+    );
+  // T10 empty state: kind=none must be the placeholder, not a blank panel.
+  if (snap.detailKind === "none" && snap.detailCollapsed !== true) {
+    if (!snap.detailEmpty)
+      failures.push(
+        '.hud-detail-empty missing (detail kind=none, panel not collapsed)',
+      );
+    else if (!snap.detailEmptyText)
+      failures.push(".hud-detail-empty is empty");
+  }
+  // Loader semantics (I2): #loading-screen is the resident bottom-right status
+  // chip, not a boot overlay — assert both halves of that meaning.
+  if (!snap.loaderScreenPresent) failures.push("#loading-screen missing");
+  else if (
+    typeof snap.loaderScreenHeight === "number" &&
+    snap.loaderScreenHeight >= snap.viewportHeight
+  )
+    failures.push(
+      `#loading-screen is a full-screen overlay (${Math.round(snap.loaderScreenHeight)}px >= viewport ${snap.viewportHeight}px)`,
+    );
+  else if (snap.loaderScreenHeight === 0)
+    warnings.push("#loading-screen has zero height (hidden status chip?)");
+  if (snap.loader === null)
+    failures.push("#loading-screen .loader-status missing");
+  else if (/^error/i.test(snap.loader))
+    failures.push(`loader-status reports an engine error: ${snap.loader}`);
 }
 
 // Keep the P1 pageerror filter narrowed to the two known-benign browser/engine
@@ -268,7 +366,7 @@ if (aircraft && !aircraft.error) {
     warnings.push(
       `aircraft snapshot is stale (${aircraft.count} rows) — no fresh adsb/opensky snapshot`,
     );
-  else if (aircraft.count === 0)
+  else if (aircraft.count === 0 && !aircraft.countInferred)
     warnings.push("aircraft count is 0 (first adsb rotation may not have finished)");
 }
 if (satellites && !satellites.error && satellites.count === 0)
@@ -279,6 +377,8 @@ if (snap && snap.webgl === "none")
 const hudParts = snap
   ? ["top", "left", "right", "bottom"].filter((edge) => snap.hud[edge])
   : [];
+// hudOk is exactly `hudParts.length === 4`, and the failures loop above makes
+// every false edge fatal — the printed flag and the exit code cannot diverge.
 const hudOk = hudParts.length === 4;
 
 // ---- report ---------------------------------------------------------------
@@ -295,7 +395,16 @@ if (snap) {
     `basemap-label=${snap.basemapLabel ?? "-"} basemap-observed=${[...wire].join("+") || "-"} loader=${JSON.stringify(snap.loader ?? "-")}`,
   );
   console.log(
-    `detail-kind=${snap.detailKind ?? "-"} aircraft-coverage=${aircraft?.coverage ?? "-"}`,
+    `loader-screen=${
+      snap.loaderScreenHeight === null
+        ? "-"
+        : `${Math.round(snap.loaderScreenHeight)}px/${snap.viewportHeight}px`
+    } rail-icons=${snap.railIcons}`,
+  );
+  console.log(
+    `detail-kind=${snap.detailKind ?? "-"} detail-empty=${
+      snap.detailEmpty ? (snap.detailEmptyText ? "ok" : "blank") : "-"
+    } aircraft-coverage=${aircraft?.coverage ?? "-"}`,
   );
 }
 for (const note of engineNotes) console.log(`engine-note=${note}`);
