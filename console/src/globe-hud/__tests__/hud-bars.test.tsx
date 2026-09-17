@@ -4,9 +4,10 @@
 //   describe 1 — top bar: pure UTC formatter, 1 s tick, alert count, disabled
 //     P5 search placeholder.
 //   describe 2 — bottom bar: one dot per globe collector (adsb/celestrak/
-//     usgs/opensky), state→tone mapping, «name links /monitor», enabled-layer
-//     readout driven by the dataManager (getAll/isEffectivelyEnabled/subscribe
-//     — the T9 RailManager surface), 24 h event count, constant basemap label.
+//     usgs/opensky), state→tone mapping, «name links the monitor page (route "/")»,
+//     enabled-layer readout driven by the dataManager (getAll/isEffectivelyEnabled/
+//     subscribe — the T9 RailManager surface), 24 h event count, key-derived
+//     basemap label, static P3 lon/lat placeholder.
 //   describe 3 — useOverview: 15 s poll + cleanup + error lane (the page owns
 //     ONE poll and hands the snapshot to both bars).
 //   describe 4 — HudFrame mounts the bars in the data-hud top/bottom slots.
@@ -19,7 +20,12 @@ import "@testing-library/jest-dom/vitest";
 const apiMock = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("../../api", () => ({ api: apiMock.api }));
 
-import { HudBottomBar, GLOBE_SOURCES, sourceTone } from "../HudBottomBar";
+import {
+  HudBottomBar,
+  GLOBE_SOURCES,
+  basemapStyleName,
+  sourceTone,
+} from "../HudBottomBar";
 import type { BarManager } from "../HudBottomBar";
 import { HudFrame } from "../HudFrame";
 import { formatUtcClock, HudTopBar } from "../HudTopBar";
@@ -163,21 +169,49 @@ describe("HudBottomBar", () => {
     ).toHaveClass("warn");
   });
 
-  test("collector names link to /monitor", () => {
+  test("collector names link to the monitor page (route /)", () => {
     render(<HudBottomBar overview={OVERVIEW} manager={null} />);
     for (const name of GLOBE_SOURCES)
       expect(screen.getByTestId(`hud-src-${name}`)).toHaveAttribute(
         "href",
-        "/monitor",
+        "/",
       );
   });
 
-  test("shows the 24h object count and the constant basemap label", () => {
+  test("basemap label follows Google-key presence (photoreal vs esri)", () => {
+    // The GEV globe is Google photoreal when keyed, keyless Esri otherwise —
+    // never the P1 2D radar's CARTO DARK style.
+    const { unmount } = render(
+      <HudBottomBar overview={OVERVIEW} manager={null} googleKey="AIza-key" />,
+    );
+    expect(screen.getByTestId("hud-basemap-style")).toHaveTextContent(
+      "GOOGLE PHOTOREAL",
+    );
+    unmount();
+    render(<HudBottomBar overview={OVERVIEW} manager={null} googleKey="" />);
+    expect(screen.getByTestId("hud-basemap-style")).toHaveTextContent(
+      "ESRI IMAGERY",
+    );
+    // Pure resolver both lanes.
+    expect(basemapStyleName("AIza-key")).toBe("GOOGLE PHOTOREAL");
+    expect(basemapStyleName("")).toBe("ESRI IMAGERY");
+    expect(basemapStyleName(undefined)).toBe("ESRI IMAGERY");
+  });
+
+  test("renders the static P3 lon/lat placeholder", () => {
+    render(<HudBottomBar overview={OVERVIEW} manager={null} />);
+    const coords = screen.getByTestId("hud-coords-p3");
+    expect(coords).toHaveTextContent("lon —");
+    expect(coords).toHaveTextContent("lat —");
+    expect(coords.getAttribute("aria-label")).toContain("P3");
+    expect(coords.getAttribute("title")).toContain("P3");
+    expect(screen.getByTestId("hud-cursor-lon")).toHaveTextContent("—");
+    expect(screen.getByTestId("hud-cursor-lat")).toHaveTextContent("—");
+  });
+
+  test("shows the 24h object count", () => {
     render(<HudBottomBar overview={OVERVIEW} manager={null} />);
     expect(screen.getByTestId("hud-object-count")).toHaveTextContent("1,234");
-    expect(screen.getByTestId("hud-basemap-style")).toHaveTextContent(
-      "CARTO DARK",
-    );
   });
 
   test("enabled-layer readout follows the dataManager snapshot + events", () => {
