@@ -11,6 +11,7 @@ import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
 import { HudFrame } from "../globe-hud/HudFrame";
+import { HudDetailPanel } from "../globe-hud/HudDetailPanel";
 import { HudLayerRail } from "../globe-hud/HudLayerRail";
 import type { RailManager } from "../globe-hud/HudLayerRail";
 import "../globe-hud/hud.css";
@@ -59,6 +60,7 @@ export default function GlobeV2() {
   return (
     <HudFrame
       left={railManager ? <HudLayerRail manager={railManager} /> : null}
+      right={<HudDetailPanel />}
     />
   );
 }

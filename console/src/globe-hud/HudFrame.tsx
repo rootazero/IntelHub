@@ -11,10 +11,13 @@ import type { ReactNode } from "react";
 
 export function HudFrame({
   left,
+  right,
   children,
 }: {
   /** T9 layer-rail content for the left edge slot. */
   left?: ReactNode;
+  /** T10 detail-panel content for the right edge slot. */
+  right?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -28,7 +31,9 @@ export function HudFrame({
       <div className="hud-edge hud-left" data-hud="left">
         {left}
       </div>
-      <div className="hud-edge hud-right" data-hud="right" />
+      <div className="hud-edge hud-right" data-hud="right">
+        {right}
+      </div>
       <div className="hud-edge hud-bottom" data-hud="bottom" />
       {children}
     </div>
