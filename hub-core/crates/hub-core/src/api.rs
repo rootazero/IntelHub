@@ -63,6 +63,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/gev/earthquakes", get(gev_earthquakes))
         // GEV P2: satellites layer source (PG TLE catalog + starlink proxy)
         .route("/api/v1/gev/celestrak/{group}", get(gev_celestrak))
+        // GEV P3: traffic layer sources (overpass proxy + tomtom flow tiles)
+        .route("/api/v1/gev/overpass", axum::routing::post(crate::gev_traffic::gev_overpass))
+        .route("/api/v1/gev/tomtom/status", get(crate::gev_traffic::gev_tomtom_status))
+        .route("/api/v1/gev/tomtom/flow/{z}/{x}/{y}.pbf", get(crate::gev_traffic::gev_tomtom_flow))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))
