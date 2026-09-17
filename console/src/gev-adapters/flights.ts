@@ -20,9 +20,8 @@
 // mapping (knots → m/s, age_s → epoch ms) lives in ./aircraft-map.ts.
 
 import type { ApiFetch } from "./http";
-import type { AdsbEnvelope, GevAircraftRecord } from "./aircraft-map";
 import { snapshotEpochMs, toEnvelope, toGevRecord } from "./aircraft-map";
-import type { SnapshotEnvelope } from "./types";
+import type { AdsbEnvelope, GevAircraftRecord, SnapshotEnvelope } from "./types";
 
 export interface FlightsSource {
   label: string;

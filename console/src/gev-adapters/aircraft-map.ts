@@ -22,62 +22,11 @@
 //     (flights/ingestion.js:38) and it is surfaced verbatim in the layer's
 //     status query (flights/queries.js:934).
 
-import type { SnapshotEnvelope } from "./types";
+import type { AdsbEnvelope, AdsbPoint, GevAircraftRecord, SnapshotEnvelope } from "./types";
 
 /** Knots → m/s. Verbatim the engine's factor (aircraft.js:63). */
 export const KNOTS_TO_MPS = 0.514444;
 
-/**
- * One row of `GET /api/v1/globe/aircraft` (`aircraft[]`), per
- * hub-core monitor/sources/adsb.rs `snapshot_envelope()`.
- *
- * `lat`/`lon` are non-null by construction — the collector's `parse_ac_array`
- * drops rows without them. `flight`/`gs`/`track`/`squawk` are Option-derived,
- * so they really are JSON null when adsb.lol omits them; typing them
- * non-null is how a `null * KNOTS_TO_MPS === 0` regression sneaks in.
- *
- * `seen` is listed for parity with the raw adsb.lol row, but the hub envelope
- * does not carry it (it publishes the derived `age_s` instead).
- */
-export interface AdsbPoint {
-  hex: string;
-  flight?: string | null;
-  lat: number;
-  lon: number;
-  alt_m?: number | null;
-  /** Ground speed in knots. */
-  gs?: number | null;
-  track?: number | null;
-  squawk?: string | null;
-  mil?: boolean;
-  seen?: number;
-  /** Age of the observation in seconds, relative to the snapshot `ts`. */
-  age_s?: number | null;
-}
-
-/** Engine observation shape, as destructured by flights/military records.js. */
-export interface GevAircraftRecord {
-  id: string;
-  reference: string;
-  latitude: number;
-  longitude: number;
-  callsign: string | null;
-  originCountry: string | null;
-  positionTimeMs: number | null;
-  contactTimeMs: number | null;
-  baroAltitudeM: number | null;
-  ellipsoidAltitudeM: number | null;
-  onGround: boolean;
-  speedMps: number | null;
-  courseDeg: number | null;
-  verticalRateMps: number | null;
-  category: number | null;
-  typeCode: string | null;
-  registration: string | null;
-  operator: string | null;
-}
-
-/** `null` for non-numeric/NaN JSON values, mirroring the engine's `finite()`. */
 const finiteOrNull = (value: number | null | undefined): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
@@ -126,19 +75,6 @@ export function toGevRecord(
     registration: null,
     operator: null,
   };
-}
-
-/** The hub envelope fields this mapping reads (see `aircraft-map.ts` header). */
-export interface AdsbEnvelope {
-  /** RFC3339 snapshot epoch. Absent in the hub's degraded `{stale:true}` body. */
-  ts?: string | null;
-  count?: number;
-  coverage?: unknown;
-  cycle_secs?: number;
-  last_tick?: string;
-  aircraft?: AdsbPoint[];
-  /** Present (true) when the hub had no live snapshot to serve. */
-  stale?: boolean;
 }
 
 /**

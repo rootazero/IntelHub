@@ -16,22 +16,7 @@
 // defensive "must be an array" guard below.
 
 import type { ApiFetch } from "./http";
-
-/** One row of `GET /api/v1/gev/earthquakes` (see hub-core api.rs `quake_row`). */
-export interface EarthquakeRow {
-  /** USGS feature id, used by the engine as the Cesium entity key. */
-  stableId: string;
-  /** Same USGS feature id, surfaced as the analyst-facing id seam. */
-  usgsId: string;
-  lon: number;
-  lat: number;
-  /** Null for every USGS row: depth lives in GeoJSON geometry, not properties. */
-  depthKm: number | null;
-  mag: number | null;
-  place: string | null;
-  /** USGS epoch milliseconds, never an ISO string. */
-  time: number | null;
-}
+import type { EarthquakeRow } from "./types";
 
 export interface EarthquakesSource {
   label: string;

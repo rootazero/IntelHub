@@ -2,5 +2,19 @@
   "repo": "https://github.com/bilawalsidhu/gods-eye-view",
   "pinned_sha": "a65d9d85f1faa06ae7df235d7fa8a29b026b7a5b",
   "synced_at": "2026-09-17",
-  "excludes": [".git", "server", "src/standalone", "src/ui/templates", "src/data/local_data", "docs", "build", "index.html", "style.css", "public"]
+  "excludes": [".git", "server", "src/standalone", "src/ui/templates", "src/data/local_data", "docs", "build", "index.html", "style.css", "public"],
+  "exceptions": [
+    {
+      "file": "console/vite.config.ts",
+      "reason": "T8-reviewed intentional exception: the gev-local-data-external plugin externalizes the vendored engine's un-vendored local_data/*.json dynamic imports (documented graceful degradation in the vendor), and this file hosts the gev-engine resolve.alias + import.meta.env define keys (Ruling 6 channel config). Enforced by the c3 guard in console/src/gev-boot/__tests__/source-contracts.test.ts — every host-side local_data reference must be listed here."
+    },
+    {
+      "file": "console/gev-engine/README.md",
+      "reason": "Upstream-carried doc, vendored verbatim at the pinned SHA (T1 review): a sync-vs-upstream diff must never flag it as a local deviation."
+    },
+    {
+      "file": "console/gev-engine/.gitignore",
+      "reason": "Upstream-carried, vendored verbatim and inert for IntelHub (T1 verified it ignores 0 files under console/gev-engine): whitelisted so a sync diff never reads it as a local modification."
+    }
+  ]
 }

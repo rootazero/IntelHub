@@ -18,9 +18,8 @@
 // methods as skippable.
 
 import type { ApiFetch } from "./http";
-import type { AdsbEnvelope, GevAircraftRecord } from "./aircraft-map";
 import { snapshotEpochMs, toEnvelope, toGevRecord } from "./aircraft-map";
-import type { SnapshotEnvelope } from "./types";
+import type { AdsbEnvelope, GevAircraftRecord, SnapshotEnvelope } from "./types";
 
 export interface MilitarySource {
   label: string;

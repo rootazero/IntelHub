@@ -52,6 +52,96 @@ export interface SnapshotEnvelope<T = unknown> {
   status: SnapshotStatus;
 }
 
+/**
+ * One row of `GET /api/v1/globe/aircraft` (`aircraft[]`), per
+ * hub-core monitor/sources/adsb.rs `snapshot_envelope()`.
+ *
+ * `lat`/`lon` are non-null by construction — the collector's `parse_ac_array`
+ * drops rows without them. `flight`/`gs`/`track`/`squawk` are Option-derived,
+ * so they really are JSON null when adsb.lol omits them; typing them
+ * non-null is how a `null * KNOTS_TO_MPS === 0` regression sneaks in.
+ *
+ * `seen` is listed for parity with the raw adsb.lol row, but the hub envelope
+ * does not carry it (it publishes the derived `age_s` instead).
+ */
+export interface AdsbPoint {
+  hex: string;
+  flight?: string | null;
+  lat: number;
+  lon: number;
+  alt_m?: number | null;
+  /** Ground speed in knots. */
+  gs?: number | null;
+  track?: number | null;
+  squawk?: string | null;
+  mil?: boolean;
+  seen?: number;
+  /** Age of the observation in seconds, relative to the snapshot `ts`. */
+  age_s?: number | null;
+}
+
+/** Engine observation shape, as destructured by flights/military records.js. */
+export interface GevAircraftRecord {
+  id: string;
+  reference: string;
+  latitude: number;
+  longitude: number;
+  callsign: string | null;
+  originCountry: string | null;
+  positionTimeMs: number | null;
+  contactTimeMs: number | null;
+  baroAltitudeM: number | null;
+  ellipsoidAltitudeM: number | null;
+  onGround: boolean;
+  speedMps: number | null;
+  courseDeg: number | null;
+  verticalRateMps: number | null;
+  category: number | null;
+  typeCode: string | null;
+  registration: string | null;
+  operator: string | null;
+}
+
+/** The hub envelope fields the aircraft mapping reads (see `aircraft-map.ts`). */
+export interface AdsbEnvelope {
+  /** RFC3339 snapshot epoch. Absent in the hub's degraded `{stale:true}` body. */
+  ts?: string | null;
+  count?: number;
+  coverage?: unknown;
+  cycle_secs?: number;
+  last_tick?: string;
+  aircraft?: AdsbPoint[];
+  /** Present (true) when the hub had no live snapshot to serve. */
+  stale?: boolean;
+}
+
+/** One row of `GET /api/v1/gev/earthquakes` (see hub-core api.rs `quake_row`). */
+export interface EarthquakeRow {
+  /** USGS feature id, used by the engine as the Cesium entity key. */
+  stableId: string;
+  /** Same USGS feature id, surfaced as the analyst-facing id seam. */
+  usgsId: string;
+  lon: number;
+  lat: number;
+  /** Null for every USGS row: depth lives in GeoJSON geometry, not properties. */
+  depthKm: number | null;
+  mag: number | null;
+  place: string | null;
+  /** USGS epoch milliseconds, never an ISO string. */
+  time: number | null;
+}
+
+/**
+ * Return shape of the satellites source's `readGroup` — exactly what the
+ * engine's satellites ingestion destructures (it maps non-ok to an empty
+ * group without throwing, so transport failures resolve, not reject).
+ */
+export interface ReadGroupResult {
+  ok: boolean;
+  status: number;
+  text: string;
+}
+
 /** Contract-valid "enabled but empty" snapshot: no records, unavailable state. */
 export const emptyEnvelope = <T = unknown>(
   source: string,
