@@ -82,6 +82,8 @@ pub fn router() -> Router<Arc<AppState>> {
         // hls → 501 until the P4 playlist proxy. SSRF-impossible: ids only.
         .route("/api/v1/gev/cctv/frame/{id}", get(crate::gev_cctv::gev_cctv_frame))
         .route("/api/v1/gev/cctv/media/{id}", get(crate::gev_cctv::gev_cctv_media))
+        // GEV P7: location search geocode proxy (photon, keyless, cached 1h)
+        .route("/api/v1/gev/geocode", get(crate::gev_geocode::gev_geocode))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))

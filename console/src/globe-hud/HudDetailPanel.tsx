@@ -8,8 +8,10 @@
 //   quake     — magnitude, place, relative time
 // Empty state — 「点击地球上的目标查看详情」. Collapse handle in the panel's
 // top-right corner mirrors the T9 rail handle.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGlobeSelection } from "../gev-boot/context-bridge";
+import type { FollowHandle } from "../gev-visual/follow-controller";
+import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
 
 /** Relative clock for quake times: <60 s 刚刚, <60 min N 分钟前,
  *  <24 h N 小时前, otherwise an absolute "YYYY-MM-DD HH:mm". */
@@ -242,9 +244,87 @@ function InstallationBody({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-export function HudDetailPanel() {
+export interface HudDetailPanelProps {
+  /** P7: follow controller (flight/satellite tracking) — null hides the
+   *  follow/tilt actions. */
+  follow?: FollowHandle | null;
+  /** P7: camera orientation adapter — powers the tilt toggle. */
+  camera?: CameraOrientationHandle | null;
+}
+
+export function HudDetailPanel({
+  follow = null,
+  camera = null,
+}: HudDetailPanelProps) {
   const selection = useGlobeSelection();
   const [collapsed, setCollapsed] = useState(false);
+  // P7 follow/姿态 mirrors. The FollowHandle is the engine-side truth; these
+  // states exist only to re-render after user gestures and to hold transient
+  // button feedback ("图层未启用" 2 s). Selection changes resync trackedId
+  // from the handle below so an already-tracked object that is no longer the
+  // selection stays tracked (engine keeps applying the camera frame).
+  const [trackedId, setTrackedId] = useState<string | null>(null);
+  const [followError, setFollowError] = useState(false);
+  const [tiltDown, setTiltDown] = useState(false);
+  const followErrorTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    setTrackedId(follow?.trackedId() ?? null);
+  }, [selection.kind, selection.data, follow]);
+
+  // Clear the transient feedback timer on unmount (React 18 no longer warns
+  // about setState-after-unmount, but a leaked timer is still wasteful).
+  useEffect(
+    () => () => {
+      if (followErrorTimer.current != null) {
+        window.clearTimeout(followErrorTimer.current);
+      }
+    },
+    [],
+  );
+
+  const isFollowable =
+    selection.kind === "flight" || selection.kind === "satellite";
+  const rawId =
+    isFollowable && selection.data
+      ? selection.kind === "flight"
+        ? selection.data.id
+        : selection.data.noradId
+      : null;
+  const currentId = rawId == null ? null : String(rawId);
+  const isTracking =
+    follow != null && currentId !== null && trackedId === currentId;
+
+  const onFollow = () => {
+    if (!follow || currentId == null) return;
+    const kind = selection.kind as "flight" | "satellite";
+    if (follow.follow(kind, currentId)) {
+      setTrackedId(currentId);
+      setFollowError(false);
+    } else {
+      setFollowError(true);
+      if (followErrorTimer.current != null) {
+        window.clearTimeout(followErrorTimer.current);
+      }
+      followErrorTimer.current = window.setTimeout(
+        () => setFollowError(false),
+        2000,
+      );
+    }
+  };
+
+  const onUnfollow = () => {
+    follow?.unfollow();
+    setTrackedId(null);
+    setFollowError(false);
+  };
+
+  const onTilt = () => {
+    if (!camera) return;
+    const result = camera.toggleTilt();
+    if (result === "down") setTiltDown(true);
+    else if (result === "oblique") setTiltDown(false);
+  };
 
   return (
     <div
@@ -282,6 +362,40 @@ export function HudDetailPanel() {
               {selection.kind === "cctv" && <CctvBody data={selection.data} />}
               {selection.kind === "installation" && (
                 <InstallationBody data={selection.data} />
+              )}
+              {follow && currentId !== null && (
+                <div className="hud-detail-actions">
+                  {isTracking ? (
+                    <>
+                      <button
+                        type="button"
+                        className="hud-detail-link"
+                        data-testid="hud-unfollow-button"
+                        onClick={onUnfollow}
+                      >
+                        解除跟随
+                      </button>
+                      <button
+                        type="button"
+                        className="hud-detail-link"
+                        data-testid="hud-tilt-button"
+                        onClick={onTilt}
+                        title={tiltDown ? "切换至斜视视角" : "切换至俯视视角"}
+                      >
+                        {tiltDown ? "俯视" : "斜视"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="hud-detail-link"
+                      data-testid="hud-follow-button"
+                      onClick={onFollow}
+                    >
+                      {followError ? "图层未启用" : "跟随"}
+                    </button>
+                  )}
+                </div>
               )}
             </>
           )}

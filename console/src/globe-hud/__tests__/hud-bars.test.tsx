@@ -1,8 +1,8 @@
-// T11: HUD top bar (UTC clock / alerts / P5 search placeholder) + bottom
+// T11: HUD top bar (UTC clock / alerts) + bottom
 // status bar (globe collector health dots / layer + object counts / basemap
 // label).
-//   describe 1 — top bar: pure UTC formatter, 1 s tick, alert count, disabled
-//     P5 search placeholder.
+//   describe 1 — top bar: pure UTC formatter, 1 s tick, alert count.
+//     (The live location search now lives in hud-search.test.tsx.)
 //   describe 2 — bottom bar: one dot per globe collector (adsb/celestrak/
 //     usgs/opensky), state→tone mapping, «name links the monitor page (route "/")»,
 //     enabled-layer readout driven by the dataManager (getAll/isEffectivelyEnabled/
@@ -118,14 +118,6 @@ describe("HudTopBar", () => {
     render(<HudTopBar overview={null} />);
     expect(screen.getByTestId("hud-alert-count")).toHaveTextContent("—");
     expect(screen.getByTestId("hud-utc-clock")).toHaveTextContent("UTC");
-  });
-
-  test("search is a disabled P5 placeholder (never a live input)", () => {
-    render(<HudTopBar overview={OVERVIEW} />);
-    const search = screen.getByTestId("hud-search-p5");
-    expect(search).toBeDisabled();
-    expect(search.getAttribute("aria-label")).toContain("P5");
-    expect(search.getAttribute("placeholder")).toContain("P5");
   });
 });
 
