@@ -100,7 +100,7 @@ describe("mountDrawTool", () => {
     ]);
   });
 
-  test("start(area) + 3 clicks + finish -> shape 'area' with 3 vertices (closing dup stripped)", () => {
+  test("start(area) + 3 clicks + finish -> shape 'area' with 4 vertices (closing vertex kept)", () => {
     const h = mountDrawTool(fakeViewer());
     h.start("area");
     h.addClickWorld(0, 0);
@@ -109,11 +109,15 @@ describe("mountDrawTool", () => {
     const spec = h.finish();
     expect(spec).not.toBeNull();
     expect(spec!.shape).toBe("area");
-    expect(spec!.vertices).toHaveLength(3);
+    // The vendor closes the ring (first point repeated at the end) because the
+    // outline renderer draws one edge per consecutive pair — an open ring would
+    // render with the closing side missing. The adapter must forward it verbatim.
+    expect(spec!.vertices).toHaveLength(4);
     expect(spec!.vertices).toEqual([
       { lon: 0, lat: 0 },
       { lon: 1, lat: 0 },
       { lon: 0, lat: 1 },
+      { lon: 0, lat: 0 },
     ]);
     expect(spec!.id).toBeTruthy();
   });
