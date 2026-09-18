@@ -477,9 +477,11 @@ button.hud-detail-link {
   font-size: 11px;
 }
 
-.hud-bar-search:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+.hud-search-status {
+  flex: none;
+  font-size: 11px;
+  color: #9aa4b2;
+  white-space: nowrap;
 }
 
 .hud-bar-alert {
@@ -607,7 +609,7 @@ button.hud-detail-link {
 
 /* ── T14 narrow screens (≤900px) ─────────────────────────────────────────
    Four-edge frame survives; geometry degrades:
-   - TopBar hides secondary chips (subtitle + P5 search) — brand, alert
+   - TopBar hides secondary chips (subtitle + location search) — brand, alert
      bell and UTC clock stay.
    - DetailPanel becomes a full-width bottom drawer (leaving the left rail
      its 44px column) instead of the right-edge column.

@@ -51,7 +51,7 @@ const DEFAULT_ENABLED_LAYERS = [
 ] as const;
 
 export interface IntelHubGlobeOptions {
-  /** Authenticated hub transport, shared by adapters + future P4/P5 services. */
+  /** Authenticated hub transport, shared by adapters + request services. */
   apiFetch: Parameters<typeof createIntelHubLayerSources>[0]["apiFetch"];
   googleApiKey: string;
   cesiumToken: string;
