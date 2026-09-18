@@ -516,6 +516,68 @@ try {
         );
     }
   }
+
+  // ---- GEV P8: annotations — draw toolbar opens + list API answers ----
+  // The draw button is a rail tool (HudLayerRail, gated on `!collapsed`), and
+  // the toolbar returns null until drawActive flips (HudDrawToolbar:99), so a
+  // pre-click count of 0 is the expected resting state. The click path is
+  // defensive: P8 is additive chrome and a missing toolbar must not mask the
+  // P1-P7 assertions (accept-sp8 covers the store/roundtrip contract).
+  const drawBtn = page.locator('[data-testid="hud-draw-button"]');
+  const drawBtnCount = await drawBtn.count();
+  console.log(`p8-draw-button=${drawBtnCount}`);
+  if (drawBtnCount > 0) {
+    await drawBtn.first().click().catch(() => {});
+    await page.waitForTimeout(200);
+    const tbCount = await page
+      .locator('[data-testid="hud-draw-toolbar"]')
+      .count();
+    console.log(`p8-draw-toolbar=${tbCount}`);
+    if (tbCount === 0) failures.push("P8: draw toolbar did not open");
+    else {
+      const modes = await page
+        .locator(
+          '[data-testid="hud-draw-mode-pin"], [data-testid="hud-draw-mode-line"], [data-testid="hud-draw-mode-area"]',
+        )
+        .count();
+      console.log(`p8-draw-modes=${modes}`);
+      if (modes !== 3)
+        failures.push(`P8: toolbar missing draw modes (saw ${modes}/3)`);
+      await page
+        .locator('[data-testid="hud-draw-cancel"]')
+        .click()
+        .catch(() => {});
+    }
+  } else {
+    console.log("p8-draw-button-absent (deferred; not blocking)");
+  }
+  // Persistence API: the same-origin GET the console annotation store issues.
+  // The hub gates every /api/* route (reads included) inside auth_middleware,
+  // so the request must carry the Bearer key — read from localStorage exactly
+  // like console/src/api.ts does (the key is seeded by addInitScript above).
+  try {
+    const resp = await page.evaluate(async () => {
+      const r = await fetch("/api/v1/annotations?limit=5", {
+        headers: {
+          Authorization: `Bearer ${
+            localStorage.getItem("intelhub.console.key") ?? ""
+          }`,
+        },
+      });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    });
+    const okShape =
+      resp.status === 200 && Array.isArray(resp.body?.annotations);
+    console.log(
+      `p8-annotations-api status=${resp.status} count=${resp.body?.annotations?.length ?? "n/a"}`,
+    );
+    if (!okShape)
+      failures.push(
+        `P8: annotations API returned ${resp.status} or wrong shape`,
+      );
+  } catch (e) {
+    failures.push(`P8: annotations API fetch threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
