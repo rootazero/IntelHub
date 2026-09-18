@@ -16,12 +16,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import maplibregl, { Map as MlMap, Marker as MlMarker, type StyleSpecification } from "maplibre-gl";
+import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api, streamEvents } from "../api";
 import { useEnum, useT } from "../i18n";
-import { KINDS, kindColor, sevRadius } from "../kindmeta";
+import { KINDS, kindColor } from "../kindmeta";
 import { focusOnEvent } from "../lib/eventFocus";
+import { attachEventsLayer, type AttachHandle } from "../lib/mapEventsLayer";
 import { buildStyle, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
 import type { TileProvider, TilesMode } from "../basemap";
 import { useMapView } from "../useMapView";
@@ -38,6 +39,11 @@ interface GeoEvent {
   occurred_at: string;
   payload: Record<string, unknown>;
 }
+
+// Adapter for the shared events layer (lib/mapEventsLayer.MapEvent is a
+// structural subset — same fields minus `payload`). The detail drawer
+// reads `payload`, so cast on the boundary rather than widen MapEvent.
+type LayerEvent = import("../lib/mapEventsLayer").MapEvent;
 
 const SEV_COLOR: Record<string, string> = {
   flash: "#ff3355",
@@ -58,7 +64,7 @@ export default function Radar() {
   const en = useEnum();
   const { region, attach, registerOnReset, registerOnRegionJump, setRegion } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
-  const markersRef = useRef<Map<string, MlMarker>>(new Map());
+  const layerRef = useRef<AttachHandle | null>(null);
   const divRef = useRef<HTMLDivElement>(null);
   const [events, setEvents] = useState<GeoEvent[]>([]);
   const [selected, setSelected] = useState<GeoEvent | null>(null);
@@ -156,6 +162,10 @@ export default function Radar() {
       unregisterReset();
       unregisterRegionJump();
       attach(null);
+      // Detach the events layer BEFORE map.remove() — its click/popup
+      // listeners reference the map; teardown order matters.
+      layerRef.current?.destroy();
+      layerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -220,37 +230,38 @@ export default function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [window_, sev]);
 
-  // ---- markers ----
+  // ---- markers (GeoJSON circle layer — replaces DOM markers) ----
+  // One WebGL draw call per frame regardless of event count. The
+  // layer survives setStyle() (basemap failover) — style.load handler
+  // in attachEventsLayer re-adds the source/layer automatically.
+  // Click → opens detail drawer + flyTo + releases region buttons,
+  // matching the prior DOM-marker click path 1:1.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    // Clear existing markers.
-    for (const m of markersRef.current.values()) m.remove();
-    markersRef.current.clear();
-    for (const e of visible) {
-      const el = document.createElement("div");
-      const size = sevRadius(e.severity) * 2 + 6;
-      el.className = e.severity === "flash" ? "radar-marker radar-marker-flash" : "radar-marker";
-      el.style.width = `${size}px`;
-      el.style.height = `${size}px`;
-      el.style.background = kindColor(e.kind);
-      el.style.borderColor = kindColor(e.kind);
-      el.style.opacity = e.severity === "info" ? "0.55" : "0.85";
-      el.title = `${e.kind} · ${e.title}`;
-      el.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        setSelected(e);
+    if (!map || layerRef.current) return;
+    layerRef.current = attachEventsLayer(map, visible, {
+      idPrefix: "radar",
+      onSelect: (ev: LayerEvent) => {
+        setSelected(ev as GeoEvent);
         // Release the region buttons — see deep-link effect for the
         // rationale. Same call path here so a click and a deep-link
         // landing produce identical UI state.
         setRegion(null);
-        focusOnEvent(mapRef.current, e);
-      });
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([e.lon, e.lat])
-        .addTo(map);
-      markersRef.current.set(e.event_id, marker);
-    }
+        focusOnEvent(mapRef.current, ev);
+      },
+    });
+    return () => {
+      layerRef.current?.destroy();
+      layerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Push new event data into the layer when the visible set changes
+  // (window/severity change, SSE sweep, kind filter). setEvents does a
+  // source.setData() — single round-trip to the GPU, no DOM churn.
+  useEffect(() => {
+    layerRef.current?.setEvents(visible);
   }, [visible]);
 
   async function toInvestigation(e: GeoEvent) {
