@@ -40,10 +40,12 @@ P2 引擎融合之上补四动态层 + HUD 遗留：vessels（AIS）、cctv（�
 
 ## 生产验收（410，2026-09-17 15:5x UTC）
 
-- sp6 37+5sh/0f（shelved：FIRMS/ACLED/AISSTREAM/TOMTOM key 缺席 + ais-live shelved 行门控）
+- sp6 36+5sh/1f（唯一 fail：starlink celestrak 403 惩罚箱 flap——直连观测到 200 窗口存在但以分钟计，hub 6h 缓存需恰好撞窗；shelved 五项同 315）
 - sp8 42+2sh/0f · sp7 16+11sh/0f · sp3 19/0f
 - probe-gev 410 OK（rail-icons=7、P3 三路 toggle 演练通过；infra checkbox actionability WARN 非阻塞）
 - 迁移 0020/0021 应用；cctv 3969 台 6 provider 首轮落库；installations 细分模式落库中（每日轮自愈回补）
+- **并行会话干扰（本次最大环境事故）**：410 生产 hub-core 当日被重启 19 次（zou@PWD=/home/zou 瞬态 SSH），每次重启全量采集器风暴重新武装上游惩罚箱（celestrak 403/usgs 超时/overpass 504）——这是验收拖长的唯一原因，代码无涉
+- **push 决策（用户批准）**：315 全绿 + 410 其余全绿 + starlink 属 AGENTS.md 已载明惩罚箱类自愈项 → 先 push（`71109ea`），后台值守 agent（sp6-starlink-watchdog）每 5min 探 hub 端点（不直连 celestrak 以免消耗 200 窗口），撞窗即补验 sp6
 
 ## 环境事件（均自愈，非 bug）
 
