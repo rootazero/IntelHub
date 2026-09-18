@@ -2,7 +2,7 @@
    translucent edge rails; left/right rails collapse to zero width via
    .collapsed (T9 wires the toggle). */
 
-.hud-root {
+.globe-root {
   position: fixed;
   inset: 0;
   background: #030509;
@@ -399,14 +399,14 @@
 
 /* The bottom strip (~34px) is far shorter than the T8 120px placeholder, so
    the side rails end just above it: 8px gap + strip + 8px gap. */
-.hud-root:has(.hud-bottom .hud-bar) .hud-left,
-.hud-root:has(.hud-bottom .hud-bar) .hud-right {
+.globe-root:has(.hud-bottom .hud-bar) .hud-left,
+.globe-root:has(.hud-bottom .hud-bar) .hud-right {
   bottom: 58px;
 }
 
 /* Same for the top: 8 + strip + 8 instead of the T8 64px. */
-.hud-root:has(.hud-top .hud-bar) .hud-left,
-.hud-root:has(.hud-top .hud-bar) .hud-right {
+.globe-root:has(.hud-top .hud-bar) .hud-left,
+.globe-root:has(.hud-top .hud-bar) .hud-right {
   top: 50px;
 }
 
@@ -497,6 +497,29 @@
 
 .hud-bar-alert.hot .hud-bar-alert-count {
   color: #ff9500;
+}
+
+/* Back button: Globe is fullscreen (sidebar hidden by design) so the user
+   has no in-app nav affordance. Mirror .hud-bar-alert styling for visual
+   consistency, but use <button> instead of <a> (handler drives router). */
+.hud-bar-back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.hud-bar-back:hover {
+  border-color: rgba(255, 149, 0, 0.55);
+  color: #e6edf3;
 }
 
 .hud-bar-clock {
@@ -592,7 +615,7 @@
   /* Right slot: drawer across the bottom, above the bottom bar (58px =
      8px gap + 34px strip + 8px gap, same math as the :has() rules). Left
      inset keeps the rail column visible beside the drawer. */
-  .hud-root:has(.hud-right .hud-detail) .hud-right {
+  .globe-root:has(.hud-right .hud-detail) .hud-right {
     top: auto;
     left: 58px; /* 8px margin + 44px rail + 6px gutter */
     right: 8px;
