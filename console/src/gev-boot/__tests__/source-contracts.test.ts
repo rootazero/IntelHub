@@ -216,6 +216,50 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
     expect(staleEnv.status).toBe(503);
     expect(typeof staleEnv.status).toBe("number");
   });
+
+  // ── GEV P6 anchors (T1): visual-presets render-core import surface ──
+
+  test("visual presets render-core exports are pinned", () => {
+    const presets = readVendor("src/ui/visualPresets.js");
+    expect(presets).toMatch(/export const TRANSITION_DURATION_MS = 500/);
+    expect(presets).toMatch(/export const STYLES\b/);
+    expect(presets).toMatch(/export const STYLE_PRESET_DEFAULTS\b/);
+    expect(presets).toMatch(/export const STYLE_STATUS_LABELS\b/);
+    expect(presets).toMatch(/export const SHARPEN_SHADER\b/);
+    for (const [key, shader] of [
+      ["retro", "retroShader"],
+      ["surveillance", "nightVisionShader"],
+      ["thermal", "thermalShader"],
+      ["anime", "animeShader"],
+      ["noir", "noirShader"],
+      ["snow", "snowShader"],
+    ] as const) {
+      expect(presets, `STYLES.${key}`).toMatch(new RegExp(`${key}\\s*:\\s*${shader}\\b`));
+    }
+    const fx = readVendor("src/ui/visualEffects.js");
+    expect(fx).toMatch(/export class VisualEffects\b/);
+    for (const m of [
+      "initStyles",
+      "initPostProcess",
+      "setStageIntensity",
+      "startTransition",
+      "applyBloomIntensity",
+      "setBloomEnabled",
+      "applySharpenIntensity",
+      "setSharpenEnabled",
+      "stop",
+      "destroy",
+    ]) {
+      expect(fx, `VisualEffects.${m}`).toMatch(new RegExp(`\\n  ${m}\\(`));
+    }
+    const bloom = readVendor("src/bloom.js");
+    for (const e of ["BLOOM_INTENSITY_DEFAULT", "clampBloomIntensity", "bloomStrengthFromIntensity"]) {
+      expect(bloom).toMatch(new RegExp(`export (const|function) ${e}\\b`));
+    }
+    for (const s of ["retro", "surveillance", "thermal", "anime", "noir", "snow"]) {
+      expect(readVendor(`src/styles/${s}.js`)).toMatch(/export const \w+Shader\b/);
+    }
+  });
 });
 
 // ── c2: engine behavior contracts (mock fetch, no network) ─────────────────
