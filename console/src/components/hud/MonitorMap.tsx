@@ -4,17 +4,21 @@
 // the page-specific fourth tier (bundled offline GeoJSON) past the chain.
 //
 // Post-2026-09-15: migrated from Leaflet to MapLibre GL JS.
-//   * Each event is rendered as a MapLibre Marker wrapping a custom
-//     HTML div (CSS-styled circle). HTML markers give us full control
-//     over visual style + click behavior; MapLibre's GeoJSON symbol
-//     layer is also viable but HTML markers are simpler at our event
-//     counts (~70 typical).
 //   * MapLibre's fitBounds is reliable (no stuck-render class of bugs
 //     we hit with Leaflet), so the manual DOM workaround code from
 //     cd8df25 is gone.
 //   * All Leaflet coordinate-order gotchas (lat,lng vs lng,lat) are
 //     handled at the Leaflet-callback boundary — in this file we just
 //     speak [lng, lat] to MapLibre.
+//
+// Post-2026-09-18: events render as a single MapLibre GeoJSON source +
+// circle layer (lib/mapEventsLayer.ts), NOT per-event maplibregl.Marker
+// divs. At ≥1000 events the DOM hit-test + per-marker :hover transform +
+// box-shadow pulse keyframe made the cursor visibly lag on mousemove
+// inside the map. The circle layer is one WebGL draw call per frame
+// with GPU hit-testing; the layer also survives map.setStyle() (basemap
+// failover) via a style.load re-add. Hover info lives in a single
+// MapLibre Popup (one DOM element, only mounted while hovered).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
