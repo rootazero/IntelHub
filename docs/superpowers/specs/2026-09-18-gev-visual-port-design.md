@@ -16,6 +16,7 @@
 | 相机约束 | **严禁引入上游圆形视野遮罩/周边压黑**。相机姿态与驾驶舱只移植姿态数学与跟随逻辑，保留当前开放全景渲染；scopeMask 维持 `setScopeMaskEnabled(false)` |
 | 工程组织 | 总纲 + 分期（P6-P10），每期独立 spec→plan→SDD→315→410→push |
 | 标注存储 | **超越上游**：上游标注仅存会话内存，IntelHub 持久化入 PG，标注跨会话存活 |
+| detection 聚光遮罩 | **移除**（2026-09-18 用户决策）：探索证实其为屏幕中央圆孔 keyhole（孔外压暗至 1%），与已否决的圆圈美学同源；且依赖 worldOverlay host + vendor CSS 移植，风险不成比例。总纲范围内不再移植 |
 | 适配层位置 | 新增 `console/src/gev-visual/`——本工程唯一新代码密集区 |
 
 ## 1. 现状盘点（Gap Analysis 结论）
@@ -61,7 +62,7 @@ React HUD（console/src/globe-hud/ 新增模块）
 
 | 期 | 内容 | 渲染核来源 | 出口标准 |
 |---|---|---|---|
-| **P6 视觉预设** | 6 套 GLSL 滤镜 + bloom/sharpen + detection 聚光遮罩 + 500ms crossfade；HUD 滤镜切换器（建议放右下或顶条）；滤镜选择持久化 localStorage | visualPresets.js、visualEffects.js、styles/*.glsl、visualSettings.js（detection 部分） | 6 滤镜切换无闪屏无报错；detection 遮罩跟随图层开关；probe 截图断言滤镜生效 |
+| **P6 视觉预设** | 6 套 GLSL 滤镜 + bloom/sharpen 随预设联动 + 500ms crossfade；HUD 滤镜切换器（顶条下拉）；滤镜选择持久化 localStorage | visualPresets.js、visualEffects.js、styles/*.js（GLSL 内联于 JS 模块）、bloom.js | 6 滤镜切换无闪屏无报错；probe 断言滤镜生效 |
 | **P7 相机姿态+导航** | 追踪目标斜视 35°/俯视切换（**全景渲染，无圆圈遮罩**）；地点搜索飞行实装（接通 HudTopBar 占位搜索框，geocode 走 hub 代理或免 key 服务） | cameraOrientationControls.js（姿态数学）、location/locationSearch 核 | 选中航班一键跟随/退出，姿态两档切换；搜索框实装可飞行定位；占位 disabled 搜索框代码删除（熵减） |
 | **P8 标注绘制** | pin/line/area 手绘工具（HUD 左轨工具栏）+ 世界锚定标注（脉冲环/弯箭头/callout 卡）+ area drape 贴地；**标注持久化入 PG**（新表 + REST `/api/v1/annotations/*`），跨会话存活 | annotationEngine.js（状态机）、drawTool/drawMode、world/screen/hybridAnnotationRenderer；resolver 按需裁剪（Overpass 代理解析可后置） | 标注刷新后仍在；绘制工具栏进 HUD；sp8 新增标注 CRUD 检查位 |
 | **P9 驾驶舱** | 航班第一人称追踪：罗盘/高度/速度尺仪表 + 视觉模式切换（复用 P6 滤镜管线）+ 区域简报轮播 | cockpitCamera/cockpitMath/cockpitInstruments/cockpitBriefing/cockpitVisionPolicy；简报数据源需先在 P8 尾补实 request-services（weather/summary 代理） | 选中航班进座舱，仪表数据实时刷新；退出完整恢复 HUD；全程全景渲染无遮罩 |
