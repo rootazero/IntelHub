@@ -180,6 +180,25 @@ export default function Monitor() {
           <HudPanel title={t("hud.sensorGrid")} ok={ok === sources.length && sources.length > 0} className="max-h-[46%]">
             <SensorGrid sources={sources} selected={selSource} onSelect={setSelSource} />
           </HudPanel>
+          <HudPanel title={t("hud.indicators")} className="max-h-[24%]">
+            <div className="hud-mono">
+              {Object.values(latest)
+                .filter((r) => !r.series.startsWith("quote:") && !GAUGES.some((g) => g.series === r.series))
+                .sort((a, b) => a.series.localeCompare(b.series))
+                .slice(0, 8)
+                .map((r) => (
+                  <div key={r.series} className="flex items-baseline justify-between gap-2 py-[3px] text-[11px]">
+                    <span className="truncate text-[10px]" style={{ color: "var(--hud-dim)" }}>{r.series}</span>
+                    <span style={{ color: "var(--hud-ink)" }}>
+                      {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ))}
+              {Object.keys(latest).length === 0 && (
+                <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>
+              )}
+            </div>
+          </HudPanel>
           <HudPanel title={t("hud.gauges")} className="flex-1">
             {GAUGES.map((g) => {
               const v = latest[g.series]?.value ?? null;
@@ -232,7 +251,7 @@ export default function Monitor() {
           </HudPanel>
         </div>
 
-        {/* right rail: news ticker → key indicators → delta → alerts → stream */}
+        {/* right rail: news ticker → OSINT bridge → delta → alerts → stream (key indicators migrated to left rail, above gauges) */}
         <div className="hud-col">
           <HudPanel title={t("hud.news")} className="flex-none h-[150px]" bodyClassName="!overflow-hidden">
             <NewsTicker refreshKey={mapTick} />
@@ -268,25 +287,6 @@ export default function Monitor() {
                 </div>
               ))}
               {osintBridge.length === 0 && <span style={{ color: "var(--hud-dim)" }}>loading…</span>}
-            </div>
-          </HudPanel>
-          <HudPanel title={t("hud.indicators")} className="max-h-[24%]">
-            <div className="hud-mono">
-              {Object.values(latest)
-                .filter((r) => !r.series.startsWith("quote:") && !GAUGES.some((g) => g.series === r.series))
-                .sort((a, b) => a.series.localeCompare(b.series))
-                .slice(0, 8)
-                .map((r) => (
-                  <div key={r.series} className="flex items-baseline justify-between gap-2 py-[3px] text-[11px]">
-                    <span className="truncate text-[10px]" style={{ color: "var(--hud-dim)" }}>{r.series}</span>
-                    <span style={{ color: "var(--hud-ink)" }}>
-                      {r.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                ))}
-              {Object.keys(latest).length === 0 && (
-                <span className="text-[11px]" style={{ color: "var(--hud-dim)" }}>{t("hud.noData")}</span>
-              )}
             </div>
           </HudPanel>
           <HudPanel title={t("hud.delta")} className="max-h-[24%]">
