@@ -14,7 +14,7 @@
 // synchronously in cleanup so a real route-leave (different component
 // instance) boots fresh on re-entry. StrictMode dev pays a 2× boot cost; prod
 // pays 1×.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
@@ -87,13 +87,17 @@ export default function GlobeV2() {
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
+  // P7: one hub transport shared by the engine bootstrap and the top-bar
+  // location search. useMemo keeps the HudTopBar prop referentially stable —
+  // its self-mount effect depends on it.
+  const apiFetch = useMemo(() => makeApiFetch("", getKey() ?? ""), []);
 
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
     const globe = createIntelHubGlobe({
       // Same-origin hub API; bearer key reuses the console auth store (api.ts).
-      apiFetch: makeApiFetch("", getKey() ?? ""),
+      apiFetch,
       googleApiKey: GOOGLE_KEY,
       cesiumToken: CESIUM_KEY,
     });
@@ -204,6 +208,8 @@ export default function GlobeV2() {
           overview={overviewState.overview}
           visualEffects={visualEffects}
           camera={cameraOrientation}
+          apiFetch={apiFetch}
+          viewer={sceneHandles?.viewer}
         />
       }
       left={railManager ? <HudLayerRail manager={railManager} /> : null}

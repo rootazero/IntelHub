@@ -1,4 +1,4 @@
-// HUD top bar (T11): brand mark, P5 search placeholder, open-alert bell and a
+// HUD top bar (T11): brand mark, live location search, open-alert bell and a
 // 1 s UTC clock. Mounted by the page into HudFrame's [data-hud="top"] slot.
 //
 // Styling follows the P1 HUD token family carried by globe-hud/hud.css
@@ -12,12 +12,22 @@
 // EXCEPTION: the Back button uses react-router's navigate() instead of <a href>
 // because Globe is fullscreen and the sidebar is hidden — this is the user's
 // only in-app nav affordance, so it must not trigger a full page reload.
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
 import { HudStyleSwitcher } from "./HudStyleSwitcher";
 import type { VisualEffectsHandle } from "../gev-visual/visual-effects";
 import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
+import type {
+  LocationSearchHandle,
+  SearchState,
+} from "../gev-visual/location-search";
+import type { ApiFetch } from "../gev-adapters/http";
 
 /** HH:MM:SS in UTC — the clock never reads local time. */
 export function formatUtcClock(date: Date): string {
@@ -64,9 +74,25 @@ export interface HudTopBarProps {
   visualEffects?: VisualEffectsHandle | null;
   /** P7: camera orientation adapter — null hides the reset-north button. */
   camera?: CameraOrientationHandle | null;
+  /** P7 location search. `undefined` = self-mount from apiFetch + viewer (the
+   *  live GlobeV2 path); an explicit `null` = engine not ready, so the input
+   *  renders disabled instead of pretending to search. Tests / external owners
+   *  may inject a handle directly. */
+  locationSearch?: LocationSearchHandle | null;
+  /** P7: authenticated hub transport for the self-mounted location search. */
+  apiFetch?: ApiFetch;
+  /** P7: live viewer for the self-mounted location search. */
+  viewer?: unknown;
 }
 
-export function HudTopBar({ overview, visualEffects, camera }: HudTopBarProps) {
+export function HudTopBar({
+  overview,
+  visualEffects,
+  camera,
+  locationSearch,
+  apiFetch,
+  viewer,
+}: HudTopBarProps) {
   const now = useUtcClock();
   const openAlerts = overview?.alerts?.open;
   const clock = formatUtcClock(now);
@@ -81,6 +107,80 @@ export function HudTopBar({ overview, visualEffects, camera }: HudTopBarProps) {
     if (location.key !== "default") navigate(-1);
     else navigate("/");
   };
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [selfSearch, setSelfSearch] = useState<LocationSearchHandle | null>(
+    null,
+  );
+  const [query, setQuery] = useState("");
+  const [searchState, setSearchState] = useState<SearchState>("idle");
+
+  // Self-mount when no handle is injected (the live GlobeV2 path). The import
+  // is lazy: the adapter pulls in the vendored engine (and Cesium), which the
+  // injected-handle tests and the rest of the HUD chrome never need.
+  useEffect(() => {
+    if (locationSearch !== undefined) return;
+    if (!apiFetch || !viewer) return;
+    const input = searchInputRef.current;
+    if (!input) return;
+    let cancelled = false;
+    let handle: LocationSearchHandle | null = null;
+    import("../gev-visual/location-search")
+      .then(({ mountLocationSearch }) => {
+        if (cancelled) return;
+        handle = mountLocationSearch(viewer, input, apiFetch);
+        setSelfSearch(handle);
+      })
+      .catch((e) => console.warn("[HudTopBar] location search disabled:", e));
+    return () => {
+      cancelled = true;
+      handle?.destroy();
+      setSelfSearch(null);
+    };
+  }, [locationSearch, apiFetch, viewer]);
+
+  // An injected handle wins; `undefined` means "use the self-mounted one".
+  const search = locationSearch !== undefined ? locationSearch : selfSearch;
+
+  // Mirror the adapter's state. missing/failed are transient feedback, not a
+  // permanent label: they clear after 4 s or on the next keystroke.
+  useEffect(() => {
+    if (!search) {
+      setSearchState("idle");
+      return;
+    }
+    setSearchState(search.getState());
+    return search.subscribe(setSearchState);
+  }, [search]);
+
+  useEffect(() => {
+    if (searchState !== "missing" && searchState !== "failed") return;
+    const timer = setTimeout(() => setSearchState("idle"), 4000);
+    return () => clearTimeout(timer);
+  }, [searchState]);
+
+  const onSearchChange = (value: string) => {
+    setQuery(value);
+    if (searchState === "missing" || searchState === "failed") {
+      setSearchState("idle");
+    }
+  };
+
+  const onSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    const q = query.trim();
+    if (!q || !search) return;
+    void Promise.resolve(search.run(q)).catch(() => {});
+  };
+
+  const searchStatusText =
+    searchState === "searching"
+      ? "搜索中…"
+      : searchState === "missing"
+        ? "未找到 / Not found"
+        : searchState === "failed"
+          ? "搜索失败 / Search failed"
+          : null;
 
   return (
     <div className="hud-bar hud-bar-top" data-testid="hud-top-bar">
@@ -98,17 +198,26 @@ export function HudTopBar({ overview, visualEffects, camera }: HudTopBarProps) {
       <span className="hud-bar-brand">INTELHUB</span>
       <span className="hud-bar-sub">GEV · 全球态势感知</span>
       <span className="hud-bar-sep" aria-hidden />
-      {/* P5 placeholder: rendered disabled on purpose so the control is
-          visible and honest instead of a fake input that silently no-ops. */}
+      {/* Live location search (P7). Disabled only while the engine is not
+          ready (no handle yet) — honest degradation, not a placeholder. */}
       <input
+        ref={searchInputRef}
         className="hud-bar-search"
         type="search"
-        placeholder="搜索目标 / 情报 (P5)"
-        aria-label="全局搜索（P5 待实现）"
-        title="全局搜索 P5 待实现"
-        data-testid="hud-search-p5"
-        disabled
+        placeholder="地点搜索 / Location"
+        aria-label="地点搜索 / Location search"
+        title="地点搜索 / Location search"
+        data-testid="hud-search-location"
+        value={query}
+        onChange={(e) => onSearchChange(e.target.value)}
+        onKeyDown={onSearchKeyDown}
+        disabled={!search}
       />
+      {searchStatusText && (
+        <span className="hud-search-status" data-testid="hud-search-status">
+          {searchStatusText}
+        </span>
+      )}
       <span className="hud-bar-grow" />
       {camera && (
         <button
