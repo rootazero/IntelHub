@@ -28,7 +28,7 @@ export function HudFrame({
   children?: ReactNode;
 }) {
   return (
-    <div className="hud-root">
+    <div className="globe-root">
       <div id="cesiumContainer" className="hud-canvas" />
       <div id="loading-screen">
         <span className="loader-status" />
