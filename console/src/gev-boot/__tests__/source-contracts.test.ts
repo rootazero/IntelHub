@@ -357,6 +357,238 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
       expect(typeof m[factory], `${path} → ${factory}`).toBe("function");
     }
   });
+
+  // ── GEV P9 anchors (T1): cockpit render-core import surface ──
+  //
+  // The plan's guessed export names (cockpitMath heading/altitudeMeters/
+  // speedMps/cockpitCloudCover/cockpitCloudLightning, cockpitPresentation at
+  // src/ root, TARGET_STYLE_BY_MODE exported, 6 brief pages) are ALL wrong.
+  // These pins are written against the vendored files themselves:
+  //   src/cockpitMath.js, src/cockpitVisionPolicy.js,
+  //   src/ui/cockpitPresentation.js, src/ui/cockpitCamera.js.
+
+  test("P9 cockpitMath compass/ruler/geometry exports are pinned (pure module)", async () => {
+    // cockpitMath + panelRailGeometry + cockpitVisionPolicy + (ui/)cockpitPresentation
+    // have ZERO imports, so they are live-imported (runtime VALUES, not just
+    // names) — the drawMode.js style (P8).
+    const m = (await import("gev-engine/src/cockpitMath.js")) as Record<string, any>;
+    const fns = [
+      "normalizeHeading",
+      "slewHeading",
+      "cockpitAnchorCorrectionStep",
+      "cockpitUiUpdateDue",
+      "cockpitSurfaceWaitExpired",
+      "cockpitGroundSafeHeight",
+      "cockpitAltitudeDisplayFt",
+      "formatCockpitContextScope",
+      "compassDivisions",
+      "formatCompassDivision",
+      "altitudeRulerStep",
+      "altitudeRulerTicks",
+      "altitudeRulerCurveInset",
+      "formatAltitudeRulerTick",
+      "speedRulerStep",
+      "speedRulerTicks",
+      "formatSpeedRulerTick",
+      "bearingBetweenCoordinates",
+      "relativeBearing",
+      "resolveTrackedAircraftInfo",
+      "resolveCockpitContextReadout",
+      "resolveHudRailLayout", // re-exported from ./ui/panelRailGeometry.js
+    ];
+    for (const name of fns)
+      expect(typeof m[name], `cockpitMath.${name}`).toBe("function");
+    // Arity pins: the HUD adapters call these positionally.
+    for (const [name, arity] of [
+      ["normalizeHeading", 1],
+      ["slewHeading", 3],
+      ["cockpitAnchorCorrectionStep", 3],
+      ["cockpitUiUpdateDue", 3],
+      ["cockpitSurfaceWaitExpired", 2],
+      ["cockpitGroundSafeHeight", 3],
+      ["cockpitAltitudeDisplayFt", 2],
+      ["formatCockpitContextScope", 2],
+      ["compassDivisions", 1],
+      ["formatCompassDivision", 1],
+      ["altitudeRulerStep", 1],
+      ["altitudeRulerTicks", 1],
+      ["altitudeRulerCurveInset", 1],
+      ["formatAltitudeRulerTick", 1],
+      ["speedRulerStep", 1],
+      ["speedRulerTicks", 1],
+      ["formatSpeedRulerTick", 1],
+      ["bearingBetweenCoordinates", 4],
+      ["relativeBearing", 2],
+      ["resolveTrackedAircraftInfo", 0],
+      ["resolveCockpitContextReadout", 0],
+    ] as const)
+      expect(m[name].length, `cockpitMath.${name} arity`).toBe(arity);
+    // Behavior pins — the instrument readouts the HUD renders verbatim.
+    expect(m.normalizeHeading(370)).toBe(10);
+    expect(m.compassDivisions(5)).toEqual([270, 300, 330, 0, 30, 60, 90]);
+    expect(m.formatCompassDivision(0)).toBe("N");
+    expect(m.formatCompassDivision(45)).toBe("NE");
+    expect(m.altitudeRulerTicks(1234)).toHaveLength(9);
+    expect(m.formatAltitudeRulerTick(1234)).toBe("01234");
+    expect(m.speedRulerTicks(120)).toHaveLength(9);
+    expect(m.formatSpeedRulerTick(7)).toBe("007");
+    expect(m.cockpitAltitudeDisplayFt(1000, true)).toBe(0);
+  });
+
+  test("P9 cockpitVisionPolicy 5-mode gating exports + arities are pinned", async () => {
+    const m = (await import("gev-engine/src/cockpitVisionPolicy.js")) as Record<string, any>;
+    expect(m.COCKPIT_VISION_MODES).toEqual([
+      "optical",
+      "crt",
+      "nvg",
+      "thermal",
+      "noir",
+    ]);
+    for (const [name, arity] of [
+      ["normalizeCockpitVisionMode", 1],
+      ["captureCockpitVisionBaseline", 2],
+      // (stages, mode, restore = {}) → the 3rd arg is optional but load-bearing
+      ["applyCockpitVisionStageIntensities", 2],
+    ] as const) {
+      expect(typeof m[name], `cockpitVisionPolicy.${name}`).toBe("function");
+      expect(m[name].length, `cockpitVisionPolicy.${name} arity`).toBe(arity);
+    }
+    expect(m.normalizeCockpitVisionMode("nvg")).toBe("nvg");
+    expect(m.normalizeCockpitVisionMode("bogus")).toBe("optical");
+    // optical is the restore branch: it writes back the captured baselines
+    // and returns null (no temporary style to surface).
+    const stages = () => ({
+      retro: { uniforms: { intensity: 0.25 } },
+      surveillance: { uniforms: { intensity: 0.5 } },
+      thermal: { uniforms: { intensity: 0.75 } },
+    });
+    const s1 = stages();
+    expect(m.applyCockpitVisionStageIntensities(s1, "optical", { retro: 0.2 })).toBeNull();
+    expect(s1.retro.uniforms.intensity).toBe(0.2);
+    // A real mode zeroes EVERY stage then lights exactly one target style
+    // (thermal → 'thermal'); a mode whose target style is absent returns null.
+    const s2 = stages();
+    expect(m.applyCockpitVisionStageIntensities(s2, "thermal")).toBe("thermal");
+    expect(s2.thermal.uniforms.intensity).toBe(1);
+    expect(s2.retro.uniforms.intensity).toBe(0);
+    expect(s2.surveillance.uniforms.intensity).toBe(0);
+    expect(m.applyCockpitVisionStageIntensities(stages(), "crt")).toBe("retro");
+    // The plan's T3 calls `TARGET_STYLE_BY_MODE[mode]` — it is module-PRIVATE,
+    // so the adapter must go through applyCockpitVisionStageIntensities instead.
+    expect(m).not.toHaveProperty("TARGET_STYLE_BY_MODE");
+  });
+
+  test("P9 cockpitPresentation cadences + 3-page brief table are pinned", async () => {
+    const m = (await import("gev-engine/src/ui/cockpitPresentation.js")) as Record<string, any>;
+    // Cadences the HUD mirrors (P9 T4): camera 20Hz, HUD 10Hz, context 4Hz.
+    expect(m.COCKPIT_CAMERA_UPDATE_MS).toBe(50);
+    expect(m.COCKPIT_HUD_UPDATE_MS).toBe(100);
+    expect(m.COCKPIT_CONTEXT_UPDATE_MS).toBe(250);
+    expect(m.COCKPIT_BRIEF_ROTATE_MS).toBe(9000); // plan guessed 6000
+    expect(m.COCKPIT_REGIONAL_REFRESH_MS).toBe(300_000);
+    expect(m.COCKPIT_REGIONAL_REFRESH_DISTANCE_M).toBe(25_000);
+    for (const name of [
+      "COCKPIT_HEADING_SLEW_DPS",
+      "COCKPIT_FORWARD_OFFSET_M",
+      "COCKPIT_UP_OFFSET_M",
+      "COCKPIT_MIN_GROUND_CLEARANCE_M",
+      "COCKPIT_VIEW_PITCH_DEG",
+      "COCKPIT_GROUND_PROBE_MS",
+      "COCKPIT_GROUND_WAIT_TIMEOUT_MS",
+      "COCKPIT_BRIEF_CYCLE_OFF_HELP",
+      "COCKPIT_BRIEF_CYCLE_ON_HELP",
+    ])
+      expect(m, `cockpitPresentation.${name}`).toHaveProperty(name);
+    // Vendor ships THREE pages (signals/news/local), not the plan's 6.
+    expect(m.COCKPIT_BRIEF_PAGES).toHaveLength(3);
+    expect(m.COCKPIT_BRIEF_PAGES.map((p: any) => p.id)).toEqual([
+      "signals",
+      "news",
+      "local",
+    ]);
+    for (const [name, arity] of [
+      ["isRenderedOnScreen", 1],
+      ["formatCockpitBriefAge", 1],
+      ["formatCockpitWindDirection", 1],
+      // (element, text, numericValue, {circularRange,immediate} = {})
+      ["setCockpitRollingValue", 3],
+    ] as const) {
+      expect(typeof m[name], `cockpitPresentation.${name}`).toBe("function");
+      expect(m[name].length, `cockpitPresentation.${name} arity`).toBe(arity);
+    }
+  });
+
+  test("P9 cockpitCamera stays a Cesium-bound zero-arity mixin method", () => {
+    // Source anchors, not a live import: cockpitCamera.js imports 'cesium'
+    // directly. The plan's `update(viewer, entity, params)` guess is wrong —
+    // the module exports ONE zero-arity method meant to be `.call()`ed with a
+    // cockpit controller as `this` (it reads this.viewer/this.trackedEntity).
+    const src = readVendor("src/ui/cockpitCamera.js");
+    expect(src).toMatch(/export function update\(\)/);
+    expect(src).toMatch(/^import \* as Cesium from 'cesium';/m);
+    expect(src).not.toMatch(/export class/);
+    // Coupling pin: it consumes the pinned cockpitMath helpers + presentation
+    // cadences, so an upstream refactor that relocates either trips here.
+    for (const helper of [
+      "slewHeading",
+      "cockpitAnchorCorrectionStep",
+      "cockpitGroundSafeHeight",
+      "cockpitSurfaceWaitExpired",
+      "cockpitUiUpdateDue",
+    ])
+      expect(src, `cockpitCamera uses ${helper}`).toMatch(
+        new RegExp(`\\b${helper}\\b`),
+      );
+    expect(src).toMatch(/COCKPIT_CAMERA_UPDATE_MS|COCKPIT_HUD_UPDATE_MS/);
+  });
+
+  test("P9 mountVisualEffects handle exposes getStages() as a Map (P6 handle extension)", async () => {
+    const { mountVisualEffects } = await import("../../gev-visual/visual-effects");
+    const added: any[] = [];
+    const viewer = {
+      scene: {
+        requestRender: () => {},
+        postProcessStages: {
+          bloom: { enabled: true, uniforms: {} },
+          add(stage: any) {
+            added.push(stage);
+          },
+          remove(stage: any) {
+            const i = added.indexOf(stage);
+            if (i >= 0) added.splice(i, 1);
+          },
+        },
+      },
+    };
+    const handle = mountVisualEffects(viewer as any, {
+      createStage: (options: any) => ({
+        ...options,
+        enabled: true,
+        uniforms: { ...(options.uniforms ?? {}) },
+      }),
+      requestFrame: () => 0,
+      cancelFrame: () => {},
+      now: () => 0,
+    });
+    const stages = handle.getStages();
+    expect(stages).toBeInstanceOf(Map);
+    // Keyed by vendor STYLE name (retro/surveillance/thermal/anime/noir/snow),
+    // NOT by the Cesium stage name `godsEyeView_<style>`.
+    expect([...(stages?.keys() ?? [])].sort()).toEqual([
+      "anime",
+      "noir",
+      "retro",
+      "snow",
+      "surveillance",
+      "thermal",
+    ]);
+    expect(stages?.get("retro")?.uniforms.intensity).toBe(0);
+    // The vendor policy consumes a plain object — the documented bridge must
+    // keep working across the Map conversion.
+    expect(Object.fromEntries(stages ?? [])).toHaveProperty("retro");
+    handle.destroy();
+    expect(handle.getStages()).toBeNull();
+  });
 });
 
 // ── c2: engine behavior contracts (mock fetch, no network) ─────────────────

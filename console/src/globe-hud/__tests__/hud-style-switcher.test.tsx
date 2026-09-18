@@ -9,6 +9,8 @@ function fakeHandle(): VisualEffectsHandle & { setStyle: ReturnType<typeof vi.fn
   return {
     setStyle: vi.fn((s: any) => { style = s; }),
     getStyle: () => style,
+    // P9 extended the handle with getStages(); the switcher never reads it.
+    getStages: () => null,
     destroy: vi.fn(),
   };
 }
