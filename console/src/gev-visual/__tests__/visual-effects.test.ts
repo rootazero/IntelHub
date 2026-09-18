@@ -72,7 +72,12 @@ describe("mountVisualEffects", () => {
       expect(stage, name).toBeTruthy();
       expect(stage.enabled).toBe(false);
     }
-    expect(viewer.scene.postProcessStages.byName("godsEyeView_sharpen")).toHaveLength(1);
+    const [sharpen] = viewer.scene.postProcessStages.byName("godsEyeView_sharpen");
+    expect(sharpen).toBeTruthy();
+    // Mount-baseline parity (vendor GLOBAL_POST_DEFAULTS / local normal
+    // fallback): a fresh "normal" page load must ALREADY be sharpened.
+    expect(sharpen.enabled).toBe(true);
+    expect(sharpen.uniforms.amount).toBeCloseTo(0.1 + 0.49 * 2.0, 10);
     handle.destroy();
   });
 
@@ -132,8 +137,10 @@ describe("mountVisualEffects", () => {
     // false is what proves the preset was actually applied (not left untouched).
     expect(bloom.enabled).toBe(false);
     // Sharpen is the second half of the preset: retro default is
-    // {enabled:true,intensity:49}. initPostProcess leaves the sharpen stage
-    // disabled, so enabled:true here also proves the preset landed.
+    // {enabled:true,intensity:49}. NOTE: mount now applies the normal-style
+    // preset defaults unconditionally, so sharpen is already enabled here
+    // before setStyle("retro") runs; this assertion pins the post-preset state
+    // (see test 2 for the mount-baseline parity guard).
     expect(sharpen.enabled).toBe(true);
     handle.setStyle("anime"); // no upstream preset default → local fallback: bloom off
     frames.tick(600);

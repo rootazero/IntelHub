@@ -112,11 +112,17 @@ export function mountVisualEffects(
     applyPresetDefaults(next);
   }
 
+  // Preset defaults (bloom/sharpen) are the vendor baseline for EVERY style,
+  // normal included (GLOBAL_POST_DEFAULTS = sharpen ON@49, bloom OFF). Apply
+  // them unconditionally on mount, otherwise a fresh page load under "normal"
+  // renders unsharpened while a style round-trip back to normal flips sharpen
+  // ON. Only the instant stage-intensity apply stays gated: "normal" has no
+  // style stage of its own.
+  applyPresetDefaults(initialStyle);
   if (initialStyle !== "normal" && (STYLES as Record<string, unknown>)[initialStyle]) {
     const stage = stageOf(initialStyle);
     if (stage) effects.setStageIntensity(stage, 1.0);
     current = initialStyle;
-    applyPresetDefaults(initialStyle);
   }
 
   let destroyed = false;
