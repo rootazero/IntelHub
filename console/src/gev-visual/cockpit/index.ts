@@ -38,3 +38,9 @@ export {
   type CockpitAction,
   type CockpitStore,
 } from "./cockpit-store";
+
+export {
+  gateStyleWhileCockpitActive,
+  type StyleEffects,
+  type GatedStyleControl,
+} from "./style-gate";

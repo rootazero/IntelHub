@@ -55,12 +55,18 @@ export function HudLayerRail({
   manager,
   onToggleDraw,
   drawActive,
+  onToggleCockpit,
+  cockpitActive,
 }: {
   manager: RailManager;
   /** P8: toggle the draw toolbar (renders the rail's draw entry button). */
   onToggleDraw?: () => void;
   /** P8: whether the draw toolbar is active (highlight the entry button). */
   drawActive?: boolean;
+  /** P9: enter/exit the cockpit overlay (renders the rail's cockpit entry). */
+  onToggleCockpit?: () => void;
+  /** P9: whether the cockpit overlay is active (highlight the entry). */
+  cockpitActive?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [openDomainId, setOpenDomainId] = useState<string | null>(null);
@@ -272,6 +278,21 @@ export function HudLayerRail({
           aria-pressed={drawActive}
         >
           <span aria-hidden>✏️</span>
+        </button>
+      )}
+      {!collapsed && onToggleCockpit && (
+        <button
+          type="button"
+          data-testid="hud-cockpit-button"
+          className={`hud-rail-icon hud-rail-tool${
+            cockpitActive ? " active" : ""
+          }`}
+          onClick={onToggleCockpit}
+          title="驾驶舱 / Cockpit"
+          aria-label="驾驶舱 / Cockpit"
+          aria-pressed={cockpitActive}
+        >
+          <span aria-hidden>🎮</span>
         </button>
       )}
       {openDomain && !collapsed && (
