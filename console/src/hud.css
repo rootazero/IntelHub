@@ -327,44 +327,13 @@
 }
 .hud-map-detail-actions { display: flex; gap: 6px; margin-top: 6px; }
 
-/* marker pulse animation: reserved for flash severity.
-   Post-2026-09-15 MapLibre migration: markers are HTML divs (not SVG
-   circles), so we style them as bordered circles that pulse. */
-.hud-marker,
-.radar-marker {
-  position: absolute;
-  border-radius: 50%;
-  border: 2px solid;
-  cursor: pointer;
-  pointer-events: auto;
-  transform: translate(-50%, -50%);
-  transition: transform 120ms ease-out, opacity 200ms;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-}
-.hud-marker:hover,
-.radar-marker:hover {
-  transform: translate(-50%, -50%) scale(1.2);
-  z-index: 10;
-}
-.hud-marker-pulse {
-  animation: hud-marker-pulse 1.6s ease-in-out infinite;
-}
-@keyframes hud-marker-pulse {
-  0%, 100% {
-    transform: translate(-50%, -50%) scale(1);
-    box-shadow: 0 0 0 0 currentColor, 0 0 8px currentColor;
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.18);
-    box-shadow: 0 0 0 6px transparent, 0 0 16px currentColor;
-  }
-}
-.hud-lite .hud-marker-pulse { animation: none; }
-
-/* dimmed markers when a source filter is active: events NOT from the active
-   source fade so the matching cluster pops */
-.hud-marker-dim { opacity: 0.18; }
-.radar-marker.radar-marker-dim { opacity: 0.18; }
+/* Post-2026-09-18 GeoJSON circle-layer refactor: events render as
+   WebGL circles (one draw call per frame) instead of per-event DOM
+   divs. Hover popup is a MapLibre Popup (single DOM element, only
+   mounted while the cursor is over a marker). The legacy .hud-marker
+   / .radar-marker / .hud-marker-pulse / .hud-marker-dim rules are
+   removed — they're dead code now and would silently conflict if a
+   browser extension or a stale cache re-introduced a DOM marker. */
 
 /* legend pulse on sweep (≤800ms) */
 .hud-legend-bump .hud-map-legend-dot { animation: hud-pulse 0.9s ease-out 2; }
