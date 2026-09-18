@@ -9,6 +9,7 @@ pub mod components;
 pub mod config;
 pub mod console;
 pub mod cost;
+pub mod db;
 pub mod embed;
 pub mod entity_seeder;
 pub mod error;
