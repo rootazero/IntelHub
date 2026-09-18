@@ -8,7 +8,12 @@
 // Navigation uses a plain <a href> (T10 precedent): the HUD chrome is
 // engine-side, router-free, and a strip navigation is a full document load
 // either way.
+//
+// EXCEPTION: the Back button uses react-router's navigate() instead of <a href>
+// because Globe is fullscreen and the sidebar is hidden — this is the user's
+// only in-app nav affordance, so it must not trigger a full page reload.
 import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
 
 /** HH:MM:SS in UTC — the clock never reads local time. */
@@ -58,9 +63,30 @@ export function HudTopBar({ overview }: HudTopBarProps) {
   const now = useUtcClock();
   const openAlerts = overview?.alerts?.open;
   const clock = formatUtcClock(now);
+  // Globe is fullscreen — sidebar hidden by design. The Back button at the
+  // top-left is the user's only in-app nav affordance; location.key ===
+  // "default" means the user landed here directly (typed URL / bookmark /
+  // link from outside), so navigate(-1) would dump them off the app.
+  // Fallback to "/" (Command Deck) keeps them inside the console.
+  const navigate = useNavigate();
+  const location = useLocation();
+  const onBack = () => {
+    if (location.key !== "default") navigate(-1);
+    else navigate("/");
+  };
 
   return (
     <div className="hud-bar hud-bar-top" data-testid="hud-top-bar">
+      <button
+        type="button"
+        className="hud-bar-back"
+        onClick={onBack}
+        title="返回 / Back"
+        aria-label="Back"
+        data-testid="hud-back-button"
+      >
+        ← Back
+      </button>
       <HubMark />
       <span className="hud-bar-brand">INTELHUB</span>
       <span className="hud-bar-sub">GEV · 全球态势感知</span>
