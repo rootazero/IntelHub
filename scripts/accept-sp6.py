@@ -529,5 +529,51 @@ for _cam in [c for c in srcs if isinstance(c, dict) and c.get("url")][:3]:
     _frame_note = f"id={_id} http={_st_f}"
 check("gev: cctv frame proxy spot check (200 image)", _frame_ok, _frame_note)
 
+# ---- GEV P9: cockpit weather + summary brief endpoints (2026-09-18) ----
+
+# T2: cockpit weather brief. NOAA (2-step grid) with an Open-Meteo fallback;
+# both upstreams down → 503 {error, sources_tried} (contract §3.3). The 7
+# metric fields are ALWAYS present (null when a source omits one), so the
+# shape check is unconditional; only the values are upstream-dependent.
+# NOAA 403s anonymous/default-UA clients — `secrets::noaa_user_agent()`
+# resolves HUB_NOAA_UA → NOAA_USER_AGENT → "IntelHub/dev"; Open-Meteo is
+# keyless and should still answer 200. EITHER source is a PASS. Both down is
+# environmental degradation (overpass precedent, plan Task 5) → SHELVE, not
+# FAIL. Timeout is generous: NOAA 2-step (12s × 2) + Open-Meteo (12s).
+_weather_fields = ["temperature_c", "wind_speed_kts", "wind_direction_deg",
+                   "precipitation_mm", "cloud_cover_pct", "visibility_m",
+                   "pressure_hpa"]
+st_w, body_w = req("/api/v1/gev/weather?lat=40.0&lon=-74.0", timeout=50)
+if st_w == 200 and isinstance(body_w, dict):
+    _src_w = body_w.get("source")
+    _missing_w = [f for f in _weather_fields if f not in body_w]
+    check("gev: weather endpoint 200 + 7-metric contract (P9)",
+          _src_w in ("noaa", "open-meteo") and not _missing_w
+          and isinstance(body_w.get("fetched_at"), str) and bool(body_w["fetched_at"]),
+          f"http={st_w} source={_src_w} missing={_missing_w or 'none'}")
+elif st_w == 503:
+    check_shelved("gev: weather endpoint 200 + 7-metric contract (P9)",
+                  "both NOAA and Open-Meteo unreachable from VM egress (http=503 "
+                  f"{body_w.get('sources_tried') if isinstance(body_w, dict) else ''})")
+else:
+    check("gev: weather endpoint 200 + 7-metric contract (P9)", False,
+          f"http={st_w} body={str(body_w)[:120]}")
+
+# T2: cockpit summary brief. The plan assumed acled/reliefweb/gdelt upstreams
+# already exist in hub-core — they do NOT (verified T2), so the endpoint is a
+# stub-by-design: 200 + bullets:[] + sources:["cache"] + next_refresh_after
+# (spec §3.3 空载防御). The stub shape IS the contract, so this is a hard
+# check — an empty body / 500 / non-empty invented bullets is a regression.
+st_s, body_s = req("/api/v1/gev/summary?entity_id=test")
+check("gev: summary endpoint stub contract (P9)",
+      st_s == 200 and isinstance(body_s, dict)
+      and body_s.get("entity_id") == "test"
+      and body_s.get("bullets") == []
+      and body_s.get("sources") == ["cache"]
+      and isinstance(body_s.get("generated_at"), str) and bool(body_s["generated_at"])
+      and isinstance(body_s.get("next_refresh_after"), str)
+      and bool(body_s["next_refresh_after"]),
+      f"http={st_s} body={str(body_s)[:160]}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
