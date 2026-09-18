@@ -17,6 +17,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
 import { HudStyleSwitcher } from "./HudStyleSwitcher";
 import type { VisualEffectsHandle } from "../gev-visual/visual-effects";
+import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
 
 /** HH:MM:SS in UTC — the clock never reads local time. */
 export function formatUtcClock(date: Date): string {
@@ -61,9 +62,11 @@ export interface HudTopBarProps {
   overview?: OverviewData | null;
   /** T-P6: visual-effects adapter handle — null hides the style switcher. */
   visualEffects?: VisualEffectsHandle | null;
+  /** P7: camera orientation adapter — null hides the reset-north button. */
+  camera?: CameraOrientationHandle | null;
 }
 
-export function HudTopBar({ overview, visualEffects }: HudTopBarProps) {
+export function HudTopBar({ overview, visualEffects, camera }: HudTopBarProps) {
   const now = useUtcClock();
   const openAlerts = overview?.alerts?.open;
   const clock = formatUtcClock(now);
@@ -107,6 +110,18 @@ export function HudTopBar({ overview, visualEffects }: HudTopBarProps) {
         disabled
       />
       <span className="hud-bar-grow" />
+      {camera && (
+        <button
+          type="button"
+          className="hud-bar-back"
+          onClick={() => camera.resetNorth()}
+          title="回北 / Reset north"
+          aria-label="Reset north"
+          data-testid="hud-north-button"
+        >
+          ▲ N
+        </button>
+      )}
       <HudStyleSwitcher handle={visualEffects ?? null} />
       <a
         className={`hud-bar-alert${openAlerts ? " hot" : ""}`}

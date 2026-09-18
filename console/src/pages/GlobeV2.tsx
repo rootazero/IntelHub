@@ -32,6 +32,15 @@ import {
   type ViewerLike,
   type VisualEffectsHandle,
 } from "../gev-visual/visual-effects";
+import {
+  mountCameraOrientation,
+  type CameraOrientationHandle,
+  type CameraViewerLike,
+} from "../gev-visual/camera-orientation";
+import {
+  mountFollowController,
+  type FollowHandle,
+} from "../gev-visual/follow-controller";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -65,6 +74,16 @@ export default function GlobeV2() {
   // globe.destroy() (viewer dies first → postProcessStages.remove throws).
   const [visualEffects, setVisualEffects] = useState<VisualEffectsHandle | null>(null);
   const visualEffectsRef = useRef<VisualEffectsHandle | null>(null);
+  // P7: camera-orientation + follow-controller handles. Same pattern as the
+  // P6 visual-effects adapter — a ref holds the handle for THIS effect's
+  // cleanup (camera destroy must run BEFORE globe.destroy(); follow is pure
+  // bookkeeping with no engine resources), and state surfaces it to the HUD
+  // so the detail/top-bar buttons mount only after start() resolves.
+  const [cameraOrientation, setCameraOrientation] =
+    useState<CameraOrientationHandle | null>(null);
+  const cameraRef = useRef<CameraOrientationHandle | null>(null);
+  const [follow, setFollow] = useState<FollowHandle | null>(null);
+  const followRef = useRef<FollowHandle | null>(null);
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
@@ -112,6 +131,36 @@ export default function GlobeV2() {
             console.warn("[GlobeV2] visual effects disabled:", e);
           }
         }
+        // P7: camera-orientation adapter (tilt toggle + reset north). Reads
+        // viewer.camera.heading + trackedEntity — mounted against the live
+        // viewer, guarded like visual-effects for mock/partial boots.
+        if (viewer) {
+          try {
+            const cam = mountCameraOrientation(viewer as CameraViewerLike);
+            cameraRef.current = cam;
+            setCameraOrientation(cam);
+          } catch (e) {
+            console.warn("[GlobeV2] camera orientation disabled:", e);
+          }
+        }
+        // P7: follow controller — routes flight/satellite tracking through
+        // the engine data manager's per-layer trackById APIs. Pure bookkeeping
+        // (no viewer resources), but guarded for an absent dataManager
+        // (mock/partial boot) so the detail panel degrades to no buttons.
+        const dataManager = components?.data?.dataManager;
+        if (dataManager) {
+          try {
+            const fc = mountFollowController(
+              dataManager as unknown as Parameters<
+                typeof mountFollowController
+              >[0],
+            );
+            followRef.current = fc;
+            setFollow(fc);
+          } catch (e) {
+            console.warn("[GlobeV2] follow controller disabled:", e);
+          }
+        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -119,6 +168,15 @@ export default function GlobeV2() {
       });
     return () => {
       cancelled = true;
+      // P7 cleanup order (follow → camera → visual-effects → globe): follow
+      // is pure bookkeeping (no destroy); camera destroys its animator before
+      // the viewer dies; visual-effects removes post-process stages while the
+      // viewer is still alive; globe.destroy() tears down the viewer last.
+      followRef.current = null;
+      setFollow(null);
+      cameraRef.current?.destroy();
+      cameraRef.current = null;
+      setCameraOrientation(null);
       // Destroy the visual-effects adapter BEFORE engine teardown: its
       // destroy() removes stages from the live postProcessStages and restores
       // the bloom snapshot — a dead viewer would throw on remove(). React runs
@@ -142,10 +200,14 @@ export default function GlobeV2() {
   return (
     <HudFrame
       top={
-        <HudTopBar overview={overviewState.overview} visualEffects={visualEffects} />
+        <HudTopBar
+          overview={overviewState.overview}
+          visualEffects={visualEffects}
+          camera={cameraOrientation}
+        />
       }
       left={railManager ? <HudLayerRail manager={railManager} /> : null}
-      right={<HudDetailPanel />}
+      right={<HudDetailPanel follow={follow} camera={cameraOrientation} />}
       bottom={
         <HudBottomBar
           overview={overviewState.overview}
