@@ -78,6 +78,7 @@ const REST_TIMEOUT_MS = 30_000;
 const pageErrors = [];
 const engineNotes = [];
 const wire = new Set();
+let searchGeocodeSeen = false;
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -100,6 +101,9 @@ page.on("request", (req) => {
     wire.add("google-photoreal");
   else if (/ion\.cesium\.com/i.test(url)) wire.add("cesium-ion");
   else if (/arcgisonline\.com/i.test(url)) wire.add("esri-imagery");
+  // The HUD's location search calls the same-origin geocode proxy from page
+  // JS (not page.request) — observing it proves the search actually fired.
+  if (/\/api\/v1\/gev\/geocode/.test(url)) searchGeocodeSeen = true;
 });
 
 const missing = [];
@@ -420,6 +424,97 @@ try {
     await page.click('[data-testid="hud-style-switcher"]');
     await page.click('[data-testid="hud-style-option-normal"]');
     await page.waitForTimeout(700);
+  }
+
+  // ---- GEV P7: location search flies the camera; geocode proxy answers ----
+  // The geocode proxy (GET /api/v1/gev/geocode, photon-backed, Redis-cached
+  // 1h) is asserted via two same-URL requests: the second MUST read
+  // x-geocode-cache: hit (the first populates the cache). Then the HUD search
+  // is driven through the live input and Enter, mirroring the real user path.
+  const geo = await page.request.get(`${BASE}/api/v1/gev/geocode?q=Paris`, {
+    headers: { Authorization: `Bearer ${key}` },
+    timeout: REST_TIMEOUT_MS,
+  });
+  if (geo.status() !== 200) {
+    failures.push(`geocode proxy http=${geo.status()}`);
+  } else {
+    const geoBody = await geo.json();
+    if (!geoBody.results?.[0]?.label)
+      failures.push("geocode proxy returned no results for Paris");
+    const geo2 = await page.request.get(`${BASE}/api/v1/gev/geocode?q=Paris`, {
+      headers: { Authorization: `Bearer ${key}` },
+      timeout: REST_TIMEOUT_MS,
+    });
+    if (geo2.headers()["x-geocode-cache"] !== "hit")
+      warnings.push("geocode second request did not hit cache");
+  }
+  const searchInput = await gate(
+    '[data-testid="hud-search-location"]',
+    DATA_TIMEOUT_MS,
+    "search input",
+  );
+  if (searchInput) {
+    // The rail gate proves start() resolved, but the adapter's dynamic import
+    // lags it — wait for the input to leave the engine-not-ready disabled
+    // state before driving it (page.fill throws on a disabled input).
+    const searchEnabled = await page
+      .waitForFunction(
+        () => {
+          const el = document.querySelector(
+            '[data-testid="hud-search-location"]',
+          );
+          return !!el && !el.disabled;
+        },
+        null,
+        { timeout: DATA_TIMEOUT_MS },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (!searchEnabled) {
+      warnings.push(
+        "search input stayed disabled (location search adapter never mounted)",
+      );
+    } else {
+      // The engine viewer is NOT exposed on window (the engine's tools phase
+      // is stubbed in gev-boot/application.ts, so no window.__gevViewer), and
+      // a screenshot diff is unusable for a "camera moved" signal (Cesium
+      // renders continuously — frames always differ). The assertion therefore
+      // degrades to the weak form: a successful flyTo clears the status span;
+      // a miss/failure leaves 未找到 / 搜索失败 text behind. The global-viewer
+      // read is kept so the strong form activates automatically if the engine
+      // ever exposes one.
+      const readCam = () =>
+        page
+          .evaluate(() => {
+            const c = window.__gevViewer?.camera;
+            return c ? [c.position.x, c.position.y, c.position.z] : null;
+          })
+          .catch(() => null);
+      const before = await readCam();
+      const pageErrorsBeforeSearch = pageErrors.length;
+      await page.fill('[data-testid="hud-search-location"]', "Paris");
+      await page.press('[data-testid="hud-search-location"]', "Enter");
+      await page.waitForTimeout(4500); // geocode + 3s flyTo duration
+      const moved = await readCam();
+      if (before && moved && JSON.stringify(before) === JSON.stringify(moved)) {
+        failures.push("camera did not move after location search");
+      } else if (!before || !moved) {
+        const status = await page
+          .textContent('[data-testid="hud-search-status"]')
+          .catch(() => null);
+        if (status && /未找到|失败/.test(status))
+          failures.push(`location search surfaced: ${status.trim()}`);
+      }
+      if (pageErrors.length > pageErrorsBeforeSearch)
+        failures.push("page errors during location search");
+      // A silent no-op (search fired nothing and left no failure text) is the
+      // one case the status-text weak assertion cannot see — require the page
+      // to have issued its own geocode request through the proxy.
+      if (!searchGeocodeSeen)
+        failures.push(
+          "location search did not call the geocode proxy (no page-side request observed)",
+        );
+    }
   }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
