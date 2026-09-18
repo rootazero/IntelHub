@@ -14,7 +14,7 @@
 // synchronously in cleanup so a real route-leave (different component
 // instance) boots fresh on re-entry. StrictMode dev pays a 2× boot cost; prod
 // pays 1×.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
@@ -26,6 +26,12 @@ import type { RailManager } from "../globe-hud/HudLayerRail";
 import { HudTopBar } from "../globe-hud/HudTopBar";
 import { useOverview } from "../globe-hud/useOverview";
 import type { BasemapStack } from "../globe-hud/useActiveBasemap";
+import { readPersistedStyle } from "../globe-hud/HudStyleSwitcher";
+import {
+  mountVisualEffects,
+  type ViewerLike,
+  type VisualEffectsHandle,
+} from "../gev-visual/visual-effects";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -53,6 +59,12 @@ export default function GlobeV2() {
     viewer: unknown;
     mapStack: BasemapStack | null;
   } | null>(null);
+  // T-P6: visual-effects adapter handle — surfaced via state so HudTopBar's
+  // style switcher mounts only after start() resolves. A plain ref holds the
+  // same handle for the SAME effect's cleanup, which must destroy it BEFORE
+  // globe.destroy() (viewer dies first → postProcessStages.remove throws).
+  const [visualEffects, setVisualEffects] = useState<VisualEffectsHandle | null>(null);
+  const visualEffectsRef = useRef<VisualEffectsHandle | null>(null);
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
@@ -82,6 +94,24 @@ export default function GlobeV2() {
           viewer: components?.scene?.viewer ?? null,
           mapStack: components?.scene?.mapStackController ?? null,
         });
+        // T-P6: mount the visual-effects adapter against the live viewer.
+        // PostProcessStage needs a fully-built viewer (the P2 Leaflet class
+        // of failure). Guarded so an absent/mock viewer (jsdom tests, no
+        // WebGL) degrades to "no switcher" instead of erroring the page.
+        const viewer = components?.scene?.viewer;
+        if (viewer) {
+          try {
+            const fx = mountVisualEffects(
+              viewer as ViewerLike,
+              {},
+              readPersistedStyle(),
+            );
+            visualEffectsRef.current = fx;
+            setVisualEffects(fx);
+          } catch (e) {
+            console.warn("[GlobeV2] visual effects disabled:", e);
+          }
+        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -89,6 +119,14 @@ export default function GlobeV2() {
       });
     return () => {
       cancelled = true;
+      // Destroy the visual-effects adapter BEFORE engine teardown: its
+      // destroy() removes stages from the live postProcessStages and restores
+      // the bloom snapshot — a dead viewer would throw on remove(). React runs
+      // this same-effect cleanup as one unit, so this ordering is the
+      // lifecycle guarantee.
+      visualEffectsRef.current?.destroy();
+      visualEffectsRef.current = null;
+      setVisualEffects(null);
       // Reset synchronously so StrictMode's re-setup OR a real re-entry
       // (route back to /globe after navigation) can boot fresh.
       booted.current = false;
@@ -103,7 +141,9 @@ export default function GlobeV2() {
     return <div className="hud-fatal">Globe engine failed: {error}</div>;
   return (
     <HudFrame
-      top={<HudTopBar overview={overviewState.overview} />}
+      top={
+        <HudTopBar overview={overviewState.overview} visualEffects={visualEffects} />
+      }
       left={railManager ? <HudLayerRail manager={railManager} /> : null}
       right={<HudDetailPanel />}
       bottom={
