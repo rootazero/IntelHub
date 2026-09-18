@@ -29,3 +29,6 @@ url.workspace = true
 futures.workspace = true
 strsim.workspace = true
 tokio-tungstenite.workspace = true
+
+[dev-dependencies]
+wiremock = "0.6"
