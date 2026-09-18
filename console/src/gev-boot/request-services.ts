@@ -17,9 +17,9 @@
 // vocabulary, cf. sources/overpassFeatures.js query contract) or an empty
 // collection, so the engine's degradation paths engage exactly as they do for
 // a real upstream outage: layers render empty, nothing throws. The optional
-// IntelHub endpoints (boundaries/regional/weather/summary) land in P4/P5 and
-// will reuse the injected apiFetch; the apiFetch parameter is therefore part
-// of the stable signature now.
+// IntelHub endpoints (boundaries/regional/weather/summary) reuse the injected
+// apiFetch; the parameter is therefore part of the stable signature even while
+// every method resolves "no data".
 
 import type { ApiFetch } from "../gev-adapters/http";
 
@@ -47,23 +47,23 @@ const disabledFeatures = () => {
  * Build the engine's request-services object, IntelHub edition.
  *
  * @param apiFetch Authenticated hub transport. Unused by the current
- *   all-disabled surface, but kept in the signature so P4 (Open-Meteo
- *   weather) and P5 (boundaries/regional) can wire real endpoints without a
- *   breaking change to `createIntelHubGlobe`.
+ *   all-disabled surface, but kept in the signature so the weather and
+ *   boundaries/regional endpoints can be wired without a breaking change to
+ *   `createIntelHubGlobe`.
  */
 export function createIntelHubRequestServices(apiFetch: ApiFetch) {
-  void apiFetch; // reserved for P4/P5 endpoints — see header
+  void apiFetch; // reserved for the real endpoints — see header
   return {
-    // National boundaries via Overpass — P5.
+    // National boundaries via Overpass — not wired yet.
     boundaries: { query: async (..._args: unknown[]) => null },
     // Terrain sampling stays disabled: the engine's terrainHeights falls back
     // to bundled-geoid math when getHeights errors (services/terrainHeights.js
     // header). Returning [] for a non-empty chunk throws its documented
     // "length mismatch" error, which IS that fallback trigger.
     terrain: { getHeights: async (..._args: unknown[]) => [] as unknown[] },
-    // Regional brief — P5.
+    // Regional brief — not wired yet.
     regional: { getBrief: async (..._args: unknown[]) => null },
-    // Weather — P4 (Open-Meteo).
+    // Weather (Open-Meteo) — not wired yet.
     weather: { getConditions: async (..._args: unknown[]) => null },
     // LLM HUD summary — engine HUD is not constructed in the IntelHub
     // bootstrap (no engine controls/tools phase), so nothing calls this yet.
