@@ -835,3 +835,347 @@ button.hud-detail-link {
   background: rgba(255, 77, 109, 0.2);
   color: #ff4d6d;
 }
+
+/* ── P9 cockpit overlay ─────────────────────────────────────────────────────
+   Full-screen HUD overlay (D4: overlay, NOT globe replacement; NO circular
+   view mask — spec §0). Minimal CSS for the four sub-components, matching the
+   P6/P8 glass token family (rgba(3,5,9,.55) glass / #9aa4b2 dim / #e6edf3 ink
+   / #ff9500 accent). Vendor's 2188-line cockpit.css is deliberately NOT bulk-
+   imported (plan-deferred ruling). */
+.hud-cockpit-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none; /* panels re-enable their own pointer events */
+}
+
+/* ── context readout (top-left) ── */
+.hud-cockpit-context {
+  position: absolute;
+  top: 60px;
+  left: 60px;
+  padding: 10px 12px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.hud-cockpit-context-callsign {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.hud-cockpit-context-icao {
+  color: #9aa4b2;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+
+.hud-cockpit-context-readout {
+  display: flex;
+  gap: 14px;
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(154, 164, 178, 0.2);
+}
+
+.hud-cockpit-context-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud-cockpit-context-field dt {
+  color: #9aa4b2;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.hud-cockpit-context-field dd {
+  margin: 0;
+  color: #e6edf3;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── instrument cluster (center) ── */
+.hud-cockpit-instruments {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  pointer-events: none;
+}
+
+.hud-cockpit-gauge {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 10px;
+}
+
+.hud-cockpit-compass-ring {
+  width: 140px;
+  height: 140px;
+}
+
+.hud-cockpit-ring {
+  fill: none;
+  stroke: rgba(154, 164, 178, 0.35);
+  stroke-width: 1;
+}
+
+.hud-cockpit-tick {
+  stroke: #9aa4b2;
+  stroke-width: 1;
+}
+
+.hud-cockpit-tick.active {
+  stroke: #ff9500;
+}
+
+.hud-cockpit-div {
+  fill: #9aa4b2;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.hud-cockpit-div.active {
+  fill: #ff9500;
+  font-weight: 600;
+}
+
+.hud-cockpit-div.major {
+  fill: #e6edf3;
+}
+
+.hud-cockpit-heading {
+  color: #ff9500;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.hud-cockpit-tape {
+  width: 120px;
+  height: 200px;
+}
+
+.hud-cockpit-tape-frame {
+  fill: rgba(154, 164, 178, 0.08);
+  stroke: rgba(154, 164, 178, 0.25);
+}
+
+.hud-cockpit-pointer {
+  stroke: #ff9500;
+  stroke-width: 1.5;
+}
+
+.hud-cockpit-readout {
+  color: #ff9500;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
+/* ── briefing panel (right) ── */
+.hud-cockpit-briefing {
+  position: absolute;
+  top: 110px;
+  right: 16px;
+  width: 260px;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.hud-cockpit-briefing-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.hud-cockpit-tab {
+  flex: 1;
+  padding: 4px 0;
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.hud-cockpit-tab:hover,
+.hud-cockpit-tab.active {
+  border-color: rgba(255, 149, 0, 0.55);
+  color: #ff9500;
+}
+
+.hud-cockpit-briefing-banner {
+  padding: 12px 6px;
+  color: #9aa4b2;
+  text-align: center;
+  font-size: 11px;
+}
+
+.hud-cockpit-weather-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.hud-cockpit-weather-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid rgba(154, 164, 178, 0.2);
+  border-radius: 6px;
+}
+
+.hud-cockpit-weather-label {
+  color: #9aa4b2;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.hud-cockpit-weather-value {
+  color: #e6edf3;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-cockpit-weather-detail {
+  color: #9aa4b2;
+  font-size: 10px;
+}
+
+.hud-cockpit-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 56px;
+}
+
+.hud-cockpit-summary-bullet {
+  color: #e6edf3;
+  line-height: 1.4;
+}
+
+.hud-cockpit-summary-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hud-cockpit-summary-source {
+  color: #7fd0ff;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.hud-cockpit-summary-count {
+  color: #9aa4b2;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-cockpit-briefing-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(154, 164, 178, 0.2);
+}
+
+.hud-cockpit-nav-btn {
+  width: 26px;
+  height: 22px;
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hud-cockpit-nav-btn:hover {
+  border-color: rgba(255, 149, 0, 0.55);
+  color: #ff9500;
+}
+
+/* ── vision switch (bottom-center) ── */
+.hud-cockpit-vision {
+  position: absolute;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 8px;
+  pointer-events: auto;
+}
+
+.hud-cockpit-vision-option {
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.hud-cockpit-vision-option:hover,
+.hud-cockpit-vision-option.active {
+  background: rgba(127, 208, 255, 0.16);
+  border-color: rgba(127, 208, 255, 0.35);
+  color: #7fd0ff;
+}
+
+/* ── exit button (top-right) ── */
+.hud-cockpit-exit {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 149, 0, 0.55);
+  border-radius: 6px;
+  background: rgba(3, 5, 9, 0.72);
+  color: #ff9500;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.hud-cockpit-exit:hover {
+  background: rgba(255, 149, 0, 0.15);
+  color: #e6edf3;
+}
