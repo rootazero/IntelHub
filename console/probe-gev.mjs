@@ -390,6 +390,37 @@ try {
     }
     await page.keyboard.press("Escape").catch(() => {});
   }
+
+  // ---- GEV P6: style switcher — GLSL post-process actually re-renders ----
+  // The switcher lives in the top bar (HudTopBar) and only mounts once the
+  // visual-effects adapter handle exists. FLIR crossfades over
+  // TRANSITION_DURATION_MS (500, visualPresets.js:10), so a 700ms settle lets
+  // the transition converge before we read the label / diff the frame.
+  const styleBtn = await gate(
+    '[data-testid="hud-style-switcher"]',
+    DATA_TIMEOUT_MS,
+    "style switcher",
+  );
+  if (styleBtn) {
+    const before = await page.screenshot();
+    await page.click('[data-testid="hud-style-switcher"]');
+    await page.click('[data-testid="hud-style-option-thermal"]');
+    await page.waitForTimeout(700); // > TRANSITION_DURATION_MS (500) so the crossfade converges
+    const label =
+      (await page.textContent('[data-testid="hud-style-switcher"]')) ?? "";
+    const after = await page.screenshot();
+    if (!/FLIR/.test(label))
+      failures.push(`style switcher did not apply FLIR (label="${label.trim()}")`);
+    if (Buffer.compare(before, after) === 0) {
+      failures.push(
+        "screenshot identical after style switch — post-process stage never ticked",
+      );
+    }
+    // restore normal so subsequent probes see the default frame
+    await page.click('[data-testid="hud-style-switcher"]');
+    await page.click('[data-testid="hud-style-option-normal"]');
+    await page.waitForTimeout(700);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
