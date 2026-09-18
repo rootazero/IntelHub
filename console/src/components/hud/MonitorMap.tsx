@@ -4,29 +4,34 @@
 // the page-specific fourth tier (bundled offline GeoJSON) past the chain.
 //
 // Post-2026-09-15: migrated from Leaflet to MapLibre GL JS.
-//   * Each event is rendered as a MapLibre Marker wrapping a custom
-//     HTML div (CSS-styled circle). HTML markers give us full control
-//     over visual style + click behavior; MapLibre's GeoJSON symbol
-//     layer is also viable but HTML markers are simpler at our event
-//     counts (~70 typical).
 //   * MapLibre's fitBounds is reliable (no stuck-render class of bugs
 //     we hit with Leaflet), so the manual DOM workaround code from
 //     cd8df25 is gone.
 //   * All Leaflet coordinate-order gotchas (lat,lng vs lng,lat) are
 //     handled at the Leaflet-callback boundary — in this file we just
 //     speak [lng, lat] to MapLibre.
+//
+// Post-2026-09-18: events render as a single MapLibre GeoJSON source +
+// circle layer (lib/mapEventsLayer.ts), NOT per-event maplibregl.Marker
+// divs. At ≥1000 events the DOM hit-test + per-marker :hover transform +
+// box-shadow pulse keyframe made the cursor visibly lag on mousemove
+// inside the map. The circle layer is one WebGL draw call per frame
+// with GPU hit-testing; the layer also survives map.setStyle() (basemap
+// failover) via a style.load re-add. Hover info lives in a single
+// MapLibre Popup (one DOM element, only mounted while hovered).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import maplibregl, { Map as MlMap, Marker as MlMarker, type StyleSpecification } from "maplibre-gl";
+import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../../api";
 import { useT } from "../../i18n";
-import { kindColor, KIND_COLORS, sevRadius } from "../../kindmeta";
+import { KIND_COLORS } from "../../kindmeta";
 import { buildStyle, CHAIN, PRIMARY } from "../../basemap";
 import type { TileProvider, TilesMode } from "../../basemap";
 import { useMapView } from "../../useMapView";
 import { MapControls } from "../MapControls";
+import { attachEventsLayer, type AttachHandle, type MapEvent } from "../../lib/mapEventsLayer";
 
 interface GeoEvent {
   event_id: string;
@@ -59,7 +64,7 @@ export default function MonitorMap({
   const { t } = useT();
   const { attach } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
-  const markersRef = useRef<Map<string, MlMarker>>(new Map());
+  const layerRef = useRef<AttachHandle | null>(null);
   const divRef = useRef<HTMLDivElement>(null);
   const bumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const failCount = useRef(0);
@@ -70,6 +75,11 @@ export default function MonitorMap({
   const [tiles, setTiles] = useState<TilesMode>(PRIMARY);
   const [lastRefresh, setLastRefresh] = useState<number>(Date.now());
   const [bump, setBump] = useState(false);
+  // Stable identity for the dim predicate so setEvents doesn't rebuild
+  // the layer's paint expression on every render (the layer reads the
+  // current selectedSource via this ref).
+  const dimRef = useRef<(ev: MapEvent) => boolean>(() => false);
+  dimRef.current = (ev) => !!(selectedSource && ev.source !== selectedSource);
 
   // ---- map init ----
   useEffect(() => {
@@ -137,53 +147,42 @@ export default function MonitorMap({
       clearTimeout(tm);
       ro.disconnect();
       attach(null);
+      // Layer click/popup handlers reference the map; tear it down first.
+      layerRef.current?.destroy();
+      layerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- markers ----
-  function renderMarkers() {
-    const map = mapRef.current;
-    if (!map) return;
-    // Clear existing markers.
-    for (const m of markersRef.current.values()) m.remove();
-    markersRef.current.clear();
-    for (const ev of eventsRef.current) {
-      const el = document.createElement("div");
-      const size = sevRadius(ev.severity) * 2 + 4;
-      el.className = ev.severity === "flash" ? "hud-marker hud-marker-pulse" : "hud-marker";
-      el.style.width = `${size}px`;
-      el.style.height = `${size}px`;
-      el.style.background = kindColor(ev.kind);
-      el.style.borderColor = kindColor(ev.kind);
-      el.style.opacity = ev.severity === "info" ? "0.55" : "0.85";
-      el.title = ev.title; // native browser tooltip
-      const filter = selectedSource ?? null;
-      const dim = filter && ev.source !== filter;
-      if (dim) el.classList.add("hud-marker-dim");
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        setSelected(ev);
-      });
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([ev.lon, ev.lat])
-        .addTo(map);
-      markersRef.current.set(ev.event_id, marker);
-    }
-  }
-
-  // Update dim state when SensorGrid cross-filter changes (without
-  // re-rendering markers).
+  // ---- markers (GeoJSON circle layer — replaces DOM markers) ----
+  // One WebGL draw call per frame regardless of event count. The layer
+  // survives setStyle() (basemap failover) — style.load handler in
+  // attachEventsLayer re-adds the source/layer automatically. Dim is
+  // expressed as a paint property so the source-filter highlight on
+  // SensorGrid works without touching the DOM.
   useEffect(() => {
-    const filter = selectedSource ?? null;
-    for (const [id, marker] of markersRef.current) {
-      const ev = eventsRef.current.find((e) => e.event_id === id);
-      if (!ev) continue;
-      const el = marker.getElement();
-      if (el) el.classList.toggle("hud-marker-dim", !!(filter && ev.source !== filter));
-    }
+    const map = mapRef.current;
+    if (!map || layerRef.current) return;
+    layerRef.current = attachEventsLayer(map, eventsRef.current, {
+      idPrefix: "hud-monitor",
+      onSelect: (ev) => setSelected(ev as GeoEvent),
+      dim: (ev) => dimRef.current(ev),
+    });
+    return () => {
+      layerRef.current?.destroy();
+      layerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When SensorGrid cross-filter changes, recompute the dim set on the
+  // layer. The layer's setEvents walks eventsRef.current and re-emits
+  // the paint expression for `circle-opacity`.
+  useEffect(() => {
+    if (!layerRef.current) return;
+    layerRef.current.setEvents(eventsRef.current);
   }, [selectedSource]);
 
   // ---- data ----
@@ -194,7 +193,7 @@ export default function MonitorMap({
       .then((d) => {
         if (!live) return;
         eventsRef.current = d.items ?? [];
-        renderMarkers();
+        layerRef.current?.setEvents(eventsRef.current);
         setLastRefresh(Date.now());
         // refreshKey only changes when the SSE stream reports new events, so
         // every successful fetch here IS a fresh sweep — bump unconditionally

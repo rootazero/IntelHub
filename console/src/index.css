@@ -26,23 +26,40 @@ body {
 /* Radar map container (post-2026-09-15 MapLibre migration). */
 .radar-map-wrap .maplibregl-map { background: #0a0e14; height: 100%; border-radius: 0 0 8px 8px; }
 .radar-map-wrap .maplibregl-canvas-container { background: #0a0e14; }
-.radar-marker {
-  position: absolute;
-  border-radius: 50%;
-  border: 2px solid;
-  cursor: pointer;
-  pointer-events: auto;
-  transform: translate(-50%, -50%);
-  transition: transform 120ms ease-out, opacity 200ms;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+
+/* Post-2026-09-18: events render as MapLibre circle layer (WebGL), not
+   per-event DOM divs. Hover info lives in a MapLibre Popup — single
+   element, only mounted while the cursor is over a marker. The legacy
+   .radar-marker / .radar-marker-flash / @keyframes rules are removed. */
+
+/* MapLibre Popup shared by both Radar and the command-deck MonitorMap. */
+.maplibregl-popup.events-tooltip .maplibregl-popup-content {
+  background: var(--color-panel, #0e1420);
+  border: 1px solid var(--color-edge, #2a3340);
+  border-radius: 4px;
+  color: var(--color-ink, #e6edf3);
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  pointer-events: none; /* hover-thru; popup must not eat clicks on the marker */
 }
-.radar-marker:hover { transform: translate(-50%, -50%) scale(1.2); z-index: 10; }
-.radar-marker.radar-marker-flash {
-  animation: radar-marker-pulse 1.6s ease-in-out infinite;
+.maplibregl-popup.events-tooltip .maplibregl-popup-tip {
+  border-top-color: var(--color-edge, #2a3340) !important;
+  border-bottom-color: var(--color-edge, #2a3340) !important;
 }
-@keyframes radar-marker-pulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 currentColor, 0 0 8px currentColor; }
-  50% { transform: translate(-50%, -50%) scale(1.18); box-shadow: 0 0 0 6px transparent, 0 0 16px currentColor; }
+.events-tooltip-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 9px;
+  color: var(--color-dim, #8a8f98);
+  margin-bottom: 2px;
+}
+.events-tooltip-title {
+  font-size: 11px;
+  color: var(--color-ink, #e6edf3);
+  word-break: break-word;
+  max-width: 220px;
 }
 
 /* Radar map controls (top-right): shared with the command-deck <MapControls>.
