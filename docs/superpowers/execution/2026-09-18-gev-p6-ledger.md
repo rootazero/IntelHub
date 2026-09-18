@@ -43,9 +43,17 @@ GEV 可视化移植 P6：把 vendor 的 VisualEffects 渲染核接入 React 壳�
   sp3: == 19 passed, 0 failed ==
   ```
 
-## 410 生产验收结果
+## 410 生产验收结果（IntelHub / 10.10.10.41，2026-09-18）
 
-（本任务 Step 4 产出，验收后回填。）
+- probe-gev exit 0：`hud=true canvas=true aircraft=509 satellites=832 pageerrors=0` + `probe-gev OK`；P6 滤镜段通过（无 style-switcher 失败、无 screenshot-identical 失败）。剩余 WARN 为既有 P3 rail toggle `locator.check` 超时（ground[4..6]/infra[0..1]），非本期引入。
+- 验收基线：
+  ```
+  sp8: == 42 passed, 2 shelved, 0 failed ==
+  sp6: == 37 passed, 5 shelved, 0 failed ==   ← 首轮 36+5sh/1f（overpass 504 flap），复跑自愈归零
+  sp7: == 16 passed, 11 shelved, 0 failed ==
+  sp3: == 19 passed, 0 failed ==
+  ```
+- **sp6 唯一 fail 是上游惩罚箱 flap，非回归**：首轮 `overpass proxy round-trip` http=504（P3 ledger 已载明的 Overpass 镜像 403/504 惩罚箱），复跑即 200 自愈；本轮 starlink celestrak 反而 200（撞窗）。本期纯 console 前端改动，hub-core 的 overpass/celestrak 代理零涉。0 failed 达标。
 
 ## 已知边界
 
