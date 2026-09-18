@@ -260,6 +260,42 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
       expect(readVendor(`src/styles/${s}.js`)).toMatch(/export const \w+Shader\b/);
     }
   });
+
+  // ── GEV P7 anchors (T1): camera orientation + location search import surface ──
+
+  test("P7 camera orientation + location search render-core exports are pinned", () => {
+    const cam = readVendor("src/ui/cameraOrientationControls.js");
+    for (const e of [
+      "OBLIQUE_PITCH", "STRAIGHT_DOWN_PITCH", "pickViewTarget",
+      "readCameraTargetFrame", "setCameraTargetFrame", "frameIsTilted",
+      "toggleCameraTilt", "resetCameraNorth", "createCameraOrientationAnimator",
+    ]) {
+      expect(cam, `cameraOrientationControls.${e}`).toMatch(
+        new RegExp(`export (const|function) ${e}\\b`),
+      );
+    }
+    // camera core must never gain a scopeMask/celestialRing dependency (圆圈遮罩禁令)
+    expect(cam).not.toMatch(/scopeMask|celestialRing/);
+
+    const ls = readVendor("src/ui/locationSearch.js");
+    expect(ls).toMatch(/export class LocationSearch\b/);
+
+    const loc = readVendor("src/locations.js");
+    expect(loc).toMatch(/export async function searchAndFlyTo\b/);
+    // shell-singleton import we must ALWAYS override via options.features /
+    // options.recoverNearView — pin it so upstream changes here trip the guard
+    expect(loc).toMatch(/import\s*\{[^}]*applicationServices[^}]*\}\s*from/);
+
+    // layer tracking APIs the follow button drives
+    const flights = readVendor("src/layers/flights/queries.js");
+    for (const m of ["trackById", "stopTracking", "getTrackedInfo"]) {
+      expect(flights, `flights.${m}`).toMatch(new RegExp(`${m}\\s*\\(`));
+    }
+    const sats = readVendor("src/layers/satellites/controls.js");
+    for (const m of ["trackById", "stopTracking", "getTrackedInfo"]) {
+      expect(sats, `satellites.${m}`).toMatch(new RegExp(`${m}\\s*\\(`));
+    }
+  });
 });
 
 // ── c2: engine behavior contracts (mock fetch, no network) ─────────────────
