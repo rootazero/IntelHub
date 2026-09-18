@@ -1,11 +1,19 @@
 // GlobeV2 — GEV-engine globe page (T8 skeleton: HUD frame + bootstrap only;
 // T9 adds the layer rail against getComponents().data.dataManager).
 //
-// Engine singleton: Cesium viewers are heavyweight and the engine app owns
-// teardown ordering, so exactly one instance is booted per page load. The
-// module-level `booted` guard (not a ref) survives StrictMode's double
-// mount/unmount, where a ref would be reset by the first unmount and boot a
-// second viewer on the re-mount.
+// Engine lifecycle: the engine owns cesium viewer creation AND DOM artifacts
+// (`#cesium-credits` div on document.body, `#cesiumContainer` viewer target).
+// On route-leave we MUST call globe.destroy() — otherwise the cesium credit
+// icon leaks onto every other page (cesium ion attribution positioned at
+// bottom-left per console/gev-engine/src/ui/styles/foundation.css). Scene
+// teardown also releases the WebGL context and tears down data layers + the
+// map stack controller.
+//
+// Module-level `booted` guard (not a ref): survives StrictMode's
+// setup→cleanup→setup dev cycle so we don't boot the viewer twice. Reset
+// synchronously in cleanup so a real route-leave (different component
+// instance) boots fresh on re-entry. StrictMode dev pays a 2× boot cost; prod
+// pays 1×.
 import { useEffect, useState } from "react";
 import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
@@ -50,7 +58,7 @@ export default function GlobeV2() {
   const overviewState = useOverview();
 
   useEffect(() => {
-    if (booted.current) return; // StrictMode second mount skips
+    if (booted.current) return;
     booted.current = true;
     const globe = createIntelHubGlobe({
       // Same-origin hub API; bearer key reuses the console auth store (api.ts).
@@ -58,9 +66,13 @@ export default function GlobeV2() {
       googleApiKey: GOOGLE_KEY,
       cesiumToken: CESIUM_KEY,
     });
+    // `cancelled` guards setState after unmount: globe.start() resolves
+    // asynchronously, and cleanup may have run before .then fires.
+    let cancelled = false;
     globe
       .start()
       .then(() => {
+        if (cancelled) return;
         const components = globe.getComponents() as {
           data?: { dataManager?: RailManager };
           scene?: { viewer?: unknown; mapStackController?: BasemapStack };
@@ -71,9 +83,20 @@ export default function GlobeV2() {
           mapStack: components?.scene?.mapStackController ?? null,
         });
       })
-      .catch((e) => setError(String(e)));
-    // No destroy on unmount: the engine singleton outlives route switches;
-    // route-leave teardown is a P3 decision.
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+      // Reset synchronously so StrictMode's re-setup OR a real re-entry
+      // (route back to /globe after navigation) can boot fresh.
+      booted.current = false;
+      // scene.js defers creditContainer.remove() and viewer.destroy() inside
+      // the engine's STOP_ORDER cleanup, which app.destroy() runs in LIFO.
+      // This is what removes the cesium credit icon from <body> on route-leave.
+      globe.destroy().catch((e) => console.warn('[GlobeV2] destroy failed:', e));
+    };
   }, []);
 
   if (error)
