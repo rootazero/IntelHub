@@ -296,6 +296,67 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
       expect(sats, `satellites.${m}`).toMatch(new RegExp(`${m}\\s*\\(`));
     }
   });
+
+  // ── GEV P8 anchors (T1): annotation draw surface import contract ──
+
+  test("P8 drawMode pure-function exports are pinned", async () => {
+    // drawMode.js is the vendor's explicitly-pure half ("No Cesium, no DOM —
+    // importable under `node --test`"), so import it for real and pin the
+    // runtime VALUES the draw adapters branch on, not merely their names.
+    const m = (await import("gev-engine/src/annotations/drawMode.js")) as Record<
+      string,
+      unknown
+    >;
+    for (const name of [
+      "createDrawSession",
+      "addVertex",
+      "finishSpec",
+      "normalizeShape",
+      "ringAreaM2",
+      "greatCircleM",
+      "MIN_VERTICES",
+      "DRAW_SHAPES",
+    ]) {
+      expect(m, `drawMode.${name}`).toHaveProperty(name);
+    }
+    expect(m.DRAW_SHAPES).toEqual(["area", "line", "pin"]);
+    expect(m.MIN_VERTICES).toEqual({ area: 3, line: 2, pin: 1 });
+  });
+
+  test("P8 annotationEngine factory + helpers are pinned", () => {
+    // Source anchors, not a live import: annotationEngine.js transitively pulls
+    // data/neighborhoodPolygons.js, which imports an un-vendored
+    // `local_data/*.json` that only vite.config.ts externalizes (vitest.config
+    // deliberately does not carry that plugin). Same seam style as P6/P7.
+    const src = readVendor("src/annotations/annotationEngine.js");
+    for (const e of [
+      "createAnnotationEngine",
+      "normalizeTargetKey",
+      "resolveOutlineWithRetry",
+    ]) {
+      expect(src, `annotationEngine.${e}`).toMatch(
+        new RegExp(`export (async function|function|const) ${e}\\b`),
+      );
+    }
+    // The manual-draw integration seam: the engine consumes drawMode's ring
+    // helpers, so a hand-drawn shape flows through the same spec pipeline.
+    expect(src).toMatch(/from '\.\/drawMode\.js'/);
+    expect(src).toMatch(/ringCentroid/);
+    // 圆圈遮罩禁令 (P7): the annotation engine must not adopt a scopeMask.
+    expect(src).not.toMatch(/scopeMask/);
+  });
+
+  test("P8 renderers export their constructors", async () => {
+    const factories: Array<[string, string]> = [
+      ["gev-engine/src/annotations/hybridAnnotationRenderer.js", "createHybridAnnotationRenderer"],
+      ["gev-engine/src/annotations/worldAnnotationRenderer.js", "createWorldAnnotationRenderer"],
+      ["gev-engine/src/annotations/screenAnnotationRenderer.js", "createScreenAnnotationRenderer"],
+    ];
+    for (const [path, factory] of factories) {
+      const m = (await import(/* @vite-ignore */ path)) as Record<string, unknown>;
+      expect(typeof m[factory], `${path} → ${factory}`).toBe("function");
+    }
+  });
 });
 
 // ── c2: engine behavior contracts (mock fetch, no network) ─────────────────
