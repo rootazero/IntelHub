@@ -24,6 +24,8 @@ import { HudDetailPanel } from "../globe-hud/HudDetailPanel";
 import { HudLayerRail } from "../globe-hud/HudLayerRail";
 import type { RailManager } from "../globe-hud/HudLayerRail";
 import { HudTopBar } from "../globe-hud/HudTopBar";
+import { HudDrawToolbar } from "../globe-hud/HudDrawToolbar";
+import { HudAnnotationList } from "../globe-hud/HudAnnotationList";
 import { useOverview } from "../globe-hud/useOverview";
 import type { BasemapStack } from "../globe-hud/useActiveBasemap";
 import { readPersistedStyle } from "../globe-hud/HudStyleSwitcher";
@@ -41,6 +43,12 @@ import {
   mountFollowController,
   type FollowHandle,
 } from "../gev-visual/follow-controller";
+import {
+  createAnnotationStore,
+  type AnnotationStore,
+} from "../gev-visual/annotations/annotation-store";
+import type { AnnotationEngineHandle } from "../gev-visual/annotations/annotation-engine-mount";
+import type { AnnotationSpec } from "../gev-visual/annotations/draw-tool";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -84,6 +92,15 @@ export default function GlobeV2() {
   const cameraRef = useRef<CameraOrientationHandle | null>(null);
   const [follow, setFollow] = useState<FollowHandle | null>(null);
   const followRef = useRef<FollowHandle | null>(null);
+  // P8: annotation board + store. Handles live in refs (for THIS effect's
+  // cleanup + the mount/load path); the list surfaces via state so it
+  // re-renders. mount() returns an ADAPTER-LOCAL id (p8-N), NOT spec.id — the
+  // id map tracks spec.id → adapter id so unmount-by-spec works.
+  const [drawActive, setDrawActive] = useState(false);
+  const [annotations, setAnnotations] = useState<AnnotationSpec[]>([]);
+  const annotationEngineRef = useRef<AnnotationEngineHandle | null>(null);
+  const annotationStoreRef = useRef<AnnotationStore | null>(null);
+  const annotationIdMapRef = useRef(new Map<string, string>());
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
@@ -165,6 +182,44 @@ export default function GlobeV2() {
             console.warn("[GlobeV2] follow controller disabled:", e);
           }
         }
+        // P8: annotation engine + store + load existing. mountAnnotationEngine
+        // is loaded LAZILY: its vendored graph (annotationEngine.js → resolver
+        // → neighborhoodPolygons.js → an un-vendored JSON data pack) must not
+        // sit in GlobeV2's static module graph, or the mocked-bootstrap test
+        // (hud-frame.test.tsx) fails to transform the missing JSON import.
+        // Guarded on scene.canvas (the adapter's own mount-time guard) so a
+        // mock/partial boot degrades to "no annotation board" and the heavy
+        // import never fires against a fake viewer.
+        if (
+          viewer &&
+          typeof (viewer as { scene?: { canvas?: unknown } }).scene?.canvas !==
+            "undefined"
+        ) {
+          import("../gev-visual/annotations/annotation-engine-mount")
+            .then(({ mountAnnotationEngine }) => {
+              if (cancelled) return;
+              const engine = mountAnnotationEngine(viewer);
+              annotationEngineRef.current = engine;
+              const store = createAnnotationStore(apiFetch);
+              annotationStoreRef.current = store;
+              store
+                .list()
+                .then((list) => {
+                  if (cancelled) return;
+                  setAnnotations(list);
+                  list.forEach((spec) => {
+                    const aid = engine.mount(spec);
+                    annotationIdMapRef.current.set(spec.id, aid);
+                  });
+                })
+                .catch((e) =>
+                  console.warn("[GlobeV2] annotation list failed:", e),
+                );
+            })
+            .catch((e) =>
+              console.warn("[GlobeV2] annotation engine disabled:", e),
+            );
+        }
       })
       .catch((e) => {
         if (cancelled) return;
@@ -172,10 +227,15 @@ export default function GlobeV2() {
       });
     return () => {
       cancelled = true;
-      // P7 cleanup order (follow → camera → visual-effects → globe): follow
-      // is pure bookkeeping (no destroy); camera destroys its animator before
-      // the viewer dies; visual-effects removes post-process stages while the
-      // viewer is still alive; globe.destroy() tears down the viewer last.
+      // P8 cleanup order (annotation → follow → camera → visual-effects →
+      // globe): the annotation engine clears its board + renderer FIRST while
+      // the viewer is still alive; follow is pure bookkeeping (no destroy);
+      // camera destroys its animator before the viewer dies; visual-effects
+      // removes post-process stages while the viewer is still alive;
+      // globe.destroy() tears down the viewer last.
+      annotationEngineRef.current?.destroy();
+      annotationEngineRef.current = null;
+      annotationIdMapRef.current.clear();
       followRef.current = null;
       setFollow(null);
       cameraRef.current?.destroy();
@@ -199,6 +259,35 @@ export default function GlobeV2() {
     };
   }, []);
 
+  // P8: on-select flight — stub per the plan-deferred ruling (pin-only simple
+  // camera.flyTo). Line/area centroid framing (bbox radius + pitch) is a
+  // P9/P10 follow-up: cameraVerbs.js is a command-driven continuous-motion
+  // system, not a one-shot flyTo, so wiring it here would be premature.
+  const flyToAnnotation = (spec: AnnotationSpec) => {
+    if (spec.shape !== "pin" || !spec.vertices[0]) return;
+    const viewer = sceneHandles?.viewer as
+      | { camera?: { flyTo?: (options: { destination: unknown }) => void } }
+      | undefined;
+    const Cesium = (
+      window as unknown as {
+        __CESIUM__?: {
+          Cartesian3: {
+            fromDegrees: (lon: number, lat: number, height: number) => unknown;
+          };
+        };
+      }
+    ).__CESIUM__;
+    if (!viewer?.camera?.flyTo || !Cesium) return;
+    const { lon, lat } = spec.vertices[0];
+    try {
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, 50000),
+      });
+    } catch (e) {
+      console.warn("[GlobeV2] annotation flyTo failed:", e);
+    }
+  };
+
   if (error)
     return <div className="hud-fatal">Globe engine failed: {error}</div>;
   return (
@@ -212,7 +301,15 @@ export default function GlobeV2() {
           viewer={sceneHandles?.viewer}
         />
       }
-      left={railManager ? <HudLayerRail manager={railManager} /> : null}
+      left={
+        railManager ? (
+          <HudLayerRail
+            manager={railManager}
+            onToggleDraw={() => setDrawActive((value) => !value)}
+            drawActive={drawActive}
+          />
+        ) : null
+      }
       right={<HudDetailPanel follow={follow} camera={cameraOrientation} />}
       bottom={
         <HudBottomBar
@@ -223,6 +320,38 @@ export default function GlobeV2() {
           mapStack={sceneHandles?.mapStack}
         />
       }
-    />
+    >
+      <HudDrawToolbar
+        viewer={sceneHandles?.viewer}
+        apiFetch={apiFetch}
+        visible={drawActive}
+        onClose={() => setDrawActive(false)}
+        onCreated={(spec) => {
+          const aid = annotationEngineRef.current?.mount(spec);
+          if (aid) annotationIdMapRef.current.set(spec.id, aid);
+          setAnnotations((prev) => [spec, ...prev]);
+        }}
+        onError={(msg) => console.warn("[hud-draw]", msg)}
+      />
+      <HudAnnotationList
+        viewer={sceneHandles?.viewer}
+        annotations={annotations}
+        visible={annotations.length > 0}
+        onSelect={flyToAnnotation}
+        onDelete={(id) => {
+          const aid = annotationIdMapRef.current.get(id);
+          if (aid) {
+            annotationEngineRef.current?.unmount(aid);
+            annotationIdMapRef.current.delete(id);
+          }
+          setAnnotations((prev) => prev.filter((a) => a.id !== id));
+          void annotationStoreRef.current
+            ?.remove(id)
+            .catch((e) =>
+              console.warn("[GlobeV2] annotation delete failed:", e),
+            );
+        }}
+      />
+    </HudFrame>
   );
 }
