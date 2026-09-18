@@ -130,7 +130,7 @@ try {
   await page.goto(`${BASE}/globe`, { waitUntil: "load", timeout: 60_000 });
 
   // 1. React mounted (lazy Globe chunk + first paint).
-  const mounted = await gate(".hud-root", MOUNT_TIMEOUT_MS, ".hud-root (React mount)");
+  const mounted = await gate(".globe-root", MOUNT_TIMEOUT_MS, ".globe-root (React mount)");
   if (mounted) {
     // 2. Engine scene booted (Cesium viewer + WebGL canvas).
     await gate(
