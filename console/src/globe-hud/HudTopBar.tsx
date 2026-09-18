@@ -15,6 +15,8 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
+import { HudStyleSwitcher } from "./HudStyleSwitcher";
+import type { VisualEffectsHandle } from "../gev-visual/visual-effects";
 
 /** HH:MM:SS in UTC — the clock never reads local time. */
 export function formatUtcClock(date: Date): string {
@@ -57,9 +59,11 @@ function HubMark() {
 export interface HudTopBarProps {
   /** Snapshot from GET /api/v1/overview (useOverview) — null while loading. */
   overview?: OverviewData | null;
+  /** T-P6: visual-effects adapter handle — null hides the style switcher. */
+  visualEffects?: VisualEffectsHandle | null;
 }
 
-export function HudTopBar({ overview }: HudTopBarProps) {
+export function HudTopBar({ overview, visualEffects }: HudTopBarProps) {
   const now = useUtcClock();
   const openAlerts = overview?.alerts?.open;
   const clock = formatUtcClock(now);
@@ -103,6 +107,7 @@ export function HudTopBar({ overview }: HudTopBarProps) {
         disabled
       />
       <span className="hud-bar-grow" />
+      <HudStyleSwitcher handle={visualEffects ?? null} />
       <a
         className={`hud-bar-alert${openAlerts ? " hot" : ""}`}
         href="/alerts"

@@ -50,7 +50,7 @@ ssh -o BatchMode=yes IntelHub-test 'cd /home/zou/IntelHub \
   && sudo systemctl restart hub-core && sleep 4 && systemctl is-active hub-core'
 
 # 3. 415 验收全绿
-KEY=$(ssh -o BatchMode=yes IntelHub-test 'grep "api_key:" /home/zou/IntelHub/core/agent-keys.txt | head -1 | grep -o "ihk_[a-f0-9]*"')
+KEY=$(ssh -o BatchMode=yes IntelHub-test 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
 for a in sp8 sp6 sp7 sp3; do
   python3 scripts/accept-$a.py "$KEY" 2>&1 | grep -E '==.*(passed|failed)' | tail -1
 done
@@ -86,7 +86,7 @@ git push origin main
 ## 验收（每个 SP 一个脚本，从 Mac 跑）
 
 ```bash
-KEY=$(ssh -o BatchMode=yes IntelHub 'grep "api_key:" /home/zou/IntelHub/core/agent-keys.txt | head -1 | grep -o "ihk_[a-f0-9]*"')
+KEY=$(ssh -o BatchMode=yes IntelHub 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
 for a in sp8 sp6 sp7 sp3; do
   echo "── $a: $(python3 scripts/accept-$a.py "$KEY" 2>&1 | grep -E '==.*(passed|failed)' | tail -1)"
   python3 scripts/accept-$a.py "$KEY" 2>&1 | grep "^FAIL" | head -3
@@ -94,7 +94,7 @@ done
 ```
 
 - **测试 VM 验收**：`KEY=$(ssh -o BatchMode=yes IntelHub-test '...')` + 同样的脚本
-- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 37+5shelved/0f（共 42 项，GEV P2 6 检查位：per-category 卫星地板（10/100/25/20/20/400 按真实星座规模校准）+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE、opensky OAuth 缺席 shelved。GEV P3 再 +9 检查位：ais-live 三态信封（无 key shelved）、installations rows>0+bbox+400、overpass 代理 round-trip、tomtom status（无 key shelved flow）、cctv catalog>200+frame 抽查×3、starlink TLE；shelved 不计 failure、退码只看 failed） · sp7 16+11shelved · sp8 39+2shelved（P3 后 42+2sh/0f） · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
+- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 37+5shelved/0f（共 42 项，GEV P2 6 检查位：per-category 卫星地板（10/100/25/20/20/400 按真实星座规模校准）+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE、opensky OAuth 缺席 shelved。GEV P3 再 +9 检查位：ais-live 三态信封（无 key shelved）、installations rows>0+bbox+400、overpass 代理 round-trip、tomtom status（无 key shelved flow）、cctv catalog>200+frame 抽查×3、starlink TLE；shelved 不计 failure、退码只看 failed） · sp7 16+11shelved · sp8 39+2shelved（P3 后 39+2sh/0f） · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
 
 ## 健康检查速查
 

@@ -640,3 +640,36 @@
     gap: 8px;
   }
 }
+
+/* P6 style switcher dropdown — tokens follow .hud-bar (glass, 34px row). */
+.hud-style { position: relative; display: inline-flex; }
+.hud-style-toggle.hot { color: #7fd0ff; }
+.hud-style-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 112px;
+  padding: 4px;
+  border-radius: 8px;
+  background: rgba(3, 5, 9, 0.85);
+  border: 1px solid rgba(127, 208, 255, 0.25);
+  backdrop-filter: blur(8px);
+  z-index: 30;
+}
+.hud-style-option {
+  all: unset;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(220, 232, 244, 0.85);
+  cursor: pointer;
+  border-radius: 5px;
+}
+.hud-style-option:hover,
+.hud-style-option.active {
+  background: rgba(127, 208, 255, 0.16);
+  color: #7fd0ff;
+}
