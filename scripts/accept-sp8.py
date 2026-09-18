@@ -425,5 +425,82 @@ if agent_block:
     check("PG api_keys: live 'agent' row matches agent-keys.txt agent_id",
           pg_agent_id.strip() == agent_block[0], f"file={agent_block[0]} pg={pg_agent_id.strip()}")
 
+# ---------------------------------------------------------------------------
+# GEV P8: hand-drawn world-anchored annotations (pin/line/area) persist in PG.
+#
+# Migration note: the P8 plan wrote `core/migrations/0011_annotations_v1.sql`,
+# but there is no `core/migrations/` in the repo (migrations live in
+# `hub-core/migrations/`) and version 0011 was already taken — sqlx::migrate!
+# refuses a duplicate version. The real file is
+# `hub-core/migrations/0022_annotations_v1.sql`; table/index names unchanged.
+# ---------------------------------------------------------------------------
+ANNO = "/api/v1/annotations"
+P8_PIN = {
+    "shape": "pin",
+    "color": "primary",
+    "label": "p8-accept",
+    "geometry": {"vertices": [{"lon": 0.0, "lat": 0.0}]},
+    "ttl_ms": None,
+    "meta": {},
+}
+
+# 11. schema present (migrator applies 0022 at hub-core boot)
+anno_tbl = pg("SELECT to_regclass('public.annotations_v1')").strip()
+check("p8: annotations_v1 table present (migration 0022)",
+      anno_tbl == "annotations_v1", f"to_regclass={anno_tbl!r}")
+
+# 12. write path: POST (Bearer) → GET same id → DELETE → GET must now be 404.
+st_post, created = req(ANNO, method="POST", body=P8_PIN)
+created_id = created.get("id") if isinstance(created, dict) else None
+if st_post != 201 or not created_id:
+    check("p8: POST→GET→DELETE→GET-404 roundtrip", False,
+          f"POST status={st_post} body={created!r}")
+else:
+    st_get, row = req(f"{ANNO}/{created_id}")
+    st_del, _ = req(f"{ANNO}/{created_id}", method="DELETE")
+    st_gone, _ = req(f"{ANNO}/{created_id}")
+    rt_ok = (
+        st_get == 200
+        and row.get("label") == "p8-accept"
+        and row.get("shape") == "pin"
+        and row.get("geometry") == P8_PIN["geometry"]
+        and st_del == 204
+        and st_gone == 404
+    )
+    check("p8: POST→GET→DELETE→GET-404 roundtrip", rt_ok,
+          f"post={st_post} get={st_get} delete={st_del} get-after-delete={st_gone}"
+          f" label={row.get('label')!r}")
+
+# 13. bbox window: one pin in [-10,-10,10,10], one far outside → only the
+#     in-window id is returned (list is world-anchored + spatially filterable).
+st_a, pin_a = req(ANNO, method="POST", body=P8_PIN)
+st_b, pin_b = req(ANNO, method="POST",
+                  body={**P8_PIN, "label": "p8-out",
+                        "geometry": {"vertices": [{"lon": 50.0, "lat": 50.0}]}})
+a_id = pin_a.get("id") if isinstance(pin_a, dict) else None
+b_id = pin_b.get("id") if isinstance(pin_b, dict) else None
+st_bbox, bbox_body = req(f"{ANNO}?bbox=-10,-10,10,10")
+bbox_ids = [r["id"] for r in bbox_body.get("annotations", [])] if st_bbox == 200 else []
+check("p8: bbox filter isolates in-window annotation",
+      st_a == 201 and st_b == 201 and st_bbox == 200
+      and a_id in bbox_ids and b_id not in bbox_ids,
+      f"status={st_bbox} in={a_id in bbox_ids} out={b_id in bbox_ids}")
+for _id in (a_id, b_id):  # cleanup — acceptance must not leak rows
+    if _id:
+        req(f"{ANNO}/{_id}", method="DELETE")
+
+# 14. geometry GIN index (jsonb_path_ops) present; the containment predicate
+#     is the contract-shaped one ({vertices:[...]}) — the plan's
+#     `@> '{"south":0}'` predates the corrected geometry shape and would only
+#     document a stale contract. Planner choice is informational (tiny table).
+anno_idx = pg("SELECT indexname FROM pg_indexes WHERE tablename = 'annotations_v1' "
+              "AND indexname LIKE '%geom%'")
+anno_plan = pg("EXPLAIN SELECT id FROM annotations_v1 "
+               "WHERE geometry @> '{\"vertices\":[{\"lon\":0,\"lat\":0}]}'::jsonb LIMIT 1")
+check("p8: annotations geometry GIN index present",
+      "annotations_v1_geom_idx" in anno_idx,
+      f"index={anno_idx!r} planner="
+      f"{'Bitmap Index Scan' if 'Bitmap' in anno_plan else 'Seq Scan (tiny table OK)'}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)

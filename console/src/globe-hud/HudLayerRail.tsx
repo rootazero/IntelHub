@@ -51,7 +51,17 @@ export interface RailManager {
 /** Mouse-leave grace period before the flyout auto-closes. */
 const FLYOUT_AUTO_CLOSE_MS = 3000;
 
-export function HudLayerRail({ manager }: { manager: RailManager }) {
+export function HudLayerRail({
+  manager,
+  onToggleDraw,
+  drawActive,
+}: {
+  manager: RailManager;
+  /** P8: toggle the draw toolbar (renders the rail's draw entry button). */
+  onToggleDraw?: () => void;
+  /** P8: whether the draw toolbar is active (highlight the entry button). */
+  drawActive?: boolean;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [openDomainId, setOpenDomainId] = useState<string | null>(null);
   // T14 a11y: roving-tabindex index within the menubar (one Tab stop for
@@ -248,6 +258,21 @@ export function HudLayerRail({ manager }: { manager: RailManager }) {
             </button>
           ))}
         </div>
+      )}
+      {!collapsed && onToggleDraw && (
+        <button
+          type="button"
+          data-testid="hud-draw-button"
+          className={`hud-rail-icon hud-rail-tool${
+            drawActive ? " active" : ""
+          }`}
+          onClick={onToggleDraw}
+          title="绘制标注 / Draw"
+          aria-label="绘制标注 / Draw annotation"
+          aria-pressed={drawActive}
+        >
+          <span aria-hidden>✏️</span>
+        </button>
       )}
       {openDomain && !collapsed && (
         <div className="hud-rail-flyout" data-domain={openDomain.id}>
