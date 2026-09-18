@@ -88,19 +88,6 @@ const MIN_VERTICES: Record<"pin" | "line" | "area", number> = {
   pin: 1,
 };
 
-// vendor `finishSpec` closes an area ring (first point repeated at the end).
-// AnnotationSpec.vertices are DISTINCT vertices — the store's pinned
-// `{vertices:[{lon,lat}]}` contract — so the closing duplicate is stripped
-// here, in one place, before the spec leaves the adapter.
-function dedupeClosedRing(pairs: Array<[number, number]>): Array<{ lon: number; lat: number }> {
-  if (pairs.length < 2) return pairs.map(([lon, lat]) => ({ lon, lat }));
-  const first = pairs[0];
-  const last = pairs[pairs.length - 1];
-  const closed = first[0] === last[0] && first[1] === last[1];
-  const effective = closed ? pairs.slice(0, -1) : pairs;
-  return effective.map(([lon, lat]) => ({ lon, lat }));
-}
-
 const SHAPE_MAP: Record<VendorSpec["type"], AnnotationSpec["shape"]> = {
   pin: "pin",
   area: "area",
@@ -165,7 +152,13 @@ export function mountDrawTool(viewer: PickableViewer): DrawToolHandle {
       } else if (shape === "line") {
         vertices = (vendorSpec.path ?? []).map(([lon, lat]) => ({ lon, lat }));
       } else {
-        vertices = dedupeClosedRing(vendorSpec.ring ?? []);
+        // Keep the ring VERBATIM, including the closing vertex that vendor
+        // `finishSpec` appends via `closeRing` (drawMode.js:246-251): the
+        // outline renderer draws one edge per consecutive pair, so an open
+        // ring reads as a shape with one side missing. `annotationEngine`
+        // keeps this raw `ring` for rendering and drops the repeat only for
+        // centroid weighting (`closedRingWithoutRepeat`, annotationEngine.js:1479).
+        vertices = (vendorSpec.ring ?? []).map(([lon, lat]) => ({ lon, lat }));
       }
       const spec: AnnotationSpec = {
         id: crypto.randomUUID(),
