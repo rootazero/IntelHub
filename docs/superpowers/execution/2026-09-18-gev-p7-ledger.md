@@ -52,7 +52,15 @@ GEV 可视化移植 P7：把 vendor 相机姿态控制与地点搜索接入 Reac
 
 ## 410 生产验收结果（IntelHub / 10.10.10.41，2026-09-18）
 
-（Task 8 部署验收后回填，见后续 commit。）
+- probe-gev exit 0：`hud=true canvas=true aircraft=955 satellites=832 pageerrors=0` + `probe-gev OK`；P7 段全部通过（无 geocode proxy fail、无 cache 未命中 warning、无「搜索失败」、无「未调用 geocode proxy」fail、搜索期间无 pageerror）。剩余 WARN 为既有 P3 rail toggle `locator.check` 超时（ground[4..6]/infra[0..1]），非本期引入。
+- 验收基线：
+  ```
+  sp8: == 42 passed, 2 shelved, 0 failed ==
+  sp6: == 36 passed, 5 shelved, 1 failed ==   ← 唯一 fail = starlink celestrak 502（上游惩罚箱 flap）
+  sp7: == 16 passed, 11 shelved, 0 failed ==
+  sp3: == 19 passed, 0 failed ==
+  ```
+- **sp6 唯一 fail 是上游惩罚箱 flap，非回归**：直测 `celestrak.org/NORAD/elements/gp.php?GROUP=starlink` 从 410 出口 http=000（curl exit 35，SSL connect error）→ 代理 502 `{"error":"celestrak upstream failed"}`（Redis 6h 缓存 miss + 上游 fetch 失败）。stations 检查走 PG 目录仍 200（51 行 TLE）。本期纯 hub geocode 代理 + console 前端改动，celestrak/starlink 代理零涉，0 failed 达标。
 
 ## 已知边界
 
