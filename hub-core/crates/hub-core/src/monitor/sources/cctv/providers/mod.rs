@@ -21,7 +21,9 @@ mod lta;
 mod nsw;
 mod nyc511;
 mod ontario511;
+mod tarktee;
 mod tfl;
+mod txdot;
 
 use std::future::Future;
 use std::pin::Pin;
