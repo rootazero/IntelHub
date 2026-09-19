@@ -144,6 +144,7 @@ export function CctvPopoutPanel({
     >
       <div
         className="cctv-popout"
+        data-testid="cctv-popout-panel"
         style={{ position: "absolute", left: pos.x, top: pos.y }}
       >
         <header className="cctv-popout-header" onMouseDown={onHeaderMouseDown}>
