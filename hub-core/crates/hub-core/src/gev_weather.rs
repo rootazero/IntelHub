@@ -194,9 +194,13 @@ pub fn open_meteo_url(base: &str, lat: f64, lon: f64) -> String {
 /// skyCover `wmoUnit:percent`, visibility `wmoUnit:m`,
 /// pressure/barometricPressure `wmoUnit:Pa` (→ hPa) when present.
 ///
-/// D1 unit gate: a value is accepted only when its `uom` matches the
-/// expected unit; otherwise the field is `null` — never a silently-wrong
-/// conversion (e.g. windSpeed reported in m/s must NOT be read as kts).
+/// D1 unit gate: a value is accepted only when its `uom` is in the
+/// field's allow-list; otherwise the field is `null` — never a
+/// silently-wrong conversion (e.g. windSpeed reported in m/s must NOT
+/// be read as kts). P11-A T2 broadened the allow-list with US-station
+/// and NWS-alternate spellings (`wmoUnit:degF`, `nwsUnit:percent`,
+/// `nwsUnit:F`) and emits a `tracing::warn!` on every unknown uom so
+/// operators can spot NOAA drift instead of seeing a silent null.
 ///
 /// NOTE: plan Task 2 listed `precipitationProbability` (a %, no contract
 /// slot). The contract field is `precipitation_mm`, so the honest amount
@@ -213,23 +217,36 @@ pub fn parse_noaa_grid(body: &Value) -> WeatherData {
             .get("value")?
             .as_f64()
     };
-    // D1 gate: only return a value when its `uom` matches the expected unit.
-    let gated = |key: &str, expected: &str| -> Option<f64> {
-        if uom(key) == Some(expected) {
-            current(key)
-        } else {
-            None
+    // D1 gate: only return a value when its `uom` is in the accepted set.
+    // Unknown uoms are logged at WARN so NOAA unit drift stays visible
+    // (was previously silent — P11-A T2).
+    let gated = |key: &str, accepted: &[&str]| -> Option<f64> {
+        match uom(key) {
+            Some(observed) if accepted.iter().any(|a| *a == observed) => current(key),
+            Some(observed) => {
+                tracing::warn!(
+                    field = key,
+                    observed_uom = observed,
+                    accepted = ?accepted,
+                    "noaa uom mismatch — field ignored"
+                );
+                None
+            }
+            None => None,
         }
     };
     WeatherData {
-        temperature_c: gated("temperature", "wmoUnit:degC"),
-        wind_speed_kts: gated("windSpeed", "wmoUnit:km_h-1").map(|v| v * KMH_TO_KTS),
+        temperature_c: gated(
+            "temperature",
+            &["wmoUnit:degC", "wmoUnit:degF", "nwsUnit:F"],
+        ),
+        wind_speed_kts: gated("windSpeed", &["wmoUnit:km_h-1"]).map(|v| v * KMH_TO_KTS),
         wind_direction_deg: current("windDirection"),
-        precipitation_mm: gated("quantitativePrecipitation", "wmoUnit:mm"),
-        cloud_cover_pct: gated("skyCover", "wmoUnit:percent"),
-        visibility_m: gated("visibility", "wmoUnit:m"),
-        pressure_hpa: gated("pressure", "wmoUnit:Pa")
-            .or_else(|| gated("barometricPressure", "wmoUnit:Pa"))
+        precipitation_mm: gated("quantitativePrecipitation", &["wmoUnit:mm"]),
+        cloud_cover_pct: gated("skyCover", &["wmoUnit:percent", "nwsUnit:percent"]),
+        visibility_m: gated("visibility", &["wmoUnit:m"]),
+        pressure_hpa: gated("pressure", &["wmoUnit:Pa"])
+            .or_else(|| gated("barometricPressure", &["wmoUnit:Pa"]))
             .map(|v| v / 100.0),
     }
 }
@@ -556,5 +573,133 @@ mod tests {
             assert!(v.get(field).is_some(), "missing field {field}");
             assert!(v[field].is_null(), "{field} should be null for default");
         }
+    }
+
+    // ── P11-A T2 NOAA uom 守门补强 ─────────────────────────────────────
+    //
+    // Allow-list broadened for US-station / NWS-alternate spellings
+    // (`wmoUnit:degF`, `nwsUnit:percent`, `nwsUnit:F`) and a `tracing::warn!`
+    // fires on every unknown uom so NOAA unit drift is no longer silent.
+    // Values are accepted RAW (no F→C conversion) — the warn log is the
+    // operator's signal that the value is in non-default units.
+
+    #[test]
+    fn noaa_temperature_accepts_wmo_unit_deg_f() {
+        // 75 degF → accepted raw; field stays populated so downstream
+        // consumers still get a reading (warn log flags the unit drift).
+        let body = json!({
+            "properties": {
+                "temperature": {
+                    "uom": "wmoUnit:degF",
+                    "values": [{ "validTime": "2026-09-18T00:00:00+00:00", "value": 75.0 }]
+                }
+            }
+        });
+        let d = parse_noaa_grid(&body);
+        assert_eq!(d.temperature_c, Some(75.0));
+    }
+
+    #[test]
+    fn noaa_sky_cover_accepts_nws_unit_percent() {
+        // nwsUnit:percent is treated the same as wmoUnit:percent.
+        let body = json!({
+            "properties": {
+                "skyCover": {
+                    "uom": "nwsUnit:percent",
+                    "values": [{ "validTime": "2026-09-18T00:00:00+00:00", "value": 60.0 }]
+                }
+            }
+        });
+        let d = parse_noaa_grid(&body);
+        assert_eq!(d.cloud_cover_pct, Some(60.0));
+    }
+
+    #[test]
+    fn noaa_temperature_accepts_nws_unit_f() {
+        // nwsUnit:F is treated the same as wmoUnit:degC (per brief: raw
+        // value, no F→C conversion — warn log is the audit signal).
+        let body = json!({
+            "properties": {
+                "temperature": {
+                    "uom": "nwsUnit:F",
+                    "values": [{ "validTime": "2026-09-18T00:00:00+00:00", "value": 22.0 }]
+                }
+            }
+        });
+        let d = parse_noaa_grid(&body);
+        assert_eq!(d.temperature_c, Some(22.0));
+    }
+
+    /// Capture WARN-level output from `tracing` via a thread-safe buffer.
+    /// We don't need fancy assertions on the structured fields — just
+    /// confirm the operator-visible substring appears in the formatted
+    /// event (field name + observed uom). Keeps the test dep-free
+    /// (no `tracing-test` / `test-log` crate).
+    #[derive(Clone, Default)]
+    struct CapturedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl CapturedWriter {
+        fn into_string(self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone())
+                .expect("utf8 log buffer")
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedWriter {
+        type Writer = CapturedWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    impl std::io::Write for CapturedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn noaa_uom_mismatch_emits_warn_log() {
+        // wmoUnit:degK is NOT in any allow-list (no one reports Kelvin).
+        // parse_noaa_grid must return None AND log a WARN with the field
+        // name + observed uom so operators spot NOAA unit drift.
+        let body = json!({
+            "properties": {
+                "temperature": {
+                    "uom": "wmoUnit:degK",
+                    "values": [{ "validTime": "2026-09-18T00:00:00+00:00", "value": 300.0 }]
+                }
+            }
+        });
+
+        let writer = CapturedWriter::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(writer.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .without_time()
+            .with_target(false)
+            .finish();
+
+        let d = tracing::subscriber::with_default(subscriber, || parse_noaa_grid(&body));
+        assert_eq!(d.temperature_c, None, "unknown uom must not populate the field");
+
+        let captured = writer.into_string();
+        assert!(
+            captured.contains("noaa uom mismatch"),
+            "expected warn message in log; got: {captured}"
+        );
+        assert!(
+            captured.contains("wmoUnit:degK"),
+            "expected observed uom in log; got: {captured}"
+        );
+        assert!(
+            captured.contains("temperature"),
+            "expected field name in log; got: {captured}"
+        );
     }
 }
