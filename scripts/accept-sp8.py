@@ -588,5 +588,35 @@ check("p10: panel-drag localStorage roundtrip wired (vendor key + adapter)",
       f"vendor_key={bool(panel_key_src)} adapter_wired={panel_drag_wired}"
       f" — both required for drag→write→reload→restore (live cycle in probe)")
 
+# 18. GEV P11: CCTV popout panel testids baked into the bundle. The button
+#     that opens the popout is `cctv-open-popout` (added to HudDetailPanel
+#     CctvBody in P11). The popout panel itself is `cctv-popout-panel`.
+#     Both must be in the dist bundle so a click can open the face-on 2D
+#     image surface from the existing 3D-side camera detail view.
+popout_btn_bundle = vm('grep -l "cctv-open-popout" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p11: cctv-open-popout testid baked into console bundle",
+      bool(popout_btn_bundle),
+      popout_btn_bundle or "MISSING — HudDetailPanel CctvBody button not shipped")
+popout_panel_bundle = vm('grep -l "cctv-popout-panel" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p11: cctv-popout-panel testid baked into console bundle",
+      bool(popout_panel_bundle),
+      popout_panel_bundle or "MISSING — CctvPopoutPanel component not shipped")
+
+# 19. P11 source-level: HudDetailPanel source still references the testid
+#     (catches drift between dist bundle and source — bundle can ship an
+#     older build than the source claims).
+hd_source = vm('cat /home/zou/IntelHub/console/src/globe-hud/HudDetailPanel.tsx 2>/dev/null')
+hd_btn = "cctv-open-popout" in hd_source
+check("p11: HudDetailPanel.tsx references cctv-open-popout (source truth)",
+      hd_btn, "button testid in source" if hd_btn else "MISSING in HudDetailPanel.tsx")
+
+# 20. P11 source-level: CctvPopoutPanel source must define the
+#     `cctv-popout-panel` testid (testid contract for probe-gev.mjs
+#     p11-cctv-popout segment).
+popout_source = vm('cat /home/zou/IntelHub/console/src/globe-hud/CctvPopoutPanel.tsx 2>/dev/null')
+popout_id = "cctv-popout-panel" in popout_source
+check("p11: CctvPopoutPanel.tsx references cctv-popout-panel (source truth)",
+      popout_id, "panel testid in source" if popout_id else "MISSING in CctvPopoutPanel.tsx")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)

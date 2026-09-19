@@ -529,6 +529,35 @@ for _cam in [c for c in srcs if isinstance(c, dict) and c.get("url")][:3]:
     _frame_note = f"id={_id} http={_st_f}"
 check("gev: cctv frame proxy spot check (200 image)", _frame_ok, _frame_note)
 
+# ---- GEV P11: per-provider CCTV floor (2026-09-19) ----
+# After P11 port, IntelHub ingests from 8 new live providers + 4 static
+# catalogs. Each new provider has a documented floor in spec §7.1; if any
+# floor drops to zero it's a regression that suggests an upstream feed or
+# a parse change broke. Static catalogs (austin/shinjuku/tallinn/warendorf)
+# are tiny on purpose and not floor-checked.
+#
+# Per-provider floors (spec §7.1, calibrated to real constellation size):
+#   caltrans≥100 (12 districts, ~1k+ actual)
+#   drivebc≥500 (all BC highways)
+#   fintraffic≥500 (entire Finland)
+#   txdot≥50   (2 districts out of 25 — floor for partial ingest)
+#   nsw≥100    (Sydney metropolitan)
+#   calgary≥100 (City of Calgary)
+#   austin≥100 (Socrata Traffic Cameras, ~450 actual)
+#   tarktee=0  (DATEX2 upstream 500 — documented outage, not a floor)
+_provider_floors = {
+    "caltrans": 100, "drivebc": 500, "fintraffic": 500,
+    "txdot": 50, "nsw": 100, "calgary": 100, "austin": 100,
+}
+_provider_counts = {}
+for _p in srcs:
+    if isinstance(_p, dict):
+        _provider_counts[_p.get("provider", "")] = _provider_counts.get(_p.get("provider", ""), 0) + 1
+for _pname, _floor in _provider_floors.items():
+    _pcount = _provider_counts.get(_pname, 0)
+    check(f"gev: cctv per-provider floor {">"+_pname+">"}>={_floor}",
+          _pcount >= _floor, f"rows={_pcount}")
+
 # ---- GEV P9: cockpit weather + summary brief endpoints (2026-09-18) ----
 
 # T2: cockpit weather brief. NOAA (2-step grid) with an Open-Meteo fallback;
