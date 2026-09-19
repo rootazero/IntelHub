@@ -50,13 +50,25 @@ pub trait CityCameraProvider: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CameraRow>>> + Send + 'a>>;
 }
 
-/// The live providers. Keyless ones (TfL, Ontario 511, 511NY) are
-/// always registered; key-gated ones (LTA) join only when their env key
-/// is set (shelved-by-design otherwise — the registry IS the gate, so
-/// refresh and health loops need no key logic of their own).
+/// The live providers. Keyless ones (TfL, Ontario 511, 511NY, and
+/// the 8 new GEV P11 providers) are always registered; key-gated ones
+/// (LTA) join only when their env key is set (shelved-by-design — the
+/// registry IS the gate, so refresh and health loops need no key logic).
 pub fn providers() -> Vec<&'static dyn CityCameraProvider> {
-    let mut out: Vec<&'static dyn CityCameraProvider> =
-        vec![&tfl::Tfl, &ontario511::Ontario511, &nyc511::Ny511];
+    let mut out: Vec<&'static dyn CityCameraProvider> = vec![
+        &tfl::Tfl,
+        &ontario511::Ontario511,
+        &nyc511::Ny511,
+        // GEV P11 new providers (all keyless)
+        &austin::Austin,        // Austin, TX
+        &caltrans::Caltrans,    // California DOT
+        &txdot::Txdot,          // Texas DOT
+        &drivebc::DriveBc,     // British Columbia
+        &fintraffic::Fintraffic,// Finland
+        &tarktee::Tarktee,     // Estonia
+        &nsw::Nsw,             // New South Wales, AU
+        &calgary::Calgary,     // Calgary, AB
+    ];
     if lta::api_key().is_some() {
         out.push(&lta::Lta);
     }
