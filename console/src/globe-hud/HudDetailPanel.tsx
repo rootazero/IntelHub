@@ -8,7 +8,7 @@
 //   quake     — magnitude, place, relative time
 // Empty state — 「点击地球上的目标查看详情」. Collapse handle in the panel's
 // top-right corner mirrors the T9 rail handle.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useGlobeSelection } from "../gev-boot/context-bridge";
 import type { FollowHandle } from "../gev-visual/follow-controller";
 import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
@@ -250,11 +250,14 @@ export interface HudDetailPanelProps {
   follow?: FollowHandle | null;
   /** P7: camera orientation adapter — powers the tilt toggle. */
   camera?: CameraOrientationHandle | null;
+  /** P10-T3: trailing widgets (drag handle, recording controls, etc.). */
+  children?: ReactNode;
 }
 
 export function HudDetailPanel({
   follow = null,
   camera = null,
+  children,
 }: HudDetailPanelProps) {
   const selection = useGlobeSelection();
   const [collapsed, setCollapsed] = useState(false);
@@ -401,6 +404,7 @@ export function HudDetailPanel({
           )}
         </div>
       )}
+      {children}
     </div>
   );
 }

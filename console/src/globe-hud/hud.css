@@ -1179,3 +1179,507 @@ button.hud-detail-link {
   background: rgba(255, 149, 0, 0.15);
   color: #e6edf3;
 }
+
+/* ============================================================================
+ * P10-T3 vendor CSS wholesale imports
+ *
+ * Copied verbatim from console/gev-engine/src/styles/recording.css + scenes.css.
+ * The vendored engine assumes these rules are present; IntelHub mounts only a
+ * subset of the vendor shell, so the rules here cover the recording-mode body
+ * class (sp8 check_44 acceptance hook) and the scene-panel layout. CSS
+ * specificity is intentionally unchanged (vendor rules win where they apply).
+ *
+ * Per plan §T3 step 7: "vendor CSS wholesale import — recording.css + scenes.css
+ * 直接复制到 hud.css 顶部并加注释" — done here at the bottom so the file
+ * remains diff-friendly (one appended block, easy to spot in `git diff`).
+ * ========================================================================== */
+
+/* vendor copy from console/gev-engine/src/styles/recording.css */
+body.recording-mode #title-bar,
+body.recording-mode #style-indicator,
+body.recording-mode #top-center-actions,
+body.recording-mode #global-loading-status,
+body.recording-mode #traffic-sync-chip,
+body.recording-mode #cctv-sync-chip,
+body.recording-mode #pp-toggles,
+body.recording-mode #clean-view-exit,
+body.recording-mode #param-slider-panel,
+body.recording-mode #control-panel,
+body.recording-mode #location-bar,
+body.recording-mode #data-panel,
+body.recording-mode #cctv-panel,
+body.recording-mode #radio-panel,
+body.recording-mode #global-context-panel,
+body.recording-mode #gev-voice-control,
+body.recording-mode #scene-panel {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+body.recording-mode #scene-runtime.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+body.scene-playback-mode
+  :is(
+    #clear-selected-layers,
+    #tilt-map-view,
+    #north-up-view,
+    #reset-globe-view
+  ) {
+  display: none !important;
+}
+
+/* vendor copy from console/gev-engine/src/styles/scenes.css (excerpt —
+ * IntelHub mounts only the scene-panel + left-panel-stack slots; the rest
+ * of the vendor rules reference elements we do not instantiate) */
+#scene-panel {
+  --panel-expanded-width: 360px;
+  position: fixed;
+  top: calc(var(--left-stack-top) + (var(--left-stack-gap) * 2));
+  left: var(--left-stack-x);
+  right: auto;
+  bottom: auto;
+  z-index: 100;
+  width: var(--panel-expanded-width);
+  max-height: calc(100vh - 24px);
+}
+
+#left-panel-stack > #scene-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  z-index: auto;
+  max-height: none;
+  flex: 0 0 auto;
+  min-height: 0;
+  pointer-events: auto;
+  order: 4;
+}
+
+#scene-panel:not(.collapsed) {
+  flex: 0 1 var(--left-panel-allocated-height, auto);
+  height: var(--left-panel-allocated-height, auto);
+  max-height: var(--left-panel-allocated-height, 100%);
+}
+
+.scene-panel-inner {
+  position: relative;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--panel-radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 24px);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+}
+
+.scene-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+#scene-select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-primary);
+  padding: 6px 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+}
+
+.scene-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  padding: 6px 9px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 72px;
+}
+
+.scene-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(0, 212, 255, 0.14);
+}
+
+.scene-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.scene-progress {
+  margin-top: 8px;
+  width: 100%;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+#scene-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 212, 255, 0.2),
+    rgba(0, 212, 255, 0.75)
+  );
+}
+
+#scene-status {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+/* ============================================================================
+ * P10-T3 HUD-tail components — IntelHub-owned CSS for the 5 new HUD widgets.
+ *
+ * Class prefix: `.hud-tail-*` (per plan §6 entropy ruling #1 — verify no
+ * collision with existing `.hud-*` selectors in this file). Scanned:
+ *   `.hud-bar`, `.hud-edge`, `.hud-rail`, `.hud-detail`, `.hud-cockpit-…`,
+ *   `.hud-annotation-…`, `.hud-draw-…` — none start with `tail-`.
+ * ========================================================================== */
+
+/* --- HudPanelDragHandle ------------------------------------------------- */
+.hud-panel-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 24px;
+  margin: 0 4px;
+  color: #9aa4b2;
+  cursor: grab;
+  user-select: none;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+
+.hud-panel-drag-handle:hover {
+  opacity: 1;
+  color: #e6edf3;
+}
+
+.hud-panel-drag-handle:active {
+  cursor: grabbing;
+}
+
+.hud-panel-drag-handle.collapsed {
+  width: 8px;
+  height: 18px;
+  font-size: 8px;
+}
+
+/* --- HudScenePanel ------------------------------------------------------ */
+.hud-scene-panel {
+  background: rgba(3, 5, 9, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 12px;
+  color: #e6edf3;
+  backdrop-filter: blur(12px);
+  min-width: 240px;
+  font-family: inherit;
+}
+
+.hud-scene-panel.hidden {
+  display: none;
+}
+
+.hud-scene-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  color: #9aa4b2;
+}
+
+.hud-scene-panel-title {
+  text-transform: uppercase;
+}
+
+.hud-scene-panel-close {
+  background: transparent;
+  border: none;
+  color: #9aa4b2;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.hud-scene-panel-close:hover {
+  color: #ff9500;
+}
+
+.hud-scene-panel-controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.hud-scene-panel-select {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #e6edf3;
+  padding: 4px 6px;
+  font-family: var(--font-sans, sans-serif);
+  font-size: 11px;
+}
+
+.hud-scene-capture-button,
+.hud-scene-share-link {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #9aa4b2;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 12px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.hud-scene-capture-button:hover:not(:disabled),
+.hud-scene-share-link:hover:not(:disabled) {
+  color: #ff9500;
+  border-color: #ff9500;
+}
+
+.hud-scene-capture-button:disabled,
+.hud-scene-share-link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hud-scene-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.hud-scene-panel-empty {
+  padding: 8px;
+  color: #9aa4b2;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  text-align: center;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.hud-scene-shot-row {
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.hud-scene-shot-row.active {
+  border-color: #ff9500;
+  background: rgba(255, 149, 0, 0.08);
+}
+
+.hud-scene-shot-row button {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.hud-scene-panel-status {
+  margin-top: 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: #9aa4b2;
+}
+
+/* --- HudRecordingControls ---------------------------------------------- */
+.hud-recording-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hud-recording-toggle {
+  background: rgba(3, 5, 9, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: #9aa4b2;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.hud-recording-toggle:hover {
+  color: #e6edf3;
+  border-color: #9aa4b2;
+}
+
+.hud-recording-toggle.active {
+  color: #ff5050;
+  border-color: #ff5050;
+  background: rgba(255, 80, 80, 0.12);
+}
+
+.hud-recording-mode-active {
+  color: #ff5050;
+  font-size: 14px;
+  animation: hud-recording-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes hud-recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* --- HudShortcutCheatsheet -------------------------------------------- */
+.hud-shortcut-cheatsheet {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(3, 5, 9, 0.86);
+  border: 1px solid rgba(0, 212, 255, 0.32);
+  border-radius: 12px;
+  padding: 18px 22px;
+  color: #e6edf3;
+  z-index: 200;
+  min-width: 320px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+}
+
+.hud-shortcut-cheatsheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  color: #9aa4b2;
+}
+
+.hud-shortcut-cheatsheet-close {
+  background: transparent;
+  border: none;
+  color: #9aa4b2;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.hud-shortcut-cheatsheet-close:hover {
+  color: #ff9500;
+}
+
+.hud-shortcut-cheatsheet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.hud-shortcut-cheatsheet-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.hud-shortcut-cheatsheet-combo {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: #00d4ff;
+  min-width: 56px;
+  text-align: center;
+}
+
+.hud-shortcut-cheatsheet-desc {
+  color: #e6edf3;
+}
+
+/* --- HudFrameRateReadout ----------------------------------------------- */
+.hud-frame-rate-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: rgba(3, 5, 9, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.hud-frame-rate-readout-label {
+  color: #9aa4b2;
+  font-size: 9px;
+  letter-spacing: 1.2px;
+}
+
+.hud-frame-rate-readout-value {
+  color: #00d4ff;
+  font-weight: 600;
+  min-width: 24px;
+  text-align: right;
+}
+
+/* --- HudLayerRail 4 new tool icons (T3) ------------------------------- */
+.hud-rail-tool[data-testid="hud-scene-toggle"],
+.hud-rail-tool[data-testid="hud-recording-button"],
+.hud-rail-tool[data-testid="hud-shortcuts-toggle"],
+.hud-rail-tool[data-testid="hud-fps-toggle"] {
+  /* Reuse the existing .hud-rail-icon styles — no new visual chrome
+     beyond the existing glyph + active state. The data-testid selectors
+     are present so tests can target them individually. */
+}

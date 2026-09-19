@@ -12,8 +12,31 @@
 //     ONE poll and hands the snapshot to both bars).
 //   describe 4 — HudFrame mounts the bars in the data-hud top/bottom slots.
 import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
+
+// HudTopBar uses useNavigate/useLocation (Back button) — tests must wrap in
+// MemoryRouter (F1 fix: 4 pre-existing failures were this missing wrapper;
+// see hud-search.test.tsx:34 for the same pattern that already works).
+function renderTopBar(props: React.ComponentProps<typeof HudTopBar>) {
+  return render(
+    <MemoryRouter>
+      <HudTopBar {...props} />
+    </MemoryRouter>,
+  );
+}
+
+function renderFrameBars(props: {
+  top?: React.ReactNode;
+  bottom?: React.ReactNode;
+}) {
+  return render(
+    <MemoryRouter>
+      <HudFrame {...props} />
+    </MemoryRouter>,
+  );
+}
 
 // The hook is the only consumer of the console API client — mock it so no
 // test touches the network.
@@ -96,7 +119,7 @@ describe("HudTopBar", () => {
   test("UTC clock is present and ticks once per second", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-17T08:38:12Z"));
-    render(<HudTopBar overview={OVERVIEW} />);
+    renderTopBar({ overview: OVERVIEW });
     const clock = screen.getByTestId("hud-utc-clock");
     expect(clock).toHaveTextContent("08:38:12 UTC");
     act(() => vi.advanceTimersByTime(1000));
@@ -106,7 +129,7 @@ describe("HudTopBar", () => {
   });
 
   test("shows the open-alert count and links to /alerts", () => {
-    render(<HudTopBar overview={OVERVIEW} />);
+    renderTopBar({ overview: OVERVIEW });
     expect(screen.getByTestId("hud-alert-count")).toHaveTextContent("7");
     expect(screen.getByTestId("hud-alert-bell")).toHaveAttribute(
       "href",
@@ -115,7 +138,7 @@ describe("HudTopBar", () => {
   });
 
   test("clock ticks and counts degrade gracefully without an overview", () => {
-    render(<HudTopBar overview={null} />);
+    renderTopBar({ overview: null });
     expect(screen.getByTestId("hud-alert-count")).toHaveTextContent("—");
     expect(screen.getByTestId("hud-utc-clock")).toHaveTextContent("UTC");
   });
@@ -309,12 +332,10 @@ describe("useOverview", () => {
 
 describe("HudFrame bar slots", () => {
   test("top/bottom props mount inside the data-hud slots", () => {
-    render(
-      <HudFrame
-        top={<HudTopBar overview={OVERVIEW} />}
-        bottom={<HudBottomBar overview={OVERVIEW} manager={null} />}
-      />,
-    );
+    renderFrameBars({
+      top: <HudTopBar overview={OVERVIEW} />,
+      bottom: <HudBottomBar overview={OVERVIEW} manager={null} />,
+    });
     expect(
       document.querySelector('[data-hud="top"] > [data-testid="hud-top-bar"]'),
     ).toBeInTheDocument();
