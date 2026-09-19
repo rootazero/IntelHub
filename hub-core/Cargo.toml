@@ -21,7 +21,7 @@ sqlx = { version = "0.8", default-features = false, features = [
 rmcp = { version = "3.0", features = ["server", "transport-streamable-http-server"] }
 neo4rs = { version = "0.8" }
 redis = { version = "0.27", features = ["tokio-comp"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
