@@ -29,6 +29,9 @@ url.workspace = true
 futures.workspace = true
 strsim.workspace = true
 tokio-tungstenite.workspace = true
+base64 = "0.22"
+quick-xml = "0.36"
+urlencoding = "2.1"
 
 [dev-dependencies]
 wiremock = "0.6"

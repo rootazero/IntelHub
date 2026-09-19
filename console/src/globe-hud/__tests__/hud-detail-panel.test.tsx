@@ -291,7 +291,7 @@ describe("HudDetailPanel", () => {
     expect(screen.getByText("3 小时前")).toBeInTheDocument();
   });
 
-  test("cctv template: metadata rows + LIVE link, never an embedded media element", async () => {
+  test("cctv template: metadata rows + open-popout button (T14), no img/video in detail panel", async () => {
     render(<HudDetailPanel />);
     await select(CCTV_RECORD);
     expect(screen.getByText("QEW West of Thompson Road")).toBeInTheDocument();
@@ -300,12 +300,35 @@ describe("HudDetailPanel", () => {
     expect(screen.getByText("image")).toBeInTheDocument();
     expect(screen.getByText("90° / 74° / -17°")).toBeInTheDocument();
     expect(screen.getByText("在线")).toBeInTheDocument();
-    const live = screen.getByRole("link", { name: /实时画面/ });
-    expect(live).toHaveAttribute("href", "/api/cctv/frame/cctv-1");
-    expect(live).toHaveAttribute("target", "_blank");
+    // T14: the anchor link is replaced with a button that opens the face-on popout
+    const openBtn = screen.getByTestId("cctv-open-popout");
+    expect(openBtn).toBeInTheDocument();
+    expect(openBtn).toHaveTextContent("打开实时画面 →");
     // GPU texture rendering is the engine pipeline's job — the HUD must not
-    // embed img/video DOM.
+    // embed img/video DOM inside the detail panel.
     expect(document.querySelector(".hud-detail img, .hud-detail video")).toBeNull();
+  });
+
+  test("cctv open-popout button mounts CctvPopoutPanel and renders the media element", async () => {
+    render(<HudDetailPanel />);
+    await select(CCTV_RECORD);
+    // Popout is not visible yet
+    expect(document.querySelector(".cctv-popout-overlay")).toBeNull();
+    // Click the open button
+    fireEvent.click(screen.getByTestId("cctv-open-popout"));
+    // Popout is now mounted
+    expect(document.querySelector(".cctv-popout-overlay")).toBeInTheDocument();
+    // Frame image is present (image feedType from CCTV_RECORD)
+    const img = document.querySelector(".cctv-popout-frame img");
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute("src", expect.stringContaining("/api/v1/gev/cctv/frame/cctv-1"));
+    // Close button is present
+    expect(screen.getByTestId("cctv-popout-close")).toBeInTheDocument();
+    // Attribution chip
+    expect(screen.getByTestId("cctv-popout-attribution").textContent).toContain("RWIS (MTO)");
+    // Clicking close dismisses the popout
+    fireEvent.click(screen.getByTestId("cctv-popout-close"));
+    expect(document.querySelector(".cctv-popout-overlay")).toBeNull();
   });
 
   test("cctv template without a feed renders the disabled entry", async () => {
