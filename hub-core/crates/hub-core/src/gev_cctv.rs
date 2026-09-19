@@ -1,4 +1,4 @@
-//! GEV P3 T11: CCTV REST — camera catalog + health for the engine's
+//! GEV P3 T11+P11: CCTV REST — camera catalog + health for the engine's
 //! cctv layer (contracts.md §3).
 //!
 //! `GET /api/v1/gev/cctv/sources` → `{sources: [CameraSource]}` — the
@@ -26,19 +26,29 @@
 //! (projection.js — the GPU rendering requirement). HLS media answers
 //! 501 in P3: a playlist proxy needs segment-URL rewriting, deferred to
 //! P4 (511NY cameras carry static frames too, so they degrade to image).
+//!
+//! P11 T4 frame fallback chain (gev_cctv_frame):
+//!   1. Redis cache (existing, no change)
+//!   2. Upstream fetch (existing, no change)
+//!   3. Street View Static API (new, env-gated, never 502s when key absent)
+//!   4. Synthetic SVG placeholder (new, always succeeds)
+//! Fallback tiers 3-4 do NOT write to Redis cache — only a successful
+//! upstream response is cached (avoids polluting the upstream namespace).
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json, Response},
 };
 use chrono::{DateTime, Utc};
 use serde_json::{json, Value};
 
 use crate::state::AppState;
+
+use super::gev_cctv_frame_fallback::{build_synthetic_svg, street_view_fallback};
 
 #[derive(sqlx::FromRow)]
 pub struct CamRow {
@@ -226,10 +236,23 @@ async fn lookup_urls(
     })
 }
 
+/// Dedicated HTTP client for Street View fallback (5s timeout, modest header).
+fn fallback_http() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .user_agent("IntelHub/gev-cctv-fallback/1.0")
+            .build()
+            .expect("fallback http client builds")
+    })
+}
+
 pub async fn gev_cctv_frame(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
+    // ── Tier 1: upstream fetch (existing logic, unchanged) ────────────────
     let (frame_url, _, _) = match lookup_urls(&state, &id).await {
         Ok(v) => v,
         Err(r) => return r,
@@ -242,7 +265,6 @@ pub async fn gev_cctv_frame(
             .into_response();
     };
 
-    // Cache: Redis hash {data, ct} with TTL (binary-safe).
     let key = frame_cache_key(&id);
     let cached: Option<std::collections::HashMap<String, Vec<u8>>> = state
         .redis_timed(redis::cmd("HGETALL").arg(&key).clone(), 2000)
@@ -261,19 +283,12 @@ pub async fn gev_cctv_frame(
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame upstream fetch failed");
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "frame upstream failed"})),
-            )
-                .into_response();
+            return frame_fallback_on_upstream_failure(&state, &id).await;
         }
     };
     if !resp.status().is_success() {
-        return (
-            StatusCode::BAD_GATEWAY,
-            Json(json!({"error": format!("frame upstream HTTP {}", resp.status())})),
-        )
-            .into_response();
+        tracing::warn!(status = %resp.status(), camera = %id, "cctv frame upstream HTTP non-200");
+        return frame_fallback_on_upstream_failure(&state, &id).await;
     }
     let ct = sanitize_frame_content_type(
         resp.headers()
@@ -291,16 +306,11 @@ pub async fn gev_cctv_frame(
         }
         Err(e) => {
             tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame body read failed");
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "frame body read failed"})),
-            )
-                .into_response();
+            return frame_fallback_on_upstream_failure(&state, &id).await;
         }
     };
 
-    // Best-effort cache write (degrade to plain proxy on Redis trouble,
-    // starlink-proxy precedent).
+    // Best-effort cache write (degrade to plain proxy on Redis trouble).
     let _: Option<()> = state
         .redis_timed(
             redis::cmd("HSET")
@@ -321,6 +331,52 @@ pub async fn gev_cctv_frame(
         .await;
 
     ([(axum::http::header::CONTENT_TYPE, ct)], body).into_response()
+}
+
+/// P11 T4: 3-tier fallback chain — Street View (env-gated) then SVG.
+///
+/// Called when the upstream fetch fails (network error, HTTP non-2xx,
+/// or body read error).  Does NOT write to Redis — only a successful
+/// upstream response is cached (avoids polluting the upstream namespace).
+async fn frame_fallback_on_upstream_failure(
+    state: &Arc<AppState>,
+    id: &str,
+) -> Response {
+    // Look up camera metadata for Street View coordinates.
+    // Reuse the existing query (same table + filter as lookup_urls).
+    let cam: Option<(f64, f64, String, String)> = sqlx::query_as::<_, (f64, f64, String, String)>(
+        "SELECT lat, lon, name, city FROM cctv_cameras WHERE id = $1 AND active",
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await
+    .ok()
+    .flatten();
+
+    let Some((lat, lon, name, city)) = cam else {
+        // Camera not in catalog → synthetic SVG with minimal info.
+        let svg = build_synthetic_svg(id, id, "UNKNOWN", "DOWN");
+        return svg_response(svg);
+    };
+
+    // ── Tier 2: Street View (env-gated; None when no key) ─────────────
+    if let Some(sv_bytes) = street_view_fallback(fallback_http(), lat, lon, 5).await {
+        return (
+            [(axum::http::header::CONTENT_TYPE, "image/jpeg")],
+            sv_bytes,
+        )
+            .into_response();
+    }
+
+    // ── Tier 3: synthetic SVG (always succeeds) ───────────────────────
+    let svg = build_synthetic_svg(id, &name, &city, "DOWN");
+    svg_response(svg)
+}
+
+fn svg_response(svg: Vec<u8>) -> Response {
+    let mut headers = HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "image/svg+xml".parse().unwrap());
+    (headers, svg).into_response()
 }
 
 /// Media concurrency guard: process-wide semaphore, 429 on saturation
