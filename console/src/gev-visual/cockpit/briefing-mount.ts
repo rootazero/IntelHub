@@ -1,23 +1,19 @@
 // GEV P9 regional briefing adapter — fetches the hub's `GET /api/v1/gev/weather`
 // and `GET /api/v1/gev/summary` endpoints (T2) and normalizes them into the
-// React HUD's briefing view model, plus owns the summary-bullet auto-rotation.
+// React HUD's briefing view model.
 //
 // The vendored cockpitBriefing.js exports `this`-bound mixin methods
 // (showBriefPage / startBriefRotation / renderRegionalBrief …) that walk DOM
 // refs on the cockpitController — we do NOT instantiate that controller (D1).
-// This adapter keeps the vendor's cadence + formatting constants
-// (COCKPIT_BRIEF_ROTATE_MS, formatCockpitWindDirection, COCKPIT_BRIEF_PAGES)
-// and re-implements the small rotation/state machine in pure TS.
+// This adapter keeps only the vendor's `formatCockpitWindDirection` formatter;
+// bullet auto-rotation + page cadence live in HudCockpitBriefingPanel
+// (D3: start/stop/pages were dead — only tests referenced them).
 //
 // Empty-bullet handling (T2 finding): acled/reliefweb/gdelt do NOT exist in
 // hub-core yet, so `gev_summary` returns 200 with `bullets: []` +
 // `sources: ["cache"]` (spec §3.3 空载防御). That is an EXPECTED "no data"
 // state — surfaced as `summary.empty === true`, never thrown, never retried.
-import {
-  COCKPIT_BRIEF_PAGES,
-  COCKPIT_BRIEF_ROTATE_MS,
-  formatCockpitWindDirection,
-} from "gev-engine/src/ui/cockpitPresentation.js";
+import { formatCockpitWindDirection } from "gev-engine/src/ui/cockpitPresentation.js";
 import type { ApiFetch } from "../../gev-adapters/http";
 
 export type WeatherMetricKey =
@@ -39,13 +35,6 @@ export interface SummaryBullet {
   text: string;
   sourceUrl: string | null;
   ageHours: number | null;
-}
-
-export interface BriefPageMeta {
-  id: string;
-  kicker: string;
-  subtitle: string;
-  source: string;
 }
 
 export interface Briefing {
@@ -74,15 +63,10 @@ export interface BriefingHandle {
     entityId: string,
     opts?: { signal?: AbortSignal },
   ): Promise<Briefing>;
-  /** Begin auto-rotation over summary bullets at COCKPIT_BRIEF_ROTATE_MS. */
-  start(briefing?: Briefing): void;
-  stop(): void;
   next(): number;
   prev(): number;
   index(): number;
   total(): number;
-  /** The vendor's three brief pages (signals/news/local) as metadata. */
-  pages(): readonly BriefPageMeta[];
   current(): Briefing | null;
   destroy(): void;
 }
@@ -182,7 +166,6 @@ export function mountCockpitBriefing(apiFetch: ApiFetch): BriefingHandle {
 
   let current: Briefing | null = null;
   let bulletIndex = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let destroyed = false;
 
   const total = () => current?.summary.bullets.length ?? 0;
@@ -199,26 +182,6 @@ export function mountCockpitBriefing(apiFetch: ApiFetch): BriefingHandle {
     if (count === 0) return 0;
     bulletIndex = (bulletIndex - 1 + count) % count;
     return bulletIndex;
-  }
-
-  function stop() {
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  }
-
-  function start(briefing?: Briefing): void {
-    if (briefing) current = briefing;
-    stop();
-    if (destroyed) return;
-    if (total() === 0) return;
-    const tick = () => {
-      next();
-      if (destroyed) return;
-      timer = setTimeout(tick, COCKPIT_BRIEF_ROTATE_MS);
-    };
-    timer = setTimeout(tick, COCKPIT_BRIEF_ROTATE_MS);
   }
 
   return {
@@ -258,23 +221,13 @@ export function mountCockpitBriefing(apiFetch: ApiFetch): BriefingHandle {
       current = { weather, summary };
       return current;
     },
-    start,
-    stop,
     next,
     prev,
     index: () => bulletIndex,
     total,
-    pages: () =>
-      (COCKPIT_BRIEF_PAGES as unknown as BriefPageMeta[]).map((p) => ({
-        id: p.id,
-        kicker: p.kicker,
-        subtitle: p.subtitle,
-        source: p.source,
-      })),
     current: () => current,
     destroy() {
       destroyed = true;
-      stop();
       current = null;
       bulletIndex = 0;
     },
