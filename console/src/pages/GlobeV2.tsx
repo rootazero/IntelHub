@@ -1040,6 +1040,13 @@ export default function GlobeV2() {
           <HudPanelDragHandle
             panelId="detail-panel"
             title="拖拽详情面板 / Drag detail panel"
+            onDragStart={(id, e) =>
+              panelDragRef.current?.startDrag(
+                id,
+                e.nativeEvent as PointerEvent,
+              )
+            }
+            onDragEnd={() => panelDragRef.current?.endDrag()}
           />
           <HudRecordingControls
             active={recordingMode === "active"}

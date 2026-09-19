@@ -81,4 +81,144 @@ describe("panel-drag adapter", () => {
     handle.destroy();
     expect(handle.controls).toBeInstanceOf(PanelPositionControls);
   });
+
+  test("startDrag(panelId, event) promotes panel to dragging state", () => {
+    // P11-A: HudPanelDragHandle delegates pointerdown to the adapter via
+    // startDrag(). The adapter mirrors vendor's drag state machine for
+    // HUD panels (vendor's listener path is hardcoded to
+    // `.panel-drag-handle.compact` inside `#pp-toggles` — out of reach for
+    // HUD panels). We verify the contract surface: startDrag resolves the
+    // panel + handle, flips `.panel-dragging` on the panel, and pins it to
+    // its current rect.
+    const panel = document.createElement("div");
+    panel.id = "detail-panel";
+    panel.className = "panel-draggable";
+    panel.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 80,
+        right: 460,
+        bottom: 320,
+        width: 360,
+        height: 240,
+        x: 100,
+        y: 80,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const handle = document.createElement("span");
+    handle.className = "hud-panel-drag-handle";
+    panel.appendChild(handle);
+    document.body.appendChild(panel);
+
+    const opts = makeDeps();
+    const drag = mountPanelDrag(ppToggle, opts);
+    const event = new PointerEvent("pointerdown", {
+      bubbles: true,
+      clientX: 150,
+      clientY: 100,
+      button: 0,
+    });
+    const started = drag.startDrag("detail-panel", event);
+    expect(started).toBe(true);
+    expect(panel.classList.contains("panel-dragging")).toBe(true);
+    expect(panel.style.left).toBe("100px");
+    expect(panel.style.top).toBe("80px");
+    expect(panel.style.right).toBe("auto");
+    expect(panel.style.bottom).toBe("auto");
+    // z-index promoted (101 since no other panels in this test carry one).
+    expect(panel.style.zIndex).toBeTruthy();
+
+    drag.endDrag();
+    // End terminates the drag class and removes window listeners.
+    expect(panel.classList.contains("panel-dragging")).toBe(false);
+    drag.destroy();
+  });
+
+  test("startDrag returns false for missing panel id", () => {
+    const opts = makeDeps();
+    const drag = mountPanelDrag(ppToggle, opts);
+    const event = new PointerEvent("pointerdown", { bubbles: true });
+    expect(
+      drag.startDrag("does-not-exist", event),
+    ).toBe(false);
+    drag.destroy();
+  });
+
+  test("startDrag returns false when panel lacks a .hud-panel-drag-handle", () => {
+    const panel = document.createElement("div");
+    panel.id = "no-handle-panel";
+    document.body.appendChild(panel);
+    const opts = makeDeps();
+    const drag = mountPanelDrag(ppToggle, opts);
+    const event = new PointerEvent("pointerdown", { bubbles: true });
+    expect(drag.startDrag("no-handle-panel", event)).toBe(false);
+    drag.destroy();
+  });
+
+  test("endDrag is a no-op when no drag is active", () => {
+    const opts = makeDeps();
+    const drag = mountPanelDrag(ppToggle, opts);
+    expect(() => drag.endDrag()).not.toThrow();
+    drag.destroy();
+  });
+
+  test("second startDrag() before endDrag() cancels prior drag (vendor parity)", () => {
+    const panel = document.createElement("div");
+    panel.id = "parity-panel";
+    panel.className = "panel-draggable";
+    panel.getBoundingClientRect = () =>
+      ({
+        left: 10,
+        top: 10,
+        right: 100,
+        bottom: 60,
+        width: 90,
+        height: 50,
+        x: 10,
+        y: 10,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const handle = document.createElement("span");
+    handle.className = "hud-panel-drag-handle";
+    panel.appendChild(handle);
+    document.body.appendChild(panel);
+
+    const opts = makeDeps();
+    const drag = mountPanelDrag(ppToggle, opts);
+    drag.startDrag(
+      "parity-panel",
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: 20,
+        clientY: 20,
+        button: 0,
+      }),
+    );
+    expect(panel.classList.contains("panel-dragging")).toBe(true);
+    // Second start on a different panel — first drag must terminate.
+    const other = document.createElement("div");
+    other.id = "parity-panel-2";
+    other.className = "panel-draggable";
+    other.getBoundingClientRect = panel.getBoundingClientRect;
+    const otherHandle = document.createElement("span");
+    otherHandle.className = "hud-panel-drag-handle";
+    other.appendChild(otherHandle);
+    document.body.appendChild(other);
+    drag.startDrag(
+      "parity-panel-2",
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: 30,
+        clientY: 30,
+        button: 0,
+      }),
+    );
+    expect(panel.classList.contains("panel-dragging")).toBe(false);
+    expect(other.classList.contains("panel-dragging")).toBe(true);
+    drag.destroy();
+  });
 });
