@@ -1683,3 +1683,137 @@ body.scene-playback-mode
      beyond the existing glyph + active state. The data-testid selectors
      are present so tests can target them individually. */
 }
+
+/* P11-A scene-panel CSS drift mirror rule — overrides vendor scenes.css
+ * #scene-panel selectors; see P11 spec §3. The vendor scenes.css hardcodes
+ * its layout under `#scene-panel { ... }`. IntelHub's HudScenePanel renders
+ * under `.hud-scene-panel` (the testid is `hud-scene-panel`). When the
+ * vendor's left-rail stylesheet is loaded the panel collapses because its
+ * outer element doesn't match `#scene-panel`. We mirror the vendor rules
+ * verbatim, only changing the selector from `#scene-panel` to
+ * `.hud-scene-panel`, so the IntelHub-rendered panel receives the same
+ * layout chrome without us editing the vendored CSS.
+ *
+ * Source mapping (vendor scenes.css → this file):
+ *   line   2  #scene-panel                                     → §A
+ *   line  17  #left-panel-stack > #scene-panel                 → §B
+ *   line  38  #left-panel-stack > #scene-panel { order:4 }     → §C
+ *   line  53  ...> #scene-panel:not(.collapsed)                → §D
+ *   line  74  ...> #scene-panel:not(.collapsed) .scene-panel-inner → §E
+ *   line  84  ...> #scene-panel:not(.collapsed) .scene-panel-inner → §F
+ *   line 116  #scene-panel .panel-glow                         → §G
+ *   line 405  #scene-panel.collapsed .scene-controls etc.      → §H
+ *   line 418  #scene-panel.collapsed { width }                 → §I
+ *   line 429  #scene-panel.collapsed .panel-title             → §J
+ *   line 438  #scene-panel.collapsed .scene-panel-inner       → §K
+ *   line 449  #scene-panel.collapsed .panel-header            → §L
+ */
+
+.hud-scene-panel {
+  /* §A — mirrors vendor scenes.css line 2 #scene-panel */
+  --panel-expanded-width: 360px;
+  position: fixed;
+  top: calc(var(--left-stack-top) + (var(--left-stack-gap) * 2));
+  left: var(--left-stack-x);
+  right: auto;
+  bottom: auto;
+  z-index: 100;
+  width: var(--panel-expanded-width);
+  max-height: calc(100vh - 24px);
+}
+
+/* §B — mirrors vendor scenes.css line 17 #left-panel-stack > #scene-panel
+ * In the IntelHub layout HudScenePanel renders as a sibling inside the
+ * left stack. The selector must match the actual nesting depth; if the
+ * HUD mounts the panel outside #left-panel-stack in the future, this
+ * section becomes inert (selector misses) and the broader .hud-scene-panel
+ * rule in §A still applies.
+ */
+#left-panel-stack > .hud-scene-panel {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  z-index: auto;
+  max-height: none;
+  flex: 0 0 auto;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+/* §C — mirrors vendor scenes.css line 38 (order:4) */
+#left-panel-stack > .hud-scene-panel {
+  order: 4;
+}
+
+/* §D — mirrors vendor scenes.css line 53
+ *      #left-panel-stack > #scene-panel:not(.collapsed)
+ */
+#left-panel-stack > .hud-scene-panel:not(.collapsed) {
+  box-sizing: border-box;
+  flex: 0 1 var(--left-panel-allocated-height, auto);
+  height: var(--left-panel-allocated-height, auto);
+  max-height: var(--left-panel-allocated-height, 100%);
+}
+
+/* §E — mirrors vendor scenes.css line 74 */
+#left-panel-stack > .hud-scene-panel:not(.collapsed) .hud-scene-panel-inner {
+  height: 100%;
+  max-height: 100%;
+}
+
+/* §F — mirrors vendor scenes.css line 84 */
+#left-panel-stack > .hud-scene-panel:not(.collapsed) .hud-scene-panel-inner {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* §G — mirrors vendor scenes.css line 116 #scene-panel .panel-glow */
+.hud-scene-panel .panel-glow {
+  position: absolute;
+  inset: -18px;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(0, 212, 255, 0.16) 0%,
+    transparent 65%
+  );
+  filter: blur(16px);
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+/* §H — mirrors vendor scenes.css line 405 — collapsed-state body hide.
+ * Vendor targets `.scene-controls`, `.scene-shot-list`, `.scene-progress`,
+ * `#scene-status`. HudScenePanel renders the same logical sections under
+ * the `hud-` namespace (`hud-scene-panel-controls` for controls, the shot
+ * `<ul>` for the list, and `hud-scene-panel-status` for status). There is
+ * no .scene-progress equivalent in HudScenePanel — the rule below omits
+ * it rather than mirroring an inert selector.
+ */
+.hud-scene-panel.collapsed .hud-scene-panel-controls,
+.hud-scene-panel.collapsed .hud-scene-panel-list,
+.hud-scene-panel.collapsed .hud-scene-panel-status {
+  display: none !important;
+}
+
+/* §I — mirrors vendor scenes.css line 418 — collapsed width */
+.hud-scene-panel.collapsed {
+  width: var(--left-collapsed-width);
+}
+
+/* §J — mirrors vendor scenes.css line 429 — collapsed title shrink */
+.hud-scene-panel.collapsed .hud-scene-panel-title {
+  font-size: 8px;
+  letter-spacing: 1.8px;
+}
+
+/* §K — mirrors vendor scenes.css line 438 — collapsed inner padding */
+.hud-scene-panel.collapsed .hud-scene-panel-inner {
+  padding-bottom: 10px;
+}
+
+/* §L — mirrors vendor scenes.css line 449 — collapsed header margin */
+.hud-scene-panel.collapsed .hud-scene-panel-header {
+  margin-bottom: 2px;
+}
