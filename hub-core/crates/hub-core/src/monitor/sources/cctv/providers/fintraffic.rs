@@ -38,7 +38,6 @@ impl CityCameraProvider for Fintraffic {
             let resp = client
                 .get(DEFAULT_URL)
                 .header("Accept", "application/json")
-                .header("Accept-Encoding", "gzip")
                 .header("Digitraffic-User", "intelhub-cctv-port/1.0")
                 .send()
                 .await
@@ -53,7 +52,6 @@ impl CityCameraProvider for Fintraffic {
                 .text()
                 .await
                 .map_err(|e| HubError::sensor(format!("fintraffic: body read: {e}")))?;
-            tracing::warn!("fintraffic: text len={} first100={:?}", text.len(), &text[..text.len().min(100)]);
             let doc: Value = serde_json::from_str(&text)
                 .map_err(|e| HubError::sensor(format!("fintraffic: json: {e}")))?;
             Ok(parse_fintraffic(&doc))
