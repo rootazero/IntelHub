@@ -98,9 +98,18 @@ impl CityCameraProvider for Caltrans {
     }
 }
 
-/// Extract a finite f64, or None (mirrors gods-eye-view `toFiniteNumber`).
+/// Extract a finite f64 from a JSON value. Caltrans encodes coordinates as
+/// strings ("37.82539"), so we accept either a number or a parseable string.
 fn to_finite(v: &Value) -> Option<f64> {
-    v.as_f64().filter(|f| f.is_finite())
+    if let Some(n) = v.as_f64() {
+        return n.is_finite().then_some(n);
+    }
+    if let Some(s) = v.as_str() {
+        if let Ok(n) = s.trim().parse::<f64>() {
+            return n.is_finite().then_some(n);
+        }
+    }
+    None
 }
 
 /// Direction string → heading degrees (bare cardinal words allowed).
