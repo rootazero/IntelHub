@@ -58,6 +58,13 @@ export function HudShortcutCheatsheet({
   useEffect(() => {
     if (!visible || !onClose) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      // Gate on isTrusted: GlobeV2.dismissSearch (shortcuts adapter)
+      // synthesizes `new KeyboardEvent("keydown", {key:"Escape",bubbles:true})`
+      // — those carry isTrusted=false. Letting them through here would
+      // close the cheatsheet, retrigger the shortcuts effect, and recurse
+      // (observed 46 RangeError pageerrors per session in sp8 P10 probe).
+      // Real keyboard presses always carry isTrusted=true.
+      if (!event.isTrusted) return;
       if (event.key === "Escape") {
         event.stopPropagation();
         onClose();
