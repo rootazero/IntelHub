@@ -386,3 +386,70 @@
 @media (max-width: 1100px) {
   .hud-grid { grid-template-columns: 1fr; overflow-y: auto; }
 }
+
+/* GEV P11 T14: CctvPopoutPanel — face-on 2D overlay */
+.cctv-popout-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  pointer-events: auto;
+}
+.cctv-popout {
+  background: #0a1418;
+  border: 1px solid rgba(0, 212, 255, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  width: 640px;
+  max-width: 90vw;
+  cursor: default;
+}
+.cctv-popout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  color: rgba(255, 255, 255, 0.9);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  cursor: move;
+  background: rgba(0, 0, 0, 0.4);
+}
+.cctv-popout-header button {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.cctv-popout-header button:hover {
+  color: rgba(255, 176, 82, 0.9);
+}
+.cctv-popout-frame {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cctv-popout-frame img,
+.cctv-popout-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.cctv-popout-footer {
+  padding: 6px 12px;
+  color: rgba(145, 237, 255, 0.7);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  border-top: 1px solid rgba(0, 212, 255, 0.15);
+}
