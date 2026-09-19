@@ -57,6 +57,14 @@ export function HudLayerRail({
   drawActive,
   onToggleCockpit,
   cockpitActive,
+  onToggleScene,
+  sceneActive,
+  onToggleRecording,
+  recordingActive,
+  onToggleShortcuts,
+  shortcutsActive,
+  onToggleFps,
+  fpsActive,
 }: {
   manager: RailManager;
   /** P8: toggle the draw toolbar (renders the rail's draw entry button). */
@@ -67,6 +75,22 @@ export function HudLayerRail({
   onToggleCockpit?: () => void;
   /** P9: whether the cockpit overlay is active (highlight the entry). */
   cockpitActive?: boolean;
+  /** T3: toggle the scene director panel. */
+  onToggleScene?: () => void;
+  /** T3: whether the scene panel is active. */
+  sceneActive?: boolean;
+  /** T3: toggle recording mode. */
+  onToggleRecording?: () => void;
+  /** T3: whether recording mode is active. */
+  recordingActive?: boolean;
+  /** T3: open/close the shortcut cheatsheet (`?` shortcut). */
+  onToggleShortcuts?: () => void;
+  /** T3: whether the cheatsheet is open. */
+  shortcutsActive?: boolean;
+  /** T3: toggle the frame-rate readout visibility. */
+  onToggleFps?: () => void;
+  /** T3: whether the frame-rate readout is currently visible. */
+  fpsActive?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [openDomainId, setOpenDomainId] = useState<string | null>(null);
@@ -293,6 +317,66 @@ export function HudLayerRail({
           aria-pressed={cockpitActive}
         >
           <span aria-hidden>🎮</span>
+        </button>
+      )}
+      {!collapsed && onToggleScene && (
+        <button
+          type="button"
+          data-testid="hud-scene-toggle"
+          className={`hud-rail-icon hud-rail-tool${
+            sceneActive ? " active" : ""
+          }`}
+          onClick={onToggleScene}
+          title="场景 / Scene"
+          aria-label="场景 / Scene"
+          aria-pressed={sceneActive}
+        >
+          <span aria-hidden>🎬</span>
+        </button>
+      )}
+      {!collapsed && onToggleRecording && (
+        <button
+          type="button"
+          data-testid="hud-recording-button"
+          className={`hud-rail-icon hud-rail-tool${
+            recordingActive ? " active" : ""
+          }`}
+          onClick={onToggleRecording}
+          title="录制 / Recording"
+          aria-label="录制 / Recording"
+          aria-pressed={recordingActive}
+        >
+          <span aria-hidden>⏺</span>
+        </button>
+      )}
+      {!collapsed && onToggleShortcuts && (
+        <button
+          type="button"
+          data-testid="hud-shortcuts-toggle"
+          className={`hud-rail-icon hud-rail-tool${
+            shortcutsActive ? " active" : ""
+          }`}
+          onClick={onToggleShortcuts}
+          title="快捷键 / Shortcuts"
+          aria-label="快捷键 / Shortcuts"
+          aria-pressed={shortcutsActive}
+        >
+          <span aria-hidden>?</span>
+        </button>
+      )}
+      {!collapsed && onToggleFps && (
+        <button
+          type="button"
+          data-testid="hud-fps-toggle"
+          className={`hud-rail-icon hud-rail-tool${
+            fpsActive ? " active" : ""
+          }`}
+          onClick={onToggleFps}
+          title="帧率 / FPS"
+          aria-label="帧率 / FPS"
+          aria-pressed={fpsActive}
+        >
+          <span aria-hidden>FPS</span>
         </button>
       )}
       {openDomain && !collapsed && (

@@ -185,17 +185,25 @@ pub fn open_meteo_url(base: &str, lat: f64, lon: f64) -> String {
 
 // ---------- parsers (pure, unit-tested) ----------
 
-/// NOAA forecastGridData values are `{unitCode, values: [{validTime, value}]}`.
-/// Take the first (current) value. Field units (wmoUnit codes): temperature
-/// `degC`, windSpeed `km_h-1` (→ kts), windDirection `degree_(angle)`,
-/// quantitativePrecipitation `mm`, skyCover `percent`, visibility `m`,
-/// pressure/barometricPressure `Pa` (→ hPa) when present.
+/// NOAA forecastGridData values are `{uom, values: [{validTime, value}]}`.
+/// Take the first (current) value. Field units are carried in the `uom`
+/// string (NOT `unitCode` — live probe: `uom` is `"wmoUnit:km_h-1"` etc.
+/// while `unitCode` is null). Expected units: temperature `wmoUnit:degC`,
+/// windSpeed `wmoUnit:km_h-1` (→ kts), windDirection
+/// `wmoUnit:degree_(angle)`, quantitativePrecipitation `wmoUnit:mm`,
+/// skyCover `wmoUnit:percent`, visibility `wmoUnit:m`,
+/// pressure/barometricPressure `wmoUnit:Pa` (→ hPa) when present.
+///
+/// D1 unit gate: a value is accepted only when its `uom` matches the
+/// expected unit; otherwise the field is `null` — never a silently-wrong
+/// conversion (e.g. windSpeed reported in m/s must NOT be read as kts).
 ///
 /// NOTE: plan Task 2 listed `precipitationProbability` (a %, no contract
 /// slot). The contract field is `precipitation_mm`, so the honest amount
 /// source `quantitativePrecipitation` (mm) is used instead.
 pub fn parse_noaa_grid(body: &Value) -> WeatherData {
     let props = body.get("properties");
+    let uom = |key: &str| -> Option<&str> { props?.get(key)?.get("uom")?.as_str() };
     let current = |key: &str| -> Option<f64> {
         props?
             .get(key)?
@@ -205,15 +213,23 @@ pub fn parse_noaa_grid(body: &Value) -> WeatherData {
             .get("value")?
             .as_f64()
     };
+    // D1 gate: only return a value when its `uom` matches the expected unit.
+    let gated = |key: &str, expected: &str| -> Option<f64> {
+        if uom(key) == Some(expected) {
+            current(key)
+        } else {
+            None
+        }
+    };
     WeatherData {
-        temperature_c: current("temperature"),
-        wind_speed_kts: current("windSpeed").map(|v| v * KMH_TO_KTS),
+        temperature_c: gated("temperature", "wmoUnit:degC"),
+        wind_speed_kts: gated("windSpeed", "wmoUnit:km_h-1").map(|v| v * KMH_TO_KTS),
         wind_direction_deg: current("windDirection"),
-        precipitation_mm: current("quantitativePrecipitation"),
-        cloud_cover_pct: current("skyCover"),
-        visibility_m: current("visibility"),
-        pressure_hpa: current("pressure")
-            .or_else(|| current("barometricPressure"))
+        precipitation_mm: gated("quantitativePrecipitation", "wmoUnit:mm"),
+        cloud_cover_pct: gated("skyCover", "wmoUnit:percent"),
+        visibility_m: gated("visibility", "wmoUnit:m"),
+        pressure_hpa: gated("pressure", "wmoUnit:Pa")
+            .or_else(|| gated("barometricPressure", "wmoUnit:Pa"))
             .map(|v| v / 100.0),
     }
 }
@@ -467,13 +483,13 @@ mod tests {
     fn parse_noaa_grid_maps_units() {
         let body = json!({
             "properties": {
-                "temperature":   { "unitCode": "wmoUnit:degC", "values": [{ "validTime": "t", "value": 21.0 }] },
-                "windSpeed":     { "unitCode": "wmoUnit:km_h-1", "values": [{ "validTime": "t", "value": 15.0 }] },
-                "windDirection": { "unitCode": "wmoUnit:degree_(angle)", "values": [{ "validTime": "t", "value": 230.0 }] },
-                "quantitativePrecipitation": { "unitCode": "wmoUnit:mm", "values": [{ "validTime": "t", "value": 2.5 }] },
-                "skyCover":      { "unitCode": "wmoUnit:percent", "values": [{ "validTime": "t", "value": 45.0 }] },
-                "visibility":    { "unitCode": "wmoUnit:m", "values": [{ "validTime": "t", "value": 16000.0 }] },
-                "pressure":      { "unitCode": "wmoUnit:Pa", "values": [{ "validTime": "t", "value": 101300.0 }] }
+                "temperature":   { "uom": "wmoUnit:degC", "values": [{ "validTime": "t", "value": 21.0 }] },
+                "windSpeed":     { "uom": "wmoUnit:km_h-1", "values": [{ "validTime": "t", "value": 15.0 }] },
+                "windDirection": { "uom": "wmoUnit:degree_(angle)", "values": [{ "validTime": "t", "value": 230.0 }] },
+                "quantitativePrecipitation": { "uom": "wmoUnit:mm", "values": [{ "validTime": "t", "value": 2.5 }] },
+                "skyCover":      { "uom": "wmoUnit:percent", "values": [{ "validTime": "t", "value": 45.0 }] },
+                "visibility":    { "uom": "wmoUnit:m", "values": [{ "validTime": "t", "value": 16000.0 }] },
+                "pressure":      { "uom": "wmoUnit:Pa", "values": [{ "validTime": "t", "value": 101300.0 }] }
             }
         });
         let d = parse_noaa_grid(&body);
@@ -488,7 +504,7 @@ mod tests {
 
     #[test]
     fn parse_noaa_grid_omits_absent_fields() {
-        let body = json!({ "properties": { "temperature": { "values": [{ "value": 1.0 }] } } });
+        let body = json!({ "properties": { "temperature": { "uom": "wmoUnit:degC", "values": [{ "value": 1.0 }] } } });
         let d = parse_noaa_grid(&body);
         assert_eq!(d.temperature_c, Some(1.0));
         assert_eq!(d.pressure_hpa, None);

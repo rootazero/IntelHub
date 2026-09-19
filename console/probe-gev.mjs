@@ -673,6 +673,225 @@ try {
   } catch (e) {
     failures.push(`P9: briefing summary fetch threw: ${e.message}`);
   }
+
+  // ---- GEV P10: tail HUD widgets — frame-rate / shortcuts / scene / ------
+  // recording / panel-drag. Same source-vs-live split as P9 (sp8 covers
+  // shipped bundle testids + vendor source contracts; here we drive the
+  // real widgets). Each segment is wrapped in try/catch (plan §4 R2 +
+  // brief §"Plan-deferred rulings" #2): a single flaky widget must not
+  // mask the P1-P9 assertions. P10 widgets rely on T3's GlobeV2 tail
+  // adapters being mounted inside the engine boot path (frame-rate
+  // requires the vendor postRender subscription, recording requires the
+  // HUD contract setMode wiring); if the engine's tools phase is
+  // stubbed (IntelHub's case) the widget mounts the React-only path and
+  // exposes itself via its testid without engine integration.
+  // -----------------------------------------------------------------------
+
+  // p10-frame-rate-readout: the chip lives on the top bar — but only mounts
+  // when the rail `hud-fps-toggle` has been clicked (GlobeV2 gates it on
+  // `fpsReadoutOpen`, HudFrameRateReadout.tsx returns nothing while closed).
+  // Click the toggle first, then assert the testid is present. The FPS
+  // value is vendor-driven and may be `null` until the first postRender;
+  // the test only checks DOM presence (mirrors the p9 cockpit button +
+  // instruments pattern).
+  try {
+    const fpsBtn = page.locator('[data-testid="hud-fps-toggle"]');
+    const fpsBtnCount = await fpsBtn.count();
+    if (fpsBtnCount === 0) {
+      console.log("p10-fps-toggle=0");
+      warnings.push("P10: hud-fps-toggle missing from the rail (T3 wiring absent?)");
+    } else {
+      await fpsBtn.first().click().catch(() => {});
+      await page.waitForTimeout(250);
+      const fr = await page
+        .locator('[data-testid="hud-frame-rate-readout"]')
+        .count();
+      console.log(`p10-frame-rate-readout=${fr}`);
+      if (fr === 0)
+        warnings.push(
+          "P10: frame-rate readout HUD testid missing after fps-toggle click",
+        );
+      // Toggle back so subsequent segments see the default frame.
+      await fpsBtn.first().click().catch(() => {});
+      await page.waitForTimeout(150);
+    }
+  } catch (e) {
+    warnings.push(`P10 frame-rate segment threw: ${e.message}`);
+  }
+
+  // p10-shortcut-cheatsheet: press `?` (vendor's applicationShortcuts key +
+  // the adapter's cheatsheet pop-key) and assert the dialog mounts. The
+  // shortcut fires on document body; clicking outside the rail + bottom
+  // bar keeps the focus away from the search input (which would consume
+  // the keystroke and dismiss any active state).
+  // NOTE: don't press Escape to close the cheatsheet — the vendor's
+  // Escape handler in applicationShortcuts.js calls `dismissSearch`,
+  // which on the 315 build dispatches a synthetic Escape (GlobeV2.tsx:284)
+  // that recurses into itself until the stack overflows. Use the
+  // cheatsheet's own close button instead.
+  try {
+    // Move focus away from any form control (search input, checkboxes)
+    // by clicking the top bar — `?` then reaches the document handler.
+    await page.locator("body").click({ position: { x: 1, y: 1 } }).catch(() => {});
+    await page.waitForTimeout(150);
+    await page.keyboard.press("?");
+    await page.waitForTimeout(250);
+    const cs = await page
+      .locator('[data-testid="hud-shortcut-cheatsheet"]')
+      .count();
+    console.log(`p10-shortcut-cheatsheet=${cs}`);
+    if (cs === 0)
+      warnings.push("P10: shortcut cheatsheet did not open on `?` keypress");
+    else {
+      // Close via the cheatsheet's own × button (testid-able) to avoid
+      // the dismissSearch Escape recursion on 315.
+      const closeBtn = page.locator(
+        '[data-testid="hud-shortcut-cheatsheet"] .hud-shortcut-cheatsheet-close',
+      );
+      if (await closeBtn.count())
+        await closeBtn.first().click().catch(() => {});
+      else
+        // Fall back to clicking the body (less reliable, but doesn't
+        // route through Escape).
+        await page.locator("body").click({ position: { x: 2, y: 2 } }).catch(() => {});
+      await page.waitForTimeout(150);
+    }
+  } catch (e) {
+    warnings.push(`P10 shortcut segment threw: ${e.message}`);
+  }
+
+  // p10-scene-panel: click the rail `hud-scene-toggle` and assert
+  // `hud-scene-panel` mounts. The toggle is only present when the rail
+  // exposes `onToggleScene` (T3 wires this for P10 — see GlobeV2 wiring).
+  try {
+    const sceneToggle = page.locator('[data-testid="hud-scene-toggle"]');
+    const sceneToggleCount = await sceneToggle.count();
+    if (sceneToggleCount === 0) {
+      console.log("p10-scene-toggle=0");
+      warnings.push("P10: hud-scene-toggle missing from the rail (T3 wiring absent?)");
+    } else {
+      await sceneToggle.first().click().catch(() => {});
+      await page.waitForTimeout(250);
+      const sp = await page
+        .locator('[data-testid="hud-scene-panel"]')
+        .count();
+      console.log(`p10-scene-panel=${sp}`);
+      if (sp === 0)
+        warnings.push("P10: scene panel did not mount after rail toggle");
+      // Close the scene panel by clicking its close button so subsequent
+      // segments (recording, panel-drag) start from a clean slate.
+      const closeBtn = page.locator(
+        '[data-testid="hud-scene-panel"] .hud-scene-panel-close',
+      );
+      if (await closeBtn.count())
+        await closeBtn.first().click().catch(() => {});
+    }
+  } catch (e) {
+    warnings.push(`P10 scene-panel segment threw: ${e.message}`);
+  }
+
+  // p10-recording-mode: click the rail `hud-recording-button` and assert
+  // `document.body.classList` contains `recording-mode`. The HUD contract
+  // `setMode` callback (T3 wiring) toggles the class directly — T3 review
+  // concern #1 noted the vendor's setRecordingMode API is not invoked,
+  // but the body class assertion is the contract-shaped check (vendor
+  // recording.css selectors also key on body.recording-mode).
+  try {
+    const recBefore = await page.evaluate(() =>
+      document.body.classList.contains("recording-mode"),
+    );
+    const recBtn = page.locator('[data-testid="hud-recording-button"]');
+    const recBtnCount = await recBtn.count();
+    if (recBtnCount === 0) {
+      console.log("p10-recording-button=0");
+      warnings.push("P10: hud-recording-button missing from the rail");
+    } else {
+      await recBtn.first().click().catch(() => {});
+      await page.waitForTimeout(250);
+      const recAfter = await page.evaluate(() =>
+        document.body.classList.contains("recording-mode"),
+      );
+      console.log(
+        `p10-recording-mode before=${recBefore} after=${recAfter}`,
+      );
+      if (recAfter !== true)
+        warnings.push(
+          `P10: body.recording-mode not set after rail click (before=${recBefore} after=${recAfter})`,
+        );
+      // Toggle back so the body class doesn't leak into subsequent
+      // segments / the visual-effects stack.
+      await recBtn.first().click().catch(() => {});
+      await page.waitForTimeout(250);
+    }
+  } catch (e) {
+    warnings.push(`P10 recording segment threw: ${e.message}`);
+  }
+
+  // p10-panel-drag=<id>=1: verify the localStorage key template is read+
+  // written by the live page. The vendor's PanelPositionControls
+  // (wired via mountPanelDrag in GlobeV2) owns the godsEyeView.v8.panelPos
+  // namespace; it READS on mount to restore positions and WRITES on
+  // drag end. NOTE: the IntelHub HUD's drag affordance (HudPanelDragHandle
+  // in HudDetailPanel) is currently PRESENTATION-ONLY — T3 didn't wire its
+  // pointer events to the vendor's drag surface (T3 review concern #2 +
+  // brief §"T3 scene-panel carry"). The probe therefore asserts the
+  // read-path: seed the storage key with a sentinel, reload, verify the
+  // key persists AND the vendor's storage API would be consulted. The
+  // full mouse-driven roundtrip will exercise once the wiring is added
+  // (deferred — T3/T4 can't reach into the vendor mousedown surface from
+  // a probe without flakiness, and the roundtrip contract is otherwise
+  // asserted by sp8 bundle-level checks).
+  try {
+    const panelId = "detail-panel";
+    const storageKey = `godsEyeView.v8.panelPos.${panelId}`;
+    const sentinel = { left: 123, top: 456 };
+    await page.evaluate(
+      ([k, v]) => localStorage.setItem(k, JSON.stringify(v)),
+      [storageKey, sentinel],
+    );
+    // Read-back before reload — proves the write path (our own setItem)
+    // and confirms the key template matches what the vendor would write.
+    const beforeReload = await page.evaluate((k) => {
+      const raw = localStorage.getItem(k);
+      return raw ? JSON.parse(raw) : null;
+    }, storageKey);
+    // Reload so the next /globe mount has the chance to consume the
+    // storage key (vendor's _initPanelDrag → _restorePanelPosition).
+    await page.reload({ waitUntil: "load", timeout: 60_000 });
+    await page
+      .waitForSelector('[data-testid="hud-layer-rail"]', {
+        state: "attached",
+        timeout: 30_000,
+      })
+      .catch(() => {});
+    await page.waitForTimeout(1500); // rAF + vendor _initPanelDrag
+    const afterReload = await page.evaluate((k) => {
+      const raw = localStorage.getItem(k);
+      return raw ? JSON.parse(raw) : null;
+    }, storageKey);
+    console.log(
+      `p10-panel-drag=${panelId} key=${storageKey} `
+        + `before=${JSON.stringify(beforeReload)} after=${JSON.stringify(afterReload)}`,
+    );
+    // Storage roundtrip: the key must persist across reload (vendor
+    // doesn't clear it on mount). If the vendor DID consult and apply
+    // the position, the sentinel is still there (the vendor doesn't
+    // delete it). We can't assert visual position because the
+    // drag-affordance wiring is T3-deferred.
+    const dragOk =
+      beforeReload !== null &&
+      afterReload !== null &&
+      beforeReload.left === afterReload.left &&
+      beforeReload.top === afterReload.top;
+    if (!dragOk)
+      warnings.push(
+        `P10: panel-drag storage key did not persist (before=${JSON.stringify(beforeReload)} after=${JSON.stringify(afterReload)})`,
+      );
+    // Cleanup so subsequent loads start fresh.
+    await page.evaluate((k) => localStorage.removeItem(k), storageKey);
+  } catch (e) {
+    warnings.push(`P10 panel-drag segment threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
@@ -727,6 +946,17 @@ if (snap) {
 
 // Keep the P1 pageerror filter narrowed to the two known-benign browser/engine
 // emissions (ResizeObserver loop warnings, Cesium GroupMarkerNotSet).
+// The "Maximum call stack size exceeded" RangeError is a T3-introduced
+// 315-specific bug in the dismissSearch Escape handler (GlobeV2.tsx:284
+// dispatches a synthetic Escape that re-enters the vendor's onKeyDown,
+// recursing until the stack overflows). The 410 prod build does not
+// exhibit this (P9 ledger: pageerrors=0). It is INTENTIONALLY not filtered
+// here — the probe must report it so the regression is visible in T5's
+// ledger review. The probe's P10 segments avoid triggering fresh
+// dismissSearch calls (cheatsheet close uses the × button, recording
+// toggle uses the rail icon, panel-drag uses localStorage seed instead
+// of a synthetic drag), so the new T4 surface does not add to the
+// existing 46 baseline count.
 const fatalErrors = pageErrors.filter(
   (e) => !/ResizeObserver|GroupMarkerNotSet/i.test(e),
 );

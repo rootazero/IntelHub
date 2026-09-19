@@ -17,6 +17,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
@@ -84,6 +85,8 @@ export interface HudTopBarProps {
   apiFetch?: ApiFetch;
   /** P7: live viewer for the self-mounted location search. */
   viewer?: unknown;
+  /** P10-T3: trailing chip(s) — HUD frame-rate readout, etc. */
+  children?: ReactNode;
 }
 
 export function HudTopBar({
@@ -93,6 +96,7 @@ export function HudTopBar({
   locationSearch,
   apiFetch,
   viewer,
+  children,
 }: HudTopBarProps) {
   const now = useUtcClock();
   const openAlerts = overview?.alerts?.open;
@@ -251,6 +255,7 @@ export function HudTopBar({
       >
         {clock} UTC
       </span>
+      {children}
     </div>
   );
 }

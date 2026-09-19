@@ -122,4 +122,25 @@ describe("createCockpitStore", () => {
     expect(seen!.active).toBe(true);
     expect(seen!.trackedId).toBe("abc123");
   });
+
+  test("enter() replays persisted vision mode onto vision handle", () => {
+    const vision = { setMode: vi.fn() };
+    const store = createCockpitStore(
+      { visionMode: "crt" },
+      { getVision: () => vision },
+    );
+    store.enter("flight-1");
+    expect(vision.setMode).toHaveBeenCalledWith("crt");
+    expect(vision.setMode).toHaveBeenCalledTimes(1);
+  });
+
+  test("enter() does not replay optical (no-op)", () => {
+    const vision = { setMode: vi.fn() };
+    const store = createCockpitStore(
+      { visionMode: "optical" },
+      { getVision: () => vision },
+    );
+    store.enter("flight-1");
+    expect(vision.setMode).not.toHaveBeenCalled();
+  });
 });

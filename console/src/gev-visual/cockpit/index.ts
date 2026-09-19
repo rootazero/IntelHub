@@ -17,7 +17,6 @@ export {
   type WeatherMetricKey,
   type WeatherMetric,
   type SummaryBullet,
-  type BriefPageMeta,
   type Briefing,
   type BriefingHandle,
 } from "./briefing-mount";

@@ -58,8 +58,16 @@ export interface CockpitStore {
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
+/** Side-effect dependencies for the store. `getVision` lets `enter()` replay
+ *  the persisted vision mode onto the live vision handle (mounted
+ *  asynchronously, so resolved lazily rather than passed by value). */
+export interface CockpitStoreDeps {
+  getVision?: () => { setMode(mode: VisionMode): unknown } | null;
+}
+
 export function createCockpitStore(
   initial: Partial<CockpitStoreState> = {},
+  deps: CockpitStoreDeps = {},
 ): CockpitStore {
   let state: CockpitStoreState = { ...INITIAL_COCKPIT_STATE, ...initial };
   const listeners = new Set<(state: CockpitStoreState) => void>();
@@ -73,7 +81,17 @@ export function createCockpitStore(
 
   return {
     getState: () => state,
-    enter: (id) => dispatch({ type: "enter", id }),
+    enter: (id) => {
+      dispatch({ type: "enter", id });
+      // D2 re-entry fix: replay the persisted vision mode (seeded into
+      // state.visionMode from localStorage upstream) onto the live vision
+      // handle so the visual effect matches the highlighted mode after a
+      // reload. optical is a no-op — the handle already defaults to it.
+      const vision = deps.getVision?.();
+      if (vision && state.visionMode !== "optical") {
+        vision.setMode(state.visionMode);
+      }
+    },
     exit: () => dispatch({ type: "exit" }),
     setVisionMode: (mode) => dispatch({ type: "setVisionMode", mode }),
     pauseBriefing: () => dispatch({ type: "pauseBriefing" }),

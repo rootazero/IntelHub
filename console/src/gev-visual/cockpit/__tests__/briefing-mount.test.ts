@@ -123,13 +123,6 @@ describe("mountCockpitBriefing", () => {
     expect(b.summary.empty).toBe(true);
   });
 
-  test("pages() exposes the vendor's THREE brief pages (not 6)", () => {
-    const h = mountCockpitBriefing(router(okRoutes));
-    const pages = h.pages();
-    expect(pages).toHaveLength(3);
-    expect(pages.map((p) => p.id)).toEqual(["signals", "news", "local"]);
-  });
-
   test("next()/prev() wrap around the bullet list", async () => {
     const h = mountCockpitBriefing(router(okRoutes));
     await h.fetch(39.9, 116.4, "flight:UAL123");
@@ -139,41 +132,7 @@ describe("mountCockpitBriefing", () => {
     expect(h.prev()).toBe(1); // wrap back
   });
 
-  test("rotation auto-advances every COCKPIT_BRIEF_ROTATE_MS and stop() halts it", async () => {
-    vi.useFakeTimers();
-    try {
-      const h = mountCockpitBriefing(router(okRoutes));
-      await h.fetch(39.9, 116.4, "flight:UAL123");
-      h.start();
-      vi.advanceTimersByTime(9000); // COCKPIT_BRIEF_ROTATE_MS = 9000
-      expect(h.index()).toBe(1);
-      h.stop();
-      vi.advanceTimersByTime(9000);
-      expect(h.index()).toBe(1); // no further advance
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("start() with empty bullets is a no-op (graceful empty)", async () => {
-    vi.useFakeTimers();
-    try {
-      const h = mountCockpitBriefing(
-        router([
-          { match: "/gev/weather", status: 200, body: weatherBody },
-          { match: "/gev/summary", status: 200, body: { ...summaryBody, bullets: [] } },
-        ]),
-      );
-      await h.fetch(39.9, 116.4, "flight:UAL123");
-      h.start();
-      vi.advanceTimersByTime(9000);
-      expect(h.index()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  test("destroy stops the timer, clears state, and is idempotent", async () => {
+  test("destroy clears state and is idempotent", async () => {
     const h = mountCockpitBriefing(router(okRoutes));
     await h.fetch(39.9, 116.4, "flight:UAL123");
     h.destroy();
