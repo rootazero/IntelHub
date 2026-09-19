@@ -67,7 +67,7 @@
 - `application.js` —— **P10 模块零引用**（仅 applicationShell）
 
 **真实残余风险**（5 项）：
-1. **LocalStorage 命名空间**：vendor 用 `godsEyeView.v6.panelPos.*` / `godsEyeView.v6.layoutRightPanels` —— P10 沿用 vendor 前缀（P11+ 整理）
+1. **LocalStorage 命名空间**：vendor 用 `godsEyeView.v6.panelPos.*` / `godsEyeView.v6.panelCollapsed.*` —— P10 沿用 vendor 前缀（P11+ 整理；F2 doc-debt ledger:123 修正 `layoutRightPanels` → `panelCollapsed.<id>`）
 2. **DOM-id 契约**：recordingControls + panelRails 写死 `#safe-frame-overlay`、`#title-bar`、`#style-indicator`、`#scene-panel`、`#hud-toggle`、`#hud-layout-select`、`#cockpit-hud .cockpit-topline` 等 —— adapter 必须确认这些 ID 在 IntelHub DOM 存在或重命名
 3. **HUD 契约**：recordingControls 要求 `this.hud.{getMode, getVariant, setMode, setVariant, visible}` —— adapter 包壳 HUD 提供
 4. **shareRestoration.js vendor 内部 import**：`LayerStateCoordinator` / `stampInitialShareGesture` / `canPresentDeferredStatusNotice` —— D1 决策点
@@ -128,7 +128,7 @@ hub-core（本期仅 D1 NOAA unitCode 守门改动）
 
 ### 3.1 面板拖拽持久化（**沿用 vendor 命名空间**）
 - `localStorage.godsEyeView.v6.panelPos.<panelId>` = `{x, y, w, h}` JSON
-- `localStorage.godsEyeView.v6.layoutRightPanels` = 折叠态 JSON
+- `localStorage.godsEyeView.v6.panelCollapsed.<id>` = 折叠态 JSON
 - **不替换前缀**（避免数据 churn）；P11+ 大整理
 - 持久化 key 在 IntelHub 全局 React context 提供（不 import vendor 单例）
 
