@@ -7,6 +7,26 @@
 //! to location coordinates by matching the location reference id.
 //!
 //! Attribution: Public Transpordiamet / Tarktee road weather camera data.
+//!
+//! ## Upstream status (2026-09-19)
+//!
+//! Both DATEX2 XML endpoints (`predefinedLocations.xml`, `trafficViews.xml`)
+//! AND the image server (`transpordiamet.ee/images/<path>.jpg`) currently
+//! return HTTP 500 from any exit path. This is a sustained upstream outage,
+//! not an IntelHub-side issue. The provider returns an empty catalog and
+//! logs the failure; CCTV layer falls back to Street View (when
+//! `GOOGLE_MAPS_SERVER_API_KEY` is set) or the synthetic SVG tier.
+//!
+//! Verified working alternative: ArcGIS MapServer at
+//!   `https://tarktee.ee/tarktee/rest/services/road_cameras/MapServer/0/query`
+//! returns HTTP 200 with camera metadata, but coordinates are in
+//! EPSG:3301 (Estonian national grid) requiring LCC→WGS84 reprojection.
+//! The ArcGIS `image_path` field points to the same 500-returning image
+//! server, so adopting it would not recover frames — only metadata.
+//!
+//! Recommendation: defer real Estonian coverage to a follow-up once upstream
+//! recovers OR a new geo crate (`proj` / `proj4rs`) is approved for the
+//! EPSG:3301 reprojection use-case.
 
 use std::collections::BTreeMap;
 use std::future::Future;
