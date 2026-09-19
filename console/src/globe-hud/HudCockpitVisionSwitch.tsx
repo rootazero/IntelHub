@@ -3,6 +3,7 @@
 // intensities through the P6 visual-effects handle), records the user pick in
 // the cockpit store, and persists to localStorage so a reload restores it
 // (spec §3.2: localStorage `intelhub.cockpit.visionMode`).
+import { useEffect } from "react";
 import {
   VISION_MODES,
   isVisionMode,
@@ -42,6 +43,17 @@ export function HudCockpitVisionSwitch({
   mode,
   onSelect,
 }: HudCockpitVisionSwitchProps) {
+  // D2 mount sync: the store's enter() already replays the persisted mode
+  // onto the vision handle, but if this switch mounts before that replay ran
+  // (e.g. a null vision handle at enter time), apply it here so the live
+  // effect matches the highlighted mode. optical is a no-op.
+  useEffect(() => {
+    if (mode !== "optical") {
+      vision?.setMode(mode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only sync
+  }, []);
+
   const select = (next: VisionMode) => {
     vision?.setMode(next);
     onSelect(next);
