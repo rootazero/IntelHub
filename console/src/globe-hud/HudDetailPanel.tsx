@@ -12,6 +12,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useGlobeSelection } from "../gev-boot/context-bridge";
 import type { FollowHandle } from "../gev-visual/follow-controller";
 import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
+import { CctvPopoutPanel, type PopoutCamera } from "./CctvPopoutPanel";
 
 /** Relative clock for quake times: <60 s 刚刚, <60 min N 分钟前,
  *  <24 h N 小时前, otherwise an absolute "YYYY-MM-DD HH:mm". */
@@ -157,7 +158,13 @@ function VesselBody({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-function CctvBody({ data }: { data: Record<string, unknown> }) {
+function CctvBody({
+  data,
+  onOpenPopout,
+}: {
+  data: Record<string, unknown>;
+  onOpenPopout: (cam: PopoutCamera) => void;
+}) {
   const frameUrl = String(data.frameUrl || "");
   const live = data.live as boolean | null;
   return (
@@ -185,18 +192,39 @@ function CctvBody({ data }: { data: Record<string, unknown> }) {
       </dl>
       <div className="hud-detail-actions">
         {frameUrl ? (
-          // Link semantics ONLY — the HUD never embeds <img>/<video>: live
-          // pixels are rendered by the engine pipeline (cctv/projection.js
-          // monitor plane). The anchor is the operator's jump-off to the feed.
-          <a
+          <button
+            data-testid="cctv-open-popout"
+            type="button"
             className="hud-detail-link"
-            href={frameUrl}
-            target="_blank"
-            rel="noreferrer"
-            title="实时画面（新窗口打开 — HUD 不内嵌媒体流）"
+            onClick={() =>
+              onOpenPopout({
+                id: String(data.id ?? data.label ?? ""),
+                name: String(data.name ?? data.label ?? ""),
+                city: String(data.city ?? ""),
+                lat: typeof data.lat === "number" ? data.lat : undefined,
+                lon: typeof data.lon === "number" ? data.lon : undefined,
+                headingDeg:
+                  typeof data.headingDeg === "number"
+                    ? data.headingDeg
+                    : undefined,
+                fovDeg:
+                  typeof data.fovDeg === "number" ? data.fovDeg : undefined,
+                pitchDeg:
+                  typeof data.pitchDeg === "number"
+                    ? data.pitchDeg
+                    : undefined,
+                feedType: (
+                  data.feedType as string | undefined
+                ) as PopoutCamera["feedType"],
+                provider: String(data.provider ?? ""),
+                license: String(data.license ?? ""),
+                frameUrl: String(data.frameUrl ?? ""),
+                live: typeof data.live === "boolean" ? data.live : undefined,
+              })
+            }
           >
-            实时画面 LIVE
-          </a>
+            打开实时画面 →
+          </button>
         ) : (
           <span className="hud-detail-link disabled" aria-disabled="true">
             实时画面 不可用
@@ -261,6 +289,8 @@ export function HudDetailPanel({
 }: HudDetailPanelProps) {
   const selection = useGlobeSelection();
   const [collapsed, setCollapsed] = useState(false);
+  // T14: popout state lives here so the panel survives re-renders
+  const [popoutCamera, setPopoutCamera] = useState<PopoutCamera | null>(null);
   // P7 follow/姿态 mirrors. The FollowHandle is the engine-side truth; these
   // states exist only to re-render after user gestures and to hold transient
   // button feedback ("图层未启用" 2 s). Selection changes resync trackedId
@@ -362,7 +392,12 @@ export function HudDetailPanel({
               )}
               {selection.kind === "quake" && <QuakeBody data={selection.data} />}
               {selection.kind === "vessel" && <VesselBody data={selection.data} />}
-              {selection.kind === "cctv" && <CctvBody data={selection.data} />}
+              {selection.kind === "cctv" && (
+                <CctvBody
+                  data={selection.data}
+                  onOpenPopout={setPopoutCamera}
+                />
+              )}
               {selection.kind === "installation" && (
                 <InstallationBody data={selection.data} />
               )}
@@ -405,6 +440,13 @@ export function HudDetailPanel({
         </div>
       )}
       {children}
+      {/* T14: face-on 2D CCTV popout */}
+      {popoutCamera && (
+        <CctvPopoutPanel
+          camera={popoutCamera}
+          onClose={() => setPopoutCamera(null)}
+        />
+      )}
     </div>
   );
 }

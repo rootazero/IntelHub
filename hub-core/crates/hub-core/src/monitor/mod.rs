@@ -87,6 +87,11 @@ impl Ctx {
         // browser UA passes, an honest "intelhub-monitor" UA gets 403'd).
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(25))
+            // Enable gzip end-to-end: send `Accept-Encoding: gzip` so APIs that
+            // require it (Digitraffic returns 406 otherwise) accept the request,
+            // and auto-decompress the gzipped response so downstream `.text()` /
+            // `.json()` see plain bytes.
+            .gzip(true)
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
             .build()?;
         Ok(Self {
