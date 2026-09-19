@@ -119,9 +119,16 @@ export default function GlobeV2() {
   // P9: cockpit adapters + store. Handles live in refs (for THIS effect's
   // cleanup); the frame + rail consume them via state so they mount only after
   // start() resolves (same pattern as P6/P7/P8). The store is component-local
-  // and seeded with the persisted vision mode (spec §3.2).
+  // and seeded with the persisted vision mode (spec §3.2); it holds a lazy
+  // getter for the vision handle (mounted async in start().then()) so enter()
+  // can replay the persisted mode onto it (D2 re-entry fix).
+  const cockpitVisionRef = useRef<VisionMountHandle | null>(null);
   const cockpitStore = useMemo(
-    () => createCockpitStore({ visionMode: readPersistedVisionMode() }),
+    () =>
+      createCockpitStore(
+        { visionMode: readPersistedVisionMode() },
+        { getVision: () => cockpitVisionRef.current },
+      ),
     [],
   );
   const cockpitState = useCockpitStore(cockpitStore);
@@ -134,7 +141,6 @@ export default function GlobeV2() {
   const cockpitBriefingRef = useRef<BriefingHandle | null>(null);
   const [cockpitVision, setCockpitVision] =
     useState<VisionMountHandle | null>(null);
-  const cockpitVisionRef = useRef<VisionMountHandle | null>(null);
   const flightsRef = useRef<(() => CockpitTrackedInfo | null) | undefined>(
     undefined,
   );
