@@ -14,10 +14,11 @@
 // synchronously in cleanup so a real route-leave (different component
 // instance) boots fresh on re-entry. StrictMode dev pays a 2× boot cost; prod
 // pays 1×.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getKey } from "../api";
 import { makeApiFetch } from "../gev-adapters/http";
 import { createIntelHubGlobe } from "../gev-boot/application";
+import { useGlobeSelection } from "../gev-boot/context-bridge";
 import { HudBottomBar } from "../globe-hud/HudBottomBar";
 import { HudFrame } from "../globe-hud/HudFrame";
 import { HudDetailPanel } from "../globe-hud/HudDetailPanel";
@@ -49,6 +50,20 @@ import {
 } from "../gev-visual/annotations/annotation-store";
 import type { AnnotationEngineHandle } from "../gev-visual/annotations/annotation-engine-mount";
 import type { AnnotationSpec } from "../gev-visual/annotations/draw-tool";
+import {
+  createCockpitStore,
+  mountCockpitInstruments,
+  mountCockpitBriefing,
+  mountCockpitVision,
+  gateStyleWhileCockpitActive,
+  type CockpitTrackedInfo,
+  type InstrumentsHandle,
+  type BriefingHandle,
+  type VisionMountHandle,
+  type GatedStyleControl,
+} from "../gev-visual/cockpit";
+import { HudCockpitFrame, useCockpitStore } from "../globe-hud/HudCockpitFrame";
+import { readPersistedVisionMode } from "../globe-hud/HudCockpitVisionSwitch";
 import "../globe-hud/hud.css";
 
 const booted = { current: false };
@@ -101,6 +116,40 @@ export default function GlobeV2() {
   const annotationEngineRef = useRef<AnnotationEngineHandle | null>(null);
   const annotationStoreRef = useRef<AnnotationStore | null>(null);
   const annotationIdMapRef = useRef(new Map<string, string>());
+  // P9: cockpit adapters + store. Handles live in refs (for THIS effect's
+  // cleanup); the frame + rail consume them via state so they mount only after
+  // start() resolves (same pattern as P6/P7/P8). The store is component-local
+  // and seeded with the persisted vision mode (spec §3.2).
+  const cockpitStore = useMemo(
+    () => createCockpitStore({ visionMode: readPersistedVisionMode() }),
+    [],
+  );
+  const cockpitState = useCockpitStore(cockpitStore);
+  const cockpitSelection = useGlobeSelection();
+  const [cockpitInstruments, setCockpitInstruments] =
+    useState<InstrumentsHandle | null>(null);
+  const cockpitInstrumentsRef = useRef<InstrumentsHandle | null>(null);
+  const [cockpitBriefing, setCockpitBriefing] =
+    useState<BriefingHandle | null>(null);
+  const cockpitBriefingRef = useRef<BriefingHandle | null>(null);
+  const [cockpitVision, setCockpitVision] =
+    useState<VisionMountHandle | null>(null);
+  const cockpitVisionRef = useRef<VisionMountHandle | null>(null);
+  const flightsRef = useRef<(() => CockpitTrackedInfo | null) | undefined>(
+    undefined,
+  );
+  // R5: gate the globe style picker while cockpit vision is active. The gated
+  // control is passed to HudTopBar (NOT the raw visual-effects handle), so the
+  // picker records the user's pick but no-ops on the live stages until exit.
+  const gatedStyle = useMemo(
+    () =>
+      visualEffects
+        ? gateStyleWhileCockpitActive(visualEffects, cockpitStore)
+        : null,
+    [visualEffects, cockpitStore],
+  );
+  const gatedStyleRef = useRef<GatedStyleControl | null>(null);
+  gatedStyleRef.current = gatedStyle;
   // T11: ONE page-level overview poll feeds both HUD bars (top: alerts;
   // bottom: collector health + counts) — see useOverview.
   const overviewState = useOverview();
@@ -182,6 +231,51 @@ export default function GlobeV2() {
             console.warn("[GlobeV2] follow controller disabled:", e);
           }
         }
+        // P9: cockpit adapters. instruments needs viewer.scene.canvas + the
+        // flights layer's getTrackedInfo seam; briefing needs only the hub
+        // transport; vision bridges the P6 visual-effects handle. Guarded for
+        // mock/partial boots (jsdom tests, no WebGL) so the cockpit degrades
+        // to "no overlay" instead of erroring the page.
+        const flightsLayer = (
+          dataManager as unknown as {
+            layers?: Map<string, { module?: { getTrackedInfo?: () => unknown } }>;
+          }
+        )?.layers?.get("flights")?.module;
+        const getTrackedInfo = flightsLayer?.getTrackedInfo
+          ? () =>
+              flightsLayer.getTrackedInfo!() as CockpitTrackedInfo | null
+          : undefined;
+        flightsRef.current = getTrackedInfo;
+        if (viewer && getTrackedInfo) {
+          try {
+            const ins = mountCockpitInstruments(
+              viewer as { scene: { canvas?: unknown } },
+              { getTrackedInfo },
+            );
+            cockpitInstrumentsRef.current = ins;
+            setCockpitInstruments(ins);
+          } catch (e) {
+            console.warn("[GlobeV2] cockpit instruments disabled:", e);
+          }
+        }
+        if (getTrackedInfo) {
+          try {
+            const br = mountCockpitBriefing(apiFetch);
+            cockpitBriefingRef.current = br;
+            setCockpitBriefing(br);
+          } catch (e) {
+            console.warn("[GlobeV2] cockpit briefing disabled:", e);
+          }
+        }
+        if (visualEffectsRef.current) {
+          try {
+            const vs = mountCockpitVision(visualEffectsRef.current);
+            cockpitVisionRef.current = vs;
+            setCockpitVision(vs);
+          } catch (e) {
+            console.warn("[GlobeV2] cockpit vision disabled:", e);
+          }
+        }
         // P8: annotation engine + store + load existing. mountAnnotationEngine
         // is loaded LAZILY: its vendored graph (annotationEngine.js → resolver
         // → neighborhoodPolygons.js → an un-vendored JSON data pack) must not
@@ -227,12 +321,27 @@ export default function GlobeV2() {
       });
     return () => {
       cancelled = true;
-      // P8 cleanup order (annotation → follow → camera → visual-effects →
-      // globe): the annotation engine clears its board + renderer FIRST while
-      // the viewer is still alive; follow is pure bookkeeping (no destroy);
-      // camera destroys its animator before the viewer dies; visual-effects
-      // removes post-process stages while the viewer is still alive;
-      // globe.destroy() tears down the viewer last.
+      // Cleanup order (P9): cockpit → annotation → follow → camera →
+      // visual-effects → globe.destroy().
+      // P9 cockpit FIRST (before annotation): vision drops its captured
+      // baseline, briefing stops its rotation timer, instruments drops its
+      // frame. None touch the viewer's postProcessStages, so they run before
+      // the P6/P7/P8 teardown below.
+      cockpitVisionRef.current?.destroy();
+      cockpitVisionRef.current = null;
+      setCockpitVision(null);
+      cockpitBriefingRef.current?.destroy();
+      cockpitBriefingRef.current = null;
+      setCockpitBriefing(null);
+      cockpitInstrumentsRef.current?.destroy();
+      cockpitInstrumentsRef.current = null;
+      setCockpitInstruments(null);
+      flightsRef.current = undefined;
+      // P8: the annotation engine clears its board + renderer FIRST while the
+      // viewer is still alive; follow is pure bookkeeping (no destroy); camera
+      // destroys its animator before the viewer dies; visual-effects removes
+      // post-process stages while the viewer is still alive; globe.destroy()
+      // tears down the viewer last.
       annotationEngineRef.current?.destroy();
       annotationEngineRef.current = null;
       annotationIdMapRef.current.clear();
@@ -288,6 +397,30 @@ export default function GlobeV2() {
     }
   };
 
+  // P9 cockpit toggle (rail 🎮). Enter auto-follows the flight (D5): prefer an
+  // already-tracked flight, else the current flight selection. Exit keeps the
+  // P7 follow active and restores the user-picked globe style (R5).
+  const onToggleCockpit = useCallback(() => {
+    if (cockpitStore.getState().active) {
+      cockpitStore.exit();
+      gatedStyleRef.current?.restorePicked();
+    } else {
+      const tracked = followRef.current?.trackedId() ?? null;
+      let id = tracked;
+      if (
+        !id &&
+        cockpitSelection.kind === "flight" &&
+        cockpitSelection.data?.id != null
+      ) {
+        id = String(cockpitSelection.data.id);
+      }
+      if (id && followRef.current) {
+        followRef.current.follow("flight", id);
+      }
+      cockpitStore.enter(id ?? "");
+    }
+  }, [cockpitStore, cockpitSelection]);
+
   if (error)
     return <div className="hud-fatal">Globe engine failed: {error}</div>;
   return (
@@ -295,7 +428,7 @@ export default function GlobeV2() {
       top={
         <HudTopBar
           overview={overviewState.overview}
-          visualEffects={visualEffects}
+          visualEffects={gatedStyle}
           camera={cameraOrientation}
           apiFetch={apiFetch}
           viewer={sceneHandles?.viewer}
@@ -307,6 +440,8 @@ export default function GlobeV2() {
             manager={railManager}
             onToggleDraw={() => setDrawActive((value) => !value)}
             drawActive={drawActive}
+            onToggleCockpit={onToggleCockpit}
+            cockpitActive={cockpitState.active}
           />
         ) : null
       }
@@ -351,6 +486,13 @@ export default function GlobeV2() {
               console.warn("[GlobeV2] annotation delete failed:", e),
             );
         }}
+      />
+      <HudCockpitFrame
+        store={cockpitStore}
+        getTrackedInfo={flightsRef.current}
+        instruments={cockpitInstruments}
+        briefing={cockpitBriefing}
+        vision={cockpitVision}
       />
     </HudFrame>
   );

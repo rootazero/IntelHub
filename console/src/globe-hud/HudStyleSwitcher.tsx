@@ -7,10 +7,16 @@ import {
   GLOBE_STYLES,
   isGlobeStyle,
   type GlobeStyle,
-  type VisualEffectsHandle,
 } from "../gev-visual/visual-effects";
 
 const STORAGE_KEY = "intelhub.globe.style";
+
+/** Minimal surface the switcher drives. The globe style picker receives the
+ *  cockpit-gated control (style-gate.ts) in GlobeV2, which is why this is a
+ *  narrow setStyle-only shape instead of the full VisualEffectsHandle. */
+export interface StyleSetterHandle {
+  setStyle(style: GlobeStyle): void;
+}
 
 export const STYLE_LABELS: Record<GlobeStyle, string> = {
   normal: "NORMAL",
@@ -31,7 +37,7 @@ export function readPersistedStyle(): GlobeStyle {
   }
 }
 
-export function HudStyleSwitcher({ handle }: { handle: VisualEffectsHandle | null }) {
+export function HudStyleSwitcher({ handle }: { handle: StyleSetterHandle | null }) {
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<GlobeStyle>(() => readPersistedStyle());
   const rootRef = useRef<HTMLDivElement | null>(null);

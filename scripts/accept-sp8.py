@@ -502,5 +502,26 @@ check("p8: annotations geometry GIN index present",
       f"index={anno_idx!r} planner="
       f"{'Bitmap Index Scan' if 'Bitmap' in anno_plan else 'Seq Scan (tiny table OK)'}")
 
+# ---------------------------------------------------------------------------
+# GEV P9 (2026-09-18): cockpit overlay DOM contract.
+#
+# sp8 is python/urllib (no browser); the LIVE render (button click → frame +
+# gauges + vision switch + briefing panel) is asserted by
+# `console/probe-gev.mjs` (P9 segment). Here we guard the SHIPPED bundle — the
+# cockpit entry testid and the three instrument testids must be baked into the
+# built console JS, so the rail button and the compass/altimeter/speed gauges
+# exist independently of any Cesium render (plan Task 5: 仅 DOM 存在性). This
+# mirrors the existing bundle checks 8/8b/8c (hud-root, CARTO key, palette).
+# ---------------------------------------------------------------------------
+ck_btn = vm('grep -l "hud-cockpit-button" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p9: cockpit button present in console bundle", bool(ck_btn),
+      ck_btn or "hud-cockpit-button not found in dist bundle")
+
+ck_ins = vm('grep -o "hud-cockpit-compass\\|hud-cockpit-altimeter\\|hud-cockpit-speed" '
+            '/home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | sort -u | wc -l')
+check("p9: cockpit instruments DOM (compass/altimeter/speed) in bundle",
+      ck_ins.strip() == "3",
+      f"distinct instrument testids={ck_ins.strip()} (want 3)")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
