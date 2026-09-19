@@ -21,12 +21,12 @@ fn test_ua() -> String {
 fn noaa_grid_body() -> serde_json::Value {
     json!({
         "properties": {
-            "temperature":   { "unitCode": "wmoUnit:degC", "values": [{ "validTime": "t", "value": 21.0 }] },
-            "windSpeed":     { "unitCode": "wmoUnit:km_h-1", "values": [{ "validTime": "t", "value": 15.0 }] },
-            "windDirection": { "unitCode": "wmoUnit:degree_(angle)", "values": [{ "validTime": "t", "value": 230.0 }] },
-            "quantitativePrecipitation": { "unitCode": "wmoUnit:mm", "values": [{ "validTime": "t", "value": 2.5 }] },
-            "skyCover":      { "unitCode": "wmoUnit:percent", "values": [{ "validTime": "t", "value": 45.0 }] },
-            "visibility":    { "unitCode": "wmoUnit:m", "values": [{ "validTime": "t", "value": 16000.0 }] }
+            "temperature":   { "uom": "wmoUnit:degC", "values": [{ "validTime": "t", "value": 21.0 }] },
+            "windSpeed":     { "uom": "wmoUnit:km_h-1", "values": [{ "validTime": "t", "value": 15.0 }] },
+            "windDirection": { "uom": "wmoUnit:degree_(angle)", "values": [{ "validTime": "t", "value": 230.0 }] },
+            "quantitativePrecipitation": { "uom": "wmoUnit:mm", "values": [{ "validTime": "t", "value": 2.5 }] },
+            "skyCover":      { "uom": "wmoUnit:percent", "values": [{ "validTime": "t", "value": 45.0 }] },
+            "visibility":    { "uom": "wmoUnit:m", "values": [{ "validTime": "t", "value": 16000.0 }] }
         }
     })
 }
@@ -185,6 +185,22 @@ async fn second_call_within_ttl_serves_from_cache() {
 }
 
 // ---------- pure-contract regressions (shared with unit tests) ----------
+
+#[test]
+fn parse_noaa_grid_rejects_unexpected_uom() {
+    // D1 gate: windSpeed reported in m/s (NOT the expected km/h) must be
+    // null — never a silently-wrong kts conversion. The correctly-united
+    // temperature is still accepted.
+    let body = json!({
+        "properties": {
+            "windSpeed": { "uom": "wmoUnit:m_s-1", "values": [{ "validTime": "t", "value": 5.0 }] },
+            "temperature": { "uom": "wmoUnit:degC", "values": [{ "validTime": "t", "value": 21.0 }] }
+        }
+    });
+    let d = parse_noaa_grid(&body);
+    assert_eq!(d.wind_speed_kts, None, "m/s wind must not be converted to kts");
+    assert_eq!(d.temperature_c, Some(21.0), "degC temperature still accepted");
+}
 
 #[test]
 fn open_meteo_url_carries_contract_vars() {

@@ -589,6 +589,451 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
     handle.destroy();
     expect(handle.getStages()).toBeNull();
   });
+
+  // ── GEV P10 anchors (T1): HUD-tail render-core import surface ──
+  //
+  // The plan's guessed export names for this batch are NOT the source of
+  // truth (e.g. `godsEyeView.v6.layoutRightPanels` never existed — the second
+  // panel storage family is `panelCollapsed`). Every pin below is written
+  // against the vendored file itself, and every module the plan names gets at
+  // least one assertion (14 modules over 13 tests + the storage guard).
+
+  test("P10 panelDisclosure bind/escape/hover exports + guard TypeErrors are pinned", async () => {
+    const m = (await import("gev-engine/src/ui/panelDisclosure.js")) as Record<string, any>;
+    for (const [name, arity] of [
+      ["bindPanelDisclosure", 1],
+      ["collapsePanelOnEscape", 2],
+      ["createHoverDisclosure", 1],
+    ] as const) {
+      expect(typeof m[name], `panelDisclosure.${name}`).toBe("function");
+      expect(m[name].length, `panelDisclosure.${name} arity`).toBe(arity);
+    }
+    // The vendor's own guard messages are what the adapter surfaces — pin them
+    // so an upstream softening of the guards is visible here.
+    expect(() => m.bindPanelDisclosure({})).toThrow(
+      /Panel disclosure requires a panel, onChange and onEscape/,
+    );
+    expect(() => m.createHoverDisclosure({})).toThrow(
+      /Hover disclosure requires a panel, document, onChange and onEscape/,
+    );
+    // bindPanelDisclosure returns a destroy-only handle (idempotent cleanup).
+    const panel = document.createElement("div");
+    const handle = m.bindPanelDisclosure({
+      panel,
+      onChange: () => {},
+      onEscape: () => {},
+    });
+    expect(typeof handle.destroy).toBe("function");
+    handle.destroy();
+    expect(() => handle.destroy()).not.toThrow();
+  });
+
+  test("P10 panelMeasurement + panelRails barrel surface is pinned", async () => {
+    const measurement = (await import(
+      "gev-engine/src/ui/panelMeasurement.js"
+    )) as Record<string, any>;
+    expect(typeof measurement.measurePanelNaturalHeight).toBe("function");
+    expect(measurement.measurePanelNaturalHeight.length).toBe(2);
+    // No non-glow child → unconstrained scrollHeight is the natural height.
+    expect(
+      measurement.measurePanelNaturalHeight(
+        {
+          children: [],
+          scrollHeight: 42.3,
+          getBoundingClientRect: () => ({ height: 0 }),
+        },
+        () => ({}),
+      ),
+    ).toBe(43);
+
+    const rails = (await import("gev-engine/src/ui/panelRails.js")) as Record<string, any>;
+    for (const name of [
+      "layoutLeftPanelRail",
+      "layoutRightPanelRail",
+      "measurePanelNaturalHeight",
+      "resolveHudRailLayout",
+      "shouldHideCollapsedRightPanels",
+      "allocatePanelStackHeights",
+      "panelStackAutoCollapseIndices",
+      "resolveLeftStackBottomBoundary",
+      "resolvePanelStackCorridor",
+    ])
+      expect(typeof rails[name], `panelRails.${name}`).toBe("function");
+    // Barrel IDENTITY: re-exports are the same function objects, so an upstream
+    // rename trips here before the P10 adapters ever import the module.
+    expect(rails.measurePanelNaturalHeight).toBe(
+      measurement.measurePanelNaturalHeight,
+    );
+    const geometry = (await import(
+      "gev-engine/src/ui/panelRailGeometry.js"
+    )) as Record<string, any>;
+    expect(rails.resolveHudRailLayout).toBe(geometry.resolveHudRailLayout);
+    expect(rails.shouldHideCollapsedRightPanels).toBe(
+      geometry.shouldHideCollapsedRightPanels,
+    );
+  });
+
+  test("P10 panelRailGeometry rail slot + collapse-visibility decisions are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/panelRailGeometry.js"
+    )) as Record<string, any>;
+    expect(m.resolveHudRailLayout.length).toBe(1);
+    expect(m.shouldHideCollapsedRightPanels.length).toBe(1);
+    // Malformed input resolves null rather than throwing — the adapter relies
+    // on the null branch to fall back to a static layout.
+    expect(m.resolveHudRailLayout({})).toBeNull();
+    const centered = m.resolveHudRailLayout({
+      viewportHeight: 1000,
+      panelHeight: 200,
+      laneLeft: 0,
+      laneRight: 100,
+      baseTop: 0,
+      baseBottom: 1000,
+    });
+    expect(centered).toMatchObject({ top: 400, maxHeight: 1000, constrained: false });
+    // An obstacle above the viewport midpoint pushes the safe top down.
+    const pushed = m.resolveHudRailLayout({
+      viewportHeight: 1000,
+      panelHeight: 200,
+      laneLeft: 0,
+      laneRight: 100,
+      baseTop: 0,
+      baseBottom: 1000,
+      obstacles: [{ left: 0, right: 100, top: 0, bottom: 300 }],
+    });
+    expect(pushed.safeTop).toBe(312);
+    expect(
+      m.shouldHideCollapsedRightPanels({
+        hudVariant: "tactical",
+        hasExpandedPanel: true,
+      }),
+    ).toBe(true);
+    expect(
+      m.shouldHideCollapsedRightPanels({
+        hudVariant: "tactical",
+        hasExpandedPanel: false,
+      }),
+    ).toBe(false);
+    expect(
+      m.shouldHideCollapsedRightPanels({
+        hudVariant: "minimal",
+        hasExpandedPanel: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("P10 SceneControls class contract + method list are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/sceneControls.js"
+    )) as Record<string, any>;
+    expect(typeof m.SceneControls).toBe("function");
+    expect(m.SceneControls.length).toBe(1); // single destructured options bag
+    for (const name of [
+      "present",
+      "listen",
+      "run",
+      "renderSceneSelect",
+      "renderShotList",
+      "setButtons",
+      "setProgress",
+      "updateStatus",
+      "updateRuntime",
+      "setPlaybackActive",
+      "setPlaybackKeyboardEnabled",
+      "destroy",
+    ])
+      expect(
+        typeof m.SceneControls.prototype[name],
+        `SceneControls.${name}`,
+      ).toBe("function");
+    // Empty elements bag = "no scene panel on this page": the ctor must bail
+    // out without binding anything, and destroy must stay idempotent.
+    const controls = new m.SceneControls({
+      read: () => ({ scenes: [], selectedSceneId: null }),
+      actions: {},
+      elements: {},
+    });
+    controls.destroy();
+    expect(() => controls.destroy()).not.toThrow();
+  });
+
+  test("P10 sceneSharing dialog factory + panel mount signatures are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/sceneSharing.js"
+    )) as Record<string, any>;
+    expect(typeof m.createSceneDialog).toBe("function");
+    expect(m.createSceneDialog.length).toBe(2); // (title, onClose)
+    expect(typeof m.mountSceneSharing).toBe("function");
+    // ({ edit, share }, panel = document.getElementById('scene-panel'))
+    expect(m.mountSceneSharing.length).toBe(1);
+    // A page without a scene panel must degrade to a no-op disposer, never a
+    // throw — GlobeV2 calls this unguarded.
+    const dispose = m.mountSceneSharing(
+      { edit: () => {}, share: () => {} },
+      null,
+    );
+    expect(typeof dispose).toBe("function");
+    expect(() => dispose()).not.toThrow();
+  });
+
+  test("P10 scenePresentation element map + presenters are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/scenePresentation.js"
+    )) as Record<string, any>;
+    for (const [name, arity] of [
+      ["sceneElements", 0], // (root = document)
+      ["renderSceneOptions", 2],
+      ["renderSceneShots", 3],
+      ["presentSceneSelection", 2],
+      ["presentSceneButtons", 3],
+      ["presentSceneProgress", 2],
+      ["presentSceneRuntime", 2],
+    ] as const) {
+      expect(typeof m[name], `scenePresentation.${name}`).toBe("function");
+      expect(m[name].length, `scenePresentation.${name} arity`).toBe(arity);
+    }
+    const elements = m.sceneElements(document);
+    expect(Object.keys(elements).sort()).toEqual([
+      "capture",
+      "delete",
+      "download",
+      "export",
+      "file",
+      "import",
+      "new",
+      "next",
+      "panel",
+      "progress",
+      "runtime",
+      "select",
+      "shots",
+      "start",
+      "status",
+      "stop",
+      "update",
+    ]);
+    const fill = document.createElement("div");
+    m.presentSceneProgress(fill, 0.5);
+    expect(fill.style.width).toBe("50%");
+    expect(fill.textContent).toBe("50%");
+    const runtime = document.createElement("div");
+    m.presentSceneRuntime(runtime, "");
+    expect(runtime.classList.contains("active")).toBe(false);
+  });
+
+  test("P10 ShareRestoration class signature is pinned (pin-only, D1: no adapter import)", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/shareRestoration.js"
+    )) as Record<string, any>;
+    expect(typeof m.ShareRestoration).toBe("function");
+    expect(m.ShareRestoration.length).toBe(1);
+    for (const name of [
+      "attachLinks",
+      "start",
+      "connect",
+      "cancelSelection",
+      "destroy",
+    ])
+      expect(
+        typeof m.ShareRestoration.prototype[name],
+        `ShareRestoration.${name}`,
+      ).toBe("function");
+    // D1 ruling: IntelHub does NOT instantiate this vendor class (its React
+    // hook owns share restoration), so there is intentionally no adapter test.
+    expect(m.ShareRestoration.prototype.start.length).toBe(0);
+  });
+
+  test("P10 scenes barrel re-exports the SceneControls owner", async () => {
+    const scenes = (await import("gev-engine/src/ui/scenes.js")) as Record<string, any>;
+    const controls = (await import(
+      "gev-engine/src/ui/sceneControls.js"
+    )) as Record<string, any>;
+    expect(typeof scenes.SceneControls).toBe("function");
+    expect(scenes.SceneControls).toBe(controls.SceneControls);
+  });
+
+  test("P10 RecordingControls ctor + lifecycle surface is pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/recordingControls.js"
+    )) as Record<string, any>;
+    expect(typeof m.RecordingControls).toBe("function");
+    expect(m.RecordingControls.length).toBe(1); // ({ syncShareState })
+    expect(typeof m.RecordingControls.prototype.setRecordingMode).toBe("function");
+    // (enabled, options = {}) — the defaulted 2nd arg is load-bearing.
+    expect(m.RecordingControls.prototype.setRecordingMode.length).toBe(1);
+    const controls = new m.RecordingControls({ syncShareState: () => {} });
+    expect(controls.destroyed).toBe(false);
+    controls.destroy();
+    expect(controls.destroyed).toBe(true);
+  });
+
+  test("P10 applicationShortcuts binding + key map are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/applicationShortcuts.js"
+    )) as Record<string, any>;
+    expect(typeof m.bindApplicationShortcuts).toBe("function");
+    expect(m.bindApplicationShortcuts.length).toBe(1); // single options bag
+    const actions = {
+      setStyle: vi.fn(),
+      dismissSearch: vi.fn(),
+      toggleHud: vi.fn(),
+      toggleOrbit: vi.fn(),
+      toggleCleanView: vi.fn(),
+      toggleLayers: vi.fn(),
+      cycleDetection: vi.fn(),
+      toggleCctv: vi.fn(),
+    };
+    const listeners: Array<(event: any) => void> = [];
+    const docRef = {
+      addEventListener: (_type: string, fn: (event: any) => void) => {
+        listeners.push(fn);
+      },
+      removeEventListener: (_type: string, fn: (event: any) => void) => {
+        const i = listeners.indexOf(fn);
+        if (i >= 0) listeners.splice(i, 1);
+      },
+    };
+    const handle = m.bindApplicationShortcuts({
+      documentRef: docRef,
+      searchInput: null,
+      actions,
+    });
+    const press = (
+      key: string,
+      target: any = { matches: () => false },
+    ) => listeners.forEach((fn) => fn({ key, target, defaultPrevented: false }));
+    // STYLE_KEYS is a private const → pinned through behavior (P9 precedent).
+    for (const [key, style] of [
+      ["1", "normal"],
+      ["2", "retro"],
+      ["3", "surveillance"],
+      ["4", "thermal"],
+      ["5", "anime"],
+      ["6", "noir"],
+      ["7", "snow"],
+    ] as const) {
+      press(key);
+      expect(actions.setStyle).toHaveBeenLastCalledWith(style);
+    }
+    press("f");
+    expect(actions.toggleLayers).toHaveBeenCalledTimes(1);
+    // Form controls keep native typing except for Escape.
+    press("f", { matches: () => true });
+    expect(actions.toggleLayers).toHaveBeenCalledTimes(1);
+    handle.destroy();
+    press("f");
+    expect(actions.toggleLayers).toHaveBeenCalledTimes(1); // listener removed
+  });
+
+  test("P10 frameRateMonitor factory degrades without a viewer surface", async () => {
+    const m = (await import(
+      "gev-engine/src/ui/frameRateMonitor.js"
+    )) as Record<string, any>;
+    expect(typeof m.createFrameRateMonitor).toBe("function");
+    // ({ viewer, documentRef = document })
+    expect(m.createFrameRateMonitor.length).toBe(1);
+    // Contract: a missing #title-bar host or a Cesium-less viewer yields a
+    // destroy-only no-op — never a throw, so callers can mount unguarded.
+    const noop = m.createFrameRateMonitor({ viewer: {} });
+    expect(typeof noop.destroy).toBe("function");
+    expect(() => noop.destroy()).not.toThrow();
+  });
+
+  test("P10 scenePolicy tracking-strip + exclusivity decisions are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/scenes/scenePolicy.js"
+    )) as Record<string, any>;
+    expect(m.SCENE_TRACKING_PARAM_KEYS).toEqual([
+      "selectedFlightsTrackingId",
+      "selectedMilitaryTrackingId",
+      "selectedSatTrackingId",
+    ]);
+    expect(m.SCENE_KEPT_SELECTION_PARAM_KEYS).toEqual(["selectedCameraId"]);
+    expect(m.SCENE_SELECTION_PARAM_PATTERN).toBeInstanceOf(RegExp);
+    expect(m.SCENE_EXCLUSIVITY_PROBE_LAYER_ID).toBe(
+      "__scene-exclusivity-probe__",
+    );
+    for (const [name, arity] of [
+      ["stripSceneTrackingParams", 1],
+      ["sceneRequiresContextModeExit", 1],
+      ["sceneLayerPlan", 2],
+    ] as const) {
+      expect(typeof m[name], `scenePolicy.${name}`).toBe("function");
+      expect(m[name].length, `scenePolicy.${name} arity`).toBe(arity);
+    }
+    // Tracking params are stripped; a params bag that was ONLY tracking
+    // dissolves to undefined (never an empty object pushed at the layer).
+    expect(
+      m.stripSceneTrackingParams({ selectedFlightsTrackingId: "x", opacity: 1 }),
+    ).toEqual({ opacity: 1 });
+    expect(m.stripSceneTrackingParams({ selectedSatTrackingId: "x" })).toBeUndefined();
+    expect(m.stripSceneTrackingParams(undefined)).toBeUndefined();
+    // No active context mode → no forced exit.
+    expect(m.sceneRequiresContextModeExit(null)).toBe(false);
+    // Only declared + registered layers are planned, in declaration order.
+    expect(
+      m.sceneLayerPlan(
+        {
+          flights: {
+            enabled: true,
+            params: { selectedFlightsTrackingId: "t", zoom: 3 },
+          },
+          ghost: { enabled: true },
+        },
+        new Set(["flights"]),
+      ),
+    ).toEqual([{ id: "flights", enabled: true, params: { zoom: 3 } }]);
+  });
+
+  test("P10 services/application slot registry + configure guard are pinned", async () => {
+    const m = (await import(
+      "gev-engine/src/services/application.js"
+    )) as Record<string, any>;
+    expect(Object.isFrozen(m.applicationServices)).toBe(true);
+    expect(Object.keys(m.applicationServices).sort()).toEqual([
+      "boundaries",
+      "features",
+      "regional",
+      "summary",
+      "terrain",
+      "weather",
+    ]);
+    expect(typeof m.configureApplicationServices).toBe("function");
+    expect(m.configureApplicationServices.length).toBe(1);
+    // Unknown slot names are contract misuse, never silently ignored.
+    expect(() =>
+      m.configureApplicationServices({ bogusService: () => {} }),
+    ).toThrow(/Unknown application service: bogusService/);
+    const release = m.configureApplicationServices({
+      boundaries: { query: async () => ({}) },
+    });
+    expect(typeof release).toBe("function");
+    release();
+  });
+
+  test("P10 localStorage namespace: vendor godsEyeView.<version> panel keys stay pinned", () => {
+    const pos = readVendor("src/ui/panelPositionControls.js");
+    // Versioned namespace prefix — layout/collapse generations.
+    expect(pos).toMatch(/const PANEL_LAYOUT_STORAGE_VERSION = 'v6';/);
+    expect(pos).toMatch(/const PANEL_POSITION_STORAGE_VERSION = 'v8';/);
+    // Position + collapsed key templates (godsEyeView.<ver>.panel*.<panelId>).
+    expect(pos).toContain(
+      "`godsEyeView.${PANEL_POSITION_STORAGE_VERSION}.panelPos.${panelId}`",
+    );
+    expect(pos).toContain(
+      "`godsEyeView.${PANEL_LAYOUT_STORAGE_VERSION}.panelCollapsed.${panelId}`",
+    );
+    // Reset marker + the legacy-prefix sweep the migration toast depends on.
+    expect(pos).toContain(
+      "`godsEyeView.${PANEL_POSITION_STORAGE_VERSION}.layoutResetNotified`",
+    );
+    expect(pos).toContain("'godsEyeView.v6.panelPos.'");
+    // NOTE: the plan's `godsEyeView.v6.layoutRightPanels` literal never existed
+    // — panelLayoutController.js owns no storage key. The second panel storage
+    // family is `panelCollapsed` (pinned above), so that is the real seam this
+    // guard protects; an upstream rename of either template trips here.
+    expect(pos).toContain("panelCollapsed");
+  });
 });
 
 // ── c2: engine behavior contracts (mock fetch, no network) ─────────────────

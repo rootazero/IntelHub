@@ -523,5 +523,70 @@ check("p9: cockpit instruments DOM (compass/altimeter/speed) in bundle",
       ck_ins.strip() == "3",
       f"distinct instrument testids={ck_ins.strip()} (want 3)")
 
+# ---------------------------------------------------------------------------
+# GEV P10 (2026-09-18): tail adapter + HUD contract bundle-level guards.
+#
+# sp8 is python/urllib (no browser); the LIVE DOM render (body class toggle
+# after click, shortcut cheatsheet pop, scene panel open, panel drag →
+# localStorage roundtrip) is exercised by `console/probe-gev.mjs` (P10
+# segment). Here we guard the SHIPPED bundle + the IntelHub adapter wiring
+# in source, so the four P10 widgets exist independently of any Cesium
+# render. Same source-vs-bundle split as the existing P9 (cockpit button +
+# instruments) and P8 (annotations roundtrip + bbox) checks.
+#
+# Why source-level for the recording body class (instead of bundle grep):
+# the literal "recording-mode" appears in vendored recording.css (copied
+# into hud.css wholesale per plan §T3 step 7), so a bundle grep would pass
+# even if GlobeV2 wiring regressed. Asserting the `setMode` HUD contract
+# closure lives in GlobeV2.tsx is the contract-shaped check (it's the only
+# path that toggles body.recording-mode at runtime per T3 concern #1).
+# ---------------------------------------------------------------------------
+
+# 15. recording body class wiring lives in GlobeV2.tsx (HUD contract setMode).
+#     The vendor's `setRecordingMode(true)` ALSO toggles body.recording-mode
+#     (recordingControls.js:40), but T3 decided to route through the HUD
+#     contract `setMode` callback only (T3 review concern #1) — the body
+#     class is set inside the `setMode` closure, not by invoking the
+#     vendor's setRecordingMode API. The check below asserts the wiring
+#     closure lives in GlobeV2.tsx so a future regression that drops the
+#     HUD contract falls back to relying on vendor internal state, which
+#     is currently unreachable from the rail click path.
+globe_src = vm("cat /home/zou/IntelHub/console/src/pages/GlobeV2.tsx 2>/dev/null")
+recording_setmode_wired = bool(re.search(
+    r'setMode:\s*\(mode:\s*string\)\s*=>\s*\{[^}]*document\.body\.classList\.toggle\(\s*[\"\']recording-mode[\"\']',
+    globe_src, re.DOTALL,
+))
+check("p10: recording body class wired via HUD contract setMode (GlobeV2.tsx)",
+      recording_setmode_wired,
+      "GlobeV2.tsx must define setMode closure that toggles body.recording-mode")
+
+# 16. scene-panel HUD testid baked into the bundle (mirrors p9 cockpit button).
+scene_panel = vm('grep -l "hud-scene-panel" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p10: scene panel HUD testid present in console bundle", bool(scene_panel),
+      scene_panel or "hud-scene-panel not found in dist bundle")
+
+# 17. panel-drag localStorage roundtrip — vendor's PanelPositionControls
+#     owns the `godsEyeView.v8.panelPos.<id>` storage namespace (per T1
+#     source-contracts pin: PANEL_POSITION_STORAGE_VERSION='v8'). The
+#     `mountPanelDrag` adapter wraps the vendor constructor; the IntelHub
+#     `HudPanelDragHandle` exposes the affordance on the panel. The
+#     roundtrip needs both halves in place: the vendor storage key
+#     template ships in the bundle, AND the adapter is wired in
+#     GlobeV2.tsx so the live page can both write (drag end) and read
+#     (mount) the key. The live drag → reload → restore cycle is covered
+#     by `console/probe-gev.mjs` (p10-panel-drag segment); here we assert
+#     the wiring is shipped.
+panel_key_src = vm('grep -l "godsEyeView\\.\\${PANEL_POSITION_STORAGE_VERSION}\\.panelPos" '
+                    '/home/zou/IntelHub/console/gev-engine/src/ui/panelPositionControls.js 2>/dev/null')
+panel_drag_wired = bool(re.search(
+    r'mountPanelDrag\s*\(',
+    globe_src,
+))
+roundtrip_ok = bool(panel_key_src) and panel_drag_wired
+check("p10: panel-drag localStorage roundtrip wired (vendor key + adapter)",
+      roundtrip_ok,
+      f"vendor_key={bool(panel_key_src)} adapter_wired={panel_drag_wired}"
+      f" — both required for drag→write→reload→restore (live cycle in probe)")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
