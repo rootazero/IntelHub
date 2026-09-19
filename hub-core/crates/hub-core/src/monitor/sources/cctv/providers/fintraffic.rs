@@ -38,7 +38,6 @@ impl CityCameraProvider for Fintraffic {
             let resp = client
                 .get(DEFAULT_URL)
                 .header("Accept", "application/json")
-                .header("Accept-Encoding", "gzip")
                 .header("Digitraffic-User", "intelhub-cctv-port/1.0")
                 .send()
                 .await
