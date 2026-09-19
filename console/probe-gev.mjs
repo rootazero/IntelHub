@@ -578,6 +578,101 @@ try {
   } catch (e) {
     failures.push(`P8: annotations API fetch threw: ${e.message}`);
   }
+
+  // ---- GEV P9: cockpit overlay — enter + instruments + briefing -------
+  // The rail 🎮 entry (HudLayerRail) is gated on `!collapsed`; the rail is
+  // expanded by default, but retry after expanding it before giving up. The
+  // instruments cluster needs the flights layer's getTrackedInfo seam
+  // (GlobeV2 guards it), so a 0 count is a WARNING once the frame rendered —
+  // the frame / vision-switch / briefing assertions stay fatal. Defensive
+  // try/catch per plan Task 5 ruling #2: a viewport/overlay hiccup must not
+  // mask the P1-P8 assertions.
+  try {
+    let cockpitBtn = page.locator('[data-testid="hud-cockpit-button"]');
+    let cockpitBtnCount = await cockpitBtn.count();
+    if (cockpitBtnCount === 0) {
+      await page
+        .locator('[data-testid="hud-layer-rail"] .hud-rail-handle')
+        .first()
+        .click()
+        .catch(() => {});
+      await page.waitForTimeout(200);
+      cockpitBtn = page.locator('[data-testid="hud-cockpit-button"]');
+      cockpitBtnCount = await cockpitBtn.count();
+    }
+    console.log(`p9-cockpit-button=${cockpitBtnCount}`);
+    if (cockpitBtnCount === 0) {
+      failures.push("P9: cockpit button missing from the layer rail");
+    } else {
+      await cockpitBtn.first().click().catch(() => {});
+      await page.waitForTimeout(300);
+      const frameCount = await page
+        .locator('[data-testid="hud-cockpit-frame"]')
+        .count();
+      console.log(`p9-cockpit-frame=${frameCount}`);
+      if (frameCount === 0) {
+        failures.push("P9: cockpit frame did not mount after the rail entry");
+      } else {
+        const instruments = await page
+          .locator(
+            '[data-testid="hud-cockpit-compass"], [data-testid="hud-cockpit-altimeter"], [data-testid="hud-cockpit-speed"]',
+          )
+          .count();
+        console.log(`p9-cockpit-instruments=${instruments}`);
+        if (instruments !== 3)
+          warnings.push(
+            `P9: cockpit instruments ${instruments}/3 (flights getTrackedInfo seam absent?)`,
+          );
+        const vision = await page
+          .locator(
+            '[data-testid="hud-cockpit-vision-optical"], [data-testid="hud-cockpit-vision-crt"], [data-testid="hud-cockpit-vision-nvg"], [data-testid="hud-cockpit-vision-thermal"], [data-testid="hud-cockpit-vision-noir"]',
+          )
+          .count();
+        console.log(`p9-cockpit-vision-modes=${vision}`);
+        if (vision !== 5)
+          failures.push(
+            `P9: cockpit vision switch saw ${vision}/5 modes (want 5)`,
+          );
+        const briefing = await page
+          .locator('[data-testid="hud-cockpit-briefing"]')
+          .count();
+        console.log(`p9-briefing-panel=${briefing}`);
+        if (briefing === 0)
+          failures.push("P9: briefing panel missing inside the cockpit");
+      }
+    }
+  } catch (e) {
+    warnings.push(`P9 cockpit segment threw: ${e.message}`);
+  }
+
+  // Briefing data path: the same-origin REST the panel issues. Weather needs
+  // a tracked position, so the probe asks with fixed coords (a stationary
+  // hotspot); a non-200 is a WARNING — the weather endpoint 503s only when
+  // BOTH NOAA and Open-Meteo die, and plan Task 5 ruling #4 says environmental
+  // degradation is a shelve, not a failure. The summary stub is deterministic
+  // → hard 200.
+  try {
+    const weather = await page.request.get(
+      `${BASE}/api/v1/gev/weather?lat=40.0&lon=-74.0`,
+      { headers: { Authorization: `Bearer ${key}` }, timeout: REST_TIMEOUT_MS },
+    );
+    console.log(`p9-briefing-weather=${weather.status()}`);
+    if (weather.status() !== 200)
+      warnings.push(`P9: briefing weather http=${weather.status()}`);
+  } catch (e) {
+    warnings.push(`P9: briefing weather fetch threw: ${e.message}`);
+  }
+  try {
+    const summary = await page.request.get(
+      `${BASE}/api/v1/gev/summary?entity_id=test`,
+      { headers: { Authorization: `Bearer ${key}` }, timeout: REST_TIMEOUT_MS },
+    );
+    console.log(`p9-briefing-summary=${summary.status()}`);
+    if (summary.status() !== 200)
+      failures.push(`P9: briefing summary http=${summary.status()}`);
+  } catch (e) {
+    failures.push(`P9: briefing summary fetch threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {

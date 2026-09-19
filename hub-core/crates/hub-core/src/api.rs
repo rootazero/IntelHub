@@ -89,6 +89,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/gev/cctv/media/{id}", get(crate::gev_cctv::gev_cctv_media))
         // GEV P7: location search geocode proxy (photon, keyless, cached 1h)
         .route("/api/v1/gev/geocode", get(crate::gev_geocode::gev_geocode))
+        // GEV P9: weather brief (NOAA + Open-Meteo dual-source fallback)
+        .route("/api/v1/gev/weather", get(crate::gev_weather::gev_weather))
+        // GEV P9: regional brief summary (stub — acled/reliefweb/gdelt upstreams not yet in hub)
+        .route("/api/v1/gev/summary", get(crate::gev_summary::gev_summary))
         .route("/api/v1/metrics/summary", get(console_metrics_summary))
         // SP6B finance signals
         .route("/api/v1/signals/latest", get(console_signals_latest))

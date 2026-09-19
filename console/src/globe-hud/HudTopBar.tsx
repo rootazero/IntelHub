@@ -20,8 +20,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { OverviewData } from "./useOverview";
-import { HudStyleSwitcher } from "./HudStyleSwitcher";
-import type { VisualEffectsHandle } from "../gev-visual/visual-effects";
+import { HudStyleSwitcher, type StyleSetterHandle } from "./HudStyleSwitcher";
 import type { CameraOrientationHandle } from "../gev-visual/camera-orientation";
 import type {
   LocationSearchHandle,
@@ -70,8 +69,10 @@ function HubMark() {
 export interface HudTopBarProps {
   /** Snapshot from GET /api/v1/overview (useOverview) — null while loading. */
   overview?: OverviewData | null;
-  /** T-P6: visual-effects adapter handle — null hides the style switcher. */
-  visualEffects?: VisualEffectsHandle | null;
+  /** T-P6: globe style control — null hides the style switcher. GlobeV2 passes
+   *  the cockpit-gated control (style-gate.ts), not the raw visual-effects
+   *  handle, so the picker no-ops while cockpit vision is active (R5). */
+  visualEffects?: StyleSetterHandle | null;
   /** P7: camera orientation adapter — null hides the reset-north button. */
   camera?: CameraOrientationHandle | null;
   /** P7 location search. `undefined` = self-mount from apiFetch + viewer (the

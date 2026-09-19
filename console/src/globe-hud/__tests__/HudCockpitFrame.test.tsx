@@ -1,0 +1,123 @@
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen, act, fireEvent } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { HudCockpitFrame, useCockpitStore } from "../HudCockpitFrame";
+import { createCockpitStore } from "../../gev-visual/cockpit/cockpit-store";
+import { mountCockpitInstruments } from "../../gev-visual/cockpit/instruments-mount";
+
+beforeEach(() => {
+  // The instruments child schedules a rAF poll; jsdom has no rAF.
+  vi.stubGlobal("requestAnimationFrame", () => 1);
+  vi.stubGlobal("cancelAnimationFrame", () => {});
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  cleanup();
+});
+
+function fakeInstruments() {
+  return mountCockpitInstruments(
+    { scene: { canvas: {} } } as never,
+    { getTrackedInfo: () => null },
+  );
+}
+
+describe("HudCockpitFrame", () => {
+  test("renders nothing while the store is inactive", () => {
+    const store = createCockpitStore();
+    const { container } = render(
+      <HudCockpitFrame
+        store={store}
+        instruments={null}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("hud-cockpit-frame")).not.toBeInTheDocument();
+  });
+
+  test("composes all four sub-components + exit button when active", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(screen.getByTestId("hud-cockpit-frame")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-context")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-instruments")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-compass")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-altimeter")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-speed")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-briefing")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-tab-weather")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-tab-summary")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-vision-switch")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-vision-optical")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-vision-noir")).toBeInTheDocument();
+    const exit = screen.getByTestId("hud-cockpit-exit");
+    expect(exit).toHaveTextContent("退出驾驶舱（继续跟随）");
+  });
+
+  test("exit button drives store.exit() and unmounts the frame", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(screen.getByTestId("hud-cockpit-frame")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("hud-cockpit-exit"));
+    expect(store.getState().active).toBe(false);
+    expect(screen.queryByTestId("hud-cockpit-frame")).not.toBeInTheDocument();
+  });
+
+  test("vision switch reflects + drives the store's visionMode", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("hud-cockpit-vision-thermal"));
+    expect(store.getState().visionMode).toBe("thermal");
+    expect(screen.getByTestId("hud-cockpit-vision-thermal")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+});
+
+describe("useCockpitStore", () => {
+  test("tracks store transitions through a React render", () => {
+    const store = createCockpitStore();
+    let seen: boolean | null = null;
+    function Probe() {
+      const state = useCockpitStore(store);
+      seen = state.active;
+      return null;
+    }
+    render(<Probe />);
+    expect(seen).toBe(false);
+    act(() => store.enter("x"));
+    expect(seen).toBe(true);
+    act(() => store.exit());
+    expect(seen).toBe(false);
+  });
+});

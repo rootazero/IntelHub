@@ -8,6 +8,10 @@
 // (removed from scope, see spec §0).
 import { VisualEffects } from "gev-engine/src/ui/visualEffects.js";
 import { STYLES, STYLE_PRESET_DEFAULTS } from "gev-engine/src/ui/visualPresets.js";
+// Type-only: the vendor owns the runtime import (visualEffects.js:1). Cesium
+// ships its typings at cesium/Source/Cesium.d.ts, so nothing heavier is pulled
+// in than the class the vendor already uses.
+import type { PostProcessStage } from "cesium";
 
 export const GLOBE_STYLES = [
   "normal", "retro", "surveillance", "thermal", "anime", "noir", "snow",
@@ -52,6 +56,20 @@ export interface VisualEffectsDeps {
 export interface VisualEffectsHandle {
   setStyle(style: GlobeStyle): void;
   getStyle(): GlobeStyle;
+  /**
+   * Snapshot of the vendor's style-name → PostProcessStage map (P9 cockpit
+   * vision gating), or null once the mount is destroyed.
+   *
+   * NOTE: the vendor's `applyCockpitVisionStageIntensities(stages, mode,
+   * restore?)` consumes a PLAIN style-name→stage object (`Object.entries` /
+   * `Object.values` — cockpitVisionPolicy.js), not a Map. Bridge with
+   * `Object.fromEntries(handle.getStages() ?? [])` before calling it.
+   *
+   * Reading `viewer.scene.postProcessStages` would be wrong here: that is the
+   * Cesium collection, whose entries are named `godsEyeView_<style>` while the
+   * vision policy looks stages up by bare style name.
+   */
+  getStages(): Map<string, PostProcessStage> | null;
   destroy(): void;
 }
 
@@ -129,6 +147,14 @@ export function mountVisualEffects(
   return {
     setStyle,
     getStyle: () => current,
+    getStages(): Map<string, PostProcessStage> | null {
+      if (destroyed) return null;
+      const stages = (effects as any).stages as
+        | Record<string, PostProcessStage>
+        | undefined;
+      if (!stages || typeof stages !== "object") return null;
+      return new Map(Object.entries(stages));
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;
