@@ -63,6 +63,21 @@ def req(path, key=KEY, timeout=15):
             return e.code, {}
 
 
+def req_bytes(path, timeout=20):
+    """Raw-bytes GET. Unlike `req_text`, this does NOT UTF-8-decode the
+    body — JPEG / PNG / GIF magic bytes are invalid UTF-8 and the decoder
+    would replace them with U+FFFD, breaking the frame proxy's magic-byte
+    guard. Returns (status, bytes)."""
+    r = urllib.request.Request(BASE + path, headers={"Authorization": f"Bearer {KEY}"})
+    try:
+        with urllib.request.urlopen(r, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        return 0, str(e).encode()[:200]
+
+
 def pg1(sql):
     out = pg(sql)
     return out.splitlines()[-1].strip() if out else ""
@@ -519,15 +534,52 @@ check("gev: cctv catalog sources>0 (static+live providers)",
       f"http={st_cs} sources={len(srcs)}")
 _frame_ok = False
 _frame_note = "no camera with url in catalog"
+# Magic-byte signature per image family. The frame proxy's
+# content-sniff guard must return real image bytes — not JSON, not HTML.
+# Without this assertion, an upstream regression like TxDOT returning
+# {snippet:"..."} JSON or NSW returning HTML 404 pages would slip past
+# a 200-only check (the pre-fix black-screen bug, 2026-09-20).
+_image_magic = (
+    (b"\xff\xd8\xff", "jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"GIF87a", "gif87a"),
+    (b"GIF89a", "gif89a"),
+    (b"RIFF", "riff"),  # WEBP (RIFF header — full magic RIFF....WEBP checked after)
+)
+def _looks_like_image(b: bytes) -> bool:
+    if not b:
+        return False
+    for sig, name in _image_magic:
+        if b.startswith(sig):
+            if name == "riff":
+                return len(b) >= 12 and b[8:12] == b"WEBP"
+            return True
+    return False
 for _cam in [c for c in srcs if isinstance(c, dict) and c.get("url")][:3]:
     _id = _cam.get("id")
-    _st_f, _raw_f = req_text(f"/api/v1/gev/cctv/frame/{_up.quote(str(_id), safe='')}", timeout=20)
-    if _st_f == 200:
+    _st_f, _raw_f = req_bytes(f"/api/v1/gev/cctv/frame/{_up.quote(str(_id), safe='')}")
+    if _st_f == 200 and _looks_like_image(_raw_f):
         _frame_ok = True
-        _frame_note = f"id={_id} bytes={len(_raw_f)}"
+        _frame_note = f"id={_id} bytes={len(_raw_f)} magic=ok"
         break
-    _frame_note = f"id={_id} http={_st_f}"
-check("gev: cctv frame proxy spot check (200 image)", _frame_ok, _frame_note)
+    _frame_note = f"id={_id} http={_st_f} bytes={len(_raw_f) if _raw_f else 0} image_magic={_looks_like_image(_raw_f or b'')}"
+check("gev: cctv frame proxy spot check (200 image with valid magic bytes)",
+      _frame_ok, _frame_note)
+
+# ---- GEV P11 follow-up: txdot ITS JSON-envelope guard (2026-09-20) ----
+# TxDOT upstream returns `application/json` envelopes that the proxy must
+# decode. If the guard regresses, every TxDOT camera returns JSON wrapped
+# as `image/jpeg` and the browser sees a black screen (the original bug).
+_txdot_check = None
+for _cam in [c for c in srcs if isinstance(c, dict) and c.get("sourceKind") == "txdot-its"][:3]:
+    _id = _cam.get("id")
+    _st_t, _raw_t = req_bytes(f"/api/v1/gev/cctv/frame/{_up.quote(str(_id), safe='')}")
+    _txdot_check = (_id, _st_t, len(_raw_t), _looks_like_image(_raw_t))
+    if _st_t == 200 and _looks_like_image(_raw_t):
+        break
+check("gev: txdot JSON-envelope cameras decode to image bytes (no JSON leak)",
+      _txdot_check is not None and _txdot_check[1] == 200 and _txdot_check[3],
+      f"id={_txdot_check[0] if _txdot_check else 'none'} http={_txdot_check[1] if _txdot_check else '?'} bytes={_txdot_check[2] if _txdot_check else 0} image_magic={_txdot_check[3] if _txdot_check else '?'}")
 
 # ---- GEV P11: per-provider CCTV floor (2026-09-19) ----
 # After P11 port, IntelHub ingests from 8 new live providers + 4 static
