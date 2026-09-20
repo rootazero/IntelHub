@@ -37,12 +37,15 @@ import { LayerLifecycle } from "gev-engine/src/data/lifecycle.js";
 import { setScopeMaskEnabled } from "gev-engine/src/scopeMask.js";
 import { createIntelHubRequestServices } from "./request-services";
 import { createIntelHubLayerSources } from "../gev-adapters";
+import { bridgeCctvToContextStore } from "./cctv-bridge";
 
 // Default-enabled layer set (controller ruling 9). The vendor data.js has NO
 // default-enable logic of its own (lifecycle entries start disabled; upstream
 // enables come from state restoration, which IntelHub does not run), so the
 // initial set is an IntelHub policy decision: the four wave-1 live layers on,
-// everything else off.
+// everything else off. cctv is intentionally NOT default-enabled — ~9700
+// billboards in 3D is heavy first paint; the operator toggles it via the
+// ground-domain rail flyout (domains.ts).
 const DEFAULT_ENABLED_LAYERS = [
   "flights",
   "military",
@@ -86,6 +89,19 @@ export function createIntelHubGlobe(opts: IntelHubGlobeOptions) {
       });
       // T9-T11 reach the catalog via getComponents().scene.catalog.
       scene.catalog = catalog;
+      // cctv-vendor-wire-up: vendor's cctv layer (catalog.js:118) does NOT
+      // publish selections to the engine contextStore — its clicks only flip
+      // layerState._activeCameraId and draw a Cesium monitor plane. Install
+      // the bridge so a 3D billboard click also writes registerEntityContext
+      // + selectEntityContext, which context-bridge.ts::case "cctv" already
+      // understands (HUDDetailPanel → CctvBody → T14 popout).
+      const cctvLayer = catalog.layers.find((l: any) => l?.id === "cctv");
+      if (cctvLayer && sources.cctv) {
+        void bridgeCctvToContextStore({
+          cctvLayer: cctvLayer as any,
+          cctvSource: sources.cctv as any,
+        });
+      }
       return { catalog };
     },
     // Data phase (Ruling 9): register the catalog into a LayerLifecycle data
