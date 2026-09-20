@@ -1,8 +1,11 @@
 // T14: CctvPopoutPanel — face-on 2D popout for CCTV camera images.
 // Tests verify: image/video element rendering, close button, ESC key
-// (with jsdom 26+ isTrusted workaround), attribution chip.
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+// (with jsdom 26+ isTrusted workaround), attribution chip,
+// AND the P12 live-refresh bug fix — the <img> must update its src every
+// ACTIVE_FRAME_REFRESH_MS tick so the popout shows live frames, not a
+// frozen snapshot from the moment the user clicked the camera.
+import { fireEvent, render, screen, act } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { CctvPopoutPanel } from "../CctvPopoutPanel";
 
@@ -51,6 +54,7 @@ const baseCamera = {
 
 afterEach(() => {
   localStorage.clear();
+  vi.useRealTimers();
 });
 
 describe("CctvPopoutPanel", () => {
@@ -97,5 +101,85 @@ describe("CctvPopoutPanel", () => {
     const chip = screen.getByTestId("cctv-popout-attribution");
     expect(chip.textContent).toContain("RWIS (MTO)");
     expect(chip.textContent).toContain("Powered by RWIS Open Data");
+  });
+
+  // ---- P12 follow-up: live refresh (the frozen-snapshot bug) ----
+
+  // The user's report (2026-09-20):
+  //   "显式视频画面了，但是不是视频流，而是某一时刻的静态画面。我等了几分钟，也没有更新"
+  // Root cause: the popout set <img src={frameUrl}> ONCE on mount; the ts
+  // query param was computed at render time and frozen. Mirror the vendor
+  // engine's 3D-plane behavior (frames.js: refreshProjectionImage re-sets
+  // runtime.image.src with a fresh ts tick every refreshMs).
+
+  it("re-renders <img> src with a fresh ts after each refresh tick", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_700_000_000_000));
+
+    render(<CctvPopoutPanel camera={baseCamera} onClose={vi.fn()} />);
+    const img = screen.getByRole("img");
+    const firstSrc = img.getAttribute("src") || "";
+    expect(firstSrc).toMatch(/[?&]ts=\d+/);
+    const firstTs = Number(new URLSearchParams(firstSrc.split("?")[1]).get("ts"));
+
+    // Advance just past one 10s tick; setInterval callback fires,
+    // setFrameTick advances, React re-renders, getFrameUrl re-runs with
+    // a fresh Date.now() so the ts query bumps.
+    act(() => {
+      vi.advanceTimersByTime(10_001);
+    });
+
+    const newSrc = screen.getByRole("img").getAttribute("src") || "";
+    const newTs = Number(new URLSearchParams(newSrc.split("?")[1]).get("ts"));
+    expect(newTs).toBeGreaterThan(firstTs);
+  });
+
+  it("uses setInterval on ACTIVE_FRAME_REFRESH_MS cadence for still images", () => {
+    vi.useFakeTimers();
+    // Pin the clock to a fresh 10s-bucket boundary so the +10s advance is
+    // guaranteed to cross it (otherwise the test races on system time).
+    vi.setSystemTime(new Date(1_700_000_000_000));
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+
+    render(<CctvPopoutPanel camera={baseCamera} onClose={vi.fn()} />);
+    const img = screen.getByRole("img");
+    const initialSrc = img.getAttribute("src") || "";
+    const initialTick = Number(
+      new URLSearchParams(initialSrc.split("?")[1]).get("ts"),
+    );
+
+    // One full refresh cycle (10s) — wrapped in act() so React flushes
+    // the state update from the setInterval callback.
+    act(() => {
+      vi.advanceTimersByTime(10_001);
+    });
+    const afterSrc = screen.getByRole("img").getAttribute("src") || "";
+    const afterTick = Number(
+      new URLSearchParams(afterSrc.split("?")[1]).get("ts"),
+    );
+
+    expect(afterTick).toBeGreaterThan(initialTick);
+
+    // The interval must be set with the 10s cadence so the user's
+    // popout refreshes at the same cadence as the engine's 3D plane.
+    const matches = setIntervalSpy.mock.calls.filter(
+      ([, ms]) => ms === 10_000,
+    );
+    expect(matches.length).toBeGreaterThan(0);
+
+    setIntervalSpy.mockRestore();
+  });
+
+  it("clears the refresh interval when the panel unmounts", () => {
+    vi.useFakeTimers();
+    const clearSpy = vi.spyOn(globalThis, "clearInterval");
+
+    const { unmount } = render(
+      <CctvPopoutPanel camera={baseCamera} onClose={vi.fn()} />,
+    );
+    unmount();
+
+    expect(clearSpy).toHaveBeenCalled();
+    clearSpy.mockRestore();
   });
 });
