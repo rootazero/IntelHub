@@ -38,6 +38,17 @@ export interface PopoutCamera {
   license?: string;
   provider?: string;
   frameUrl?: string;
+  /**
+   * Direct upstream video URL (mp4/hls/webm) when the camera has one.
+   * Prefer this over the hub proxy for video feeds: the popout is a
+   * normal `<video>` element, so cross-origin CORS works (TfL S3 sends
+   * `Access-Control-Allow-Origin: *`), and we save a hub hop + skip the
+   * proxy's 4-concurrency cap (gev_cctv.rs::media_proxy_stream). Image
+   * cameras (Caltrans/TxDOT/Austin JPEG) still go through the proxy.
+   * Sourced from cctv_cameras.media_url via the catalog endpoint
+   * (gev_cctv.rs::camera_source_json — must include `mediaUrl`).
+   */
+  mediaUrl?: string;
   live?: boolean;
   [k: string]: unknown;
 }
@@ -180,7 +191,14 @@ export function CctvPopoutPanel({
   // each tick and the browser re-fetches. Without this re-render the <img>
   // would never reload after mount (the 2026-09-20 frozen-snapshot bug).
   const frameUrl = cctv.getFrameUrl(camera);
-  const mediaUrl = cctv.getMediaUrl(camera);
+  // For video feeds: prefer the upstream mediaUrl when present (real
+  // H.264 stream, browser-native `<video>` handles CORS + looping
+  // natively). Fall back to the hub proxy when the catalog hasn't
+  // returned a mediaUrl — the proxy can still serve the same bytes via
+  // its 4-concurrency-capped T12 path (gev_cctv.rs::media_proxy_stream).
+  const upstreamMediaUrl = camera.mediaUrl;
+  const mediaUrl =
+    isVideo && upstreamMediaUrl ? upstreamMediaUrl : cctv.getMediaUrl(camera);
   const fallbackDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(buildFallbackSvg(camera))}`;
 
   return (
