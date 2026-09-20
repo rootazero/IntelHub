@@ -160,6 +160,14 @@ export default function GlobeV2() {
   // double effect keeps state, and the module-level `booted` guard ensures
   // start() runs once.
   const [railManager, setRailManager] = useState<RailManager | null>(null);
+  // cctv-vendor-wire-up: shortcuts handlers (toggleCctv) run from keyboard
+  // events outside the React render cycle — a stale useState closure would
+  // call setEnabled on the previous dataManager. Mirror the state into a ref
+  // so toggleCctv reads the live dataManager at call time.
+  const railManagerRef = useRef<RailManager | null>(null);
+  useEffect(() => {
+    railManagerRef.current = railManager;
+  }, [railManager]);
   // T14: scene handles for the live bottom-bar lanes (cursor pick + basemap
   // stack). Surfaced via state so the bars mount their Cesium wiring only
   // AFTER start() resolves — registering a ScreenSpaceEventHandler against a
@@ -316,10 +324,21 @@ export default function GlobeV2() {
       console.warn("[shortcuts] cycleDetection: not wired in P9");
     },
     toggleCctv: () => {
-      // Dispatch the engine's cctv-enable-btn click if mounted.
-      lookupId("cctv-enable-btn")?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
+      // cctv-vendor-wire-up: vendor's cctv-enable-btn is no longer the path
+      // (our index.html is React-only and the engine binds that click via
+      // cctvBindings.js to actions.toggleEnabled() which is engine-chrome
+      // we replaced). Toggle the dataManager's cctv layer directly — the
+      // bridge (gev-boot/cctv-bridge.ts) wraps setActiveCamera so a 3D
+      // billboard click writes to contextStore and triggers the T14 popout.
+      const manager = railManagerRef.current;
+      if (!manager) {
+        console.warn("[shortcuts] toggleCctv: dataManager not ready");
+        return;
+      }
+      const next = !manager.isEffectivelyEnabled("cctv");
+      void manager
+        .setEnabled("cctv", next, { origin: "user" })
+        .catch((e) => console.warn(`[shortcuts] toggleCctv failed:`, e));
     },
     toggleCheatsheet: () => setShortcutsOpen((v) => !v),
   });
