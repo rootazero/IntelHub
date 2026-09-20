@@ -1,4 +1,4 @@
-// CCTV → contextStore bridge (GEV P11 follow-up, cctv-vendor-wire-up).
+// CCTV → contextStore bridge (cctv-vendor-wire-up).
 //
 // Vendor's CCTV layer (gev-engine/src/layers/cctv/) is self-contained: clicks
 // in 3D flip layerState._activeCameraId and materialize a Cesium plane texture
@@ -9,14 +9,21 @@
 // setActiveCamera: every successful activation also publishes a record that
 // context-bridge.ts::case "cctv" already understands.
 //
-// Field source split:
-//   - vendor camera object (record.camera, set during setActiveCamera) carries
-//     name/city/provider/feedType/heading/fov/pitch/range — the values the
-//     vendor catalog preserves (catalog.js:159-187 enumerates fields, drops
-//     anything else).
-//   - raw source from /api/v1/gev/cctv/sources carries mediaUrl + frameUrl +
-//     live. We pre-fetch this once at bridge install because vendor does not
-//     round-trip the raw source after buildCatalogFromSources().
+// Vendor's layerState is closure-scoped (created inside createState, see
+// state.js:11-39) and is NOT exposed on the layer instance. The bridge
+// therefore cannot read _state._recordById — it must look the camera up
+// elsewhere. Two sources are available at the time setActiveCamera fires:
+//
+//   1. raw source map (preloaded from /api/v1/gev/cctv/sources). This is
+//      the canonical row the hub returns, including `mediaUrl` + `frameUrl` +
+//      `live` (vendor's catalog.js:159-187 enumerates fields and drops these
+//      when it builds the vendor-internal camera object, so we cannot read
+//      them from anywhere else).
+//   2. vendor camera object (record.camera) inside _state._recordById —
+//      available to vendor's own selection.js but not to us.
+//
+// We use #1. The preloaded map is keyed by the same cameraId string that
+// setActiveCamera receives, so a single Map.get() recovers the full row.
 //
 // Why a wrapper (not a layer replacement): lifecycle.js wires its click handler
 // during init() (line 273 of lifecycle.js) and the Cesium ScreenSpaceEventHandler
@@ -36,38 +43,33 @@ import type { CctvSource } from "../gev-adapters/cctv";
 
 interface VendorCctvLayer {
   setActiveCamera(cameraId: string): string;
-  /** vendor lifecycle internal state; typed loosely to avoid leaking vendor
-   *  private fields into our public types. */
-  _state?: {
-    _recordById?: Map<string, { camera: VendorCamera }>;
-  };
-  /** Lifecycle methods object (vendor index.js return shape). */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
-interface VendorCamera {
-  id: string;
+interface RawCameraSource {
+  id?: string;
   name?: string;
   city?: string;
   provider?: string;
   feedType?: string;
-  headingDeg?: number;
-  fovDeg?: number;
-  pitchDeg?: number;
-  rangeM?: number;
-  license?: string;
-  credit?: string;
+  /** Lat (raw source degrees). */
   lat?: number;
+  /** Lon (raw source degrees). */
   lon?: number;
-}
-
-interface RawCameraSource {
-  id?: string;
+  /** Heading (compass degrees, 0=N). */
+  headingDeg?: number;
+  /** Field of view, degrees. */
+  fovDeg?: number;
+  /** Pitch, degrees (negative = downward). */
+  pitchDeg?: number;
+  /** Same-origin proxy URL for the current still frame. */
   frameUrl?: string;
+  /** Upstream mp4/hls/webm URL when the camera has a video stream. */
   mediaUrl?: string;
   live?: boolean;
   status?: string;
+  license?: string;
 }
 
 const CCTV_ACTIVATION_RESULT = Object.freeze({
@@ -89,17 +91,17 @@ export interface BridgeOptions {
 
 /**
  * Install the CCTV → contextStore bridge. Returns a disposer that restores
- * the original setActiveCamera. Pre-fetches the raw catalog so we can keep
- * `mediaUrl`/`frameUrl`/`live` even though vendor's catalog enumeration
- * (catalog.js:159-187) drops them.
+ * the original setActiveCamera. Pre-fetches the raw catalog so we can look
+ * up the full camera row (vendor's catalog enumeration drops mediaUrl).
  */
 export async function bridgeCctvToContextStore({
   cctvLayer,
   cctvSource,
 }: BridgeOptions): Promise<() => void> {
   // Pre-fetch the raw source list. Failures here must not break the bridge:
-  // a missing entry degrades to "no mediaUrl / no frameUrl" — the popout will
-  // render the placeholder state instead of a stream, which is correct.
+  // a missing entry degrades to "no mediaUrl / no frameUrl" — the popout
+  // will render the placeholder state instead of a stream, which is the
+  // correct degraded behavior.
   const rawById = new Map<string, RawCameraSource>();
   try {
     const { sources } = await cctvSource.getCatalog();
@@ -117,7 +119,7 @@ export async function bridgeCctvToContextStore({
   cctvLayer.setActiveCamera = (cameraId: string): string => {
     const result = original(cameraId);
     if (result === CCTV_ACTIVATION_RESULT.ACTIVATED) {
-      publishToContextStore(cctvLayer, cameraId, rawById);
+      publishToContextStore(cameraId, rawById);
     }
     return result;
   };
@@ -128,36 +130,28 @@ export async function bridgeCctvToContextStore({
 }
 
 function publishToContextStore(
-  cctvLayer: VendorCctvLayer,
   cameraId: string,
   rawById: Map<string, RawCameraSource>,
 ): void {
-  const vendorRecord = cctvLayer._state?._recordById?.get(cameraId);
-  const vendorCamera = vendorRecord?.camera;
-  if (!vendorCamera) {
+  const raw = rawById.get(cameraId);
+  if (!raw) {
+    // No raw row — we still publish a minimal record so the React side can
+    // render the placeholder popout, but it will lack mediaUrl. The next
+    // health refresh will give us the row (if the camera is real).
     console.warn(
-      "[cctv-bridge] activated camera has no vendor record; skipping contextStore write",
+      "[cctv-bridge] activated camera not in preloaded catalog (raw sources may still be loading):",
       cameraId,
     );
-    return;
   }
-  const raw = rawById.get(cameraId);
 
   const properties: Record<string, unknown> = {
-    name: vendorCamera.name ?? cameraId,
-    city: vendorCamera.city ?? "",
-    provider: vendorCamera.provider ?? "",
-    feedType: vendorCamera.feedType ?? "image",
-    headingDeg:
-      typeof vendorCamera.headingDeg === "number"
-        ? vendorCamera.headingDeg
-        : null,
-    fovDeg:
-      typeof vendorCamera.fovDeg === "number" ? vendorCamera.fovDeg : null,
-    pitchDeg:
-      typeof vendorCamera.pitchDeg === "number"
-        ? vendorCamera.pitchDeg
-        : null,
+    name: raw?.name ?? cameraId,
+    city: raw?.city ?? "",
+    provider: raw?.provider ?? "",
+    feedType: raw?.feedType ?? "image",
+    headingDeg: typeof raw?.headingDeg === "number" ? raw.headingDeg : null,
+    fovDeg: typeof raw?.fovDeg === "number" ? raw.fovDeg : null,
+    pitchDeg: typeof raw?.pitchDeg === "number" ? raw.pitchDeg : null,
     frameUrl: typeof raw?.frameUrl === "string" ? raw.frameUrl : "",
     mediaUrl: typeof raw?.mediaUrl === "string" ? raw.mediaUrl : "",
     live:
@@ -174,7 +168,7 @@ function publishToContextStore(
   };
 
   // Vendor's contextStore API (gev-engine/src/data/contextStore.js) takes
-  // (entity, metadata). Metadata.id is the registry key; metadata.layerId
+  // (entity, metadata). metadata.id is the registry key; metadata.layerId
   // is what KIND_BY_LAYER_ID maps to "cctv" (context-bridge.ts:42).
   const stored = registerEntityContext(entity, {
     id: cameraId,
@@ -182,8 +176,8 @@ function publishToContextStore(
     layerName: CCTV_METADATA.layerName,
     source: CCTV_METADATA.source,
     label: properties.name as string,
-    latitude: vendorCamera.lat,
-    longitude: vendorCamera.lon,
+    latitude: raw?.lat,
+    longitude: raw?.lon,
     properties,
   });
   if (stored) selectEntityContext(entity);
