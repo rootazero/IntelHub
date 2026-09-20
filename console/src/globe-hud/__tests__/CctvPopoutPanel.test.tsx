@@ -70,6 +70,33 @@ describe("CctvPopoutPanel", () => {
     expect(screen.getByTestId("cctv-popout-video")).toBeInTheDocument();
   });
 
+  // P12 follow-up: mp4 cameras with an upstream mediaUrl MUST stream
+  // from that URL (real H.264 video), not the hub proxy. The vendor
+  // engine uses the hub proxy because it needs same-origin for canvas
+  // texture upload; the popout panel is a normal <video> element so it
+  // can take the upstream URL directly — saves a hub hop and avoids the
+  // proxy's 4-concurrency cap (gev_cctv.rs::media_proxy_stream).
+  it("uses upstream mediaUrl directly when provided for mp4 cameras", () => {
+    const mp4Cam = {
+      ...baseCamera,
+      feedType: "mp4" as const,
+      mediaUrl: "https://s3-eu-west-1.amazonaws.com/jamcams.tfl.gov.uk/00001.01251.mp4",
+    };
+    render(<CctvPopoutPanel camera={mp4Cam} onClose={vi.fn()} />);
+    const v = screen.getByTestId("cctv-popout-video");
+    expect(v).toBeInTheDocument();
+    // src attribute must be the upstream URL (not the hub proxy /media/).
+    expect(v.getAttribute("src")).toBe(mp4Cam.mediaUrl);
+  });
+
+  it("falls back to hub proxy mediaUrl when upstream mediaUrl is absent for mp4", () => {
+    const mp4Cam = { ...baseCamera, feedType: "mp4" as const };  // no mediaUrl
+    render(<CctvPopoutPanel camera={mp4Cam} onClose={vi.fn()} />);
+    const v = screen.getByTestId("cctv-popout-video");
+    // No upstream URL — must use hub proxy (which is what getMediaUrl returns).
+    expect(v.getAttribute("src")).toMatch(/\/api\/v1\/gev\/cctv\/media\//);
+  });
+
   it("close button calls onClose", () => {
     const onClose = vi.fn();
     render(<CctvPopoutPanel camera={baseCamera} onClose={onClose} />);
