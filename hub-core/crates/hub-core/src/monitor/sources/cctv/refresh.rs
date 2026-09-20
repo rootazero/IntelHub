@@ -29,6 +29,7 @@ use serde_json::{json, Value};
 
 use crate::error::Result;
 
+use crate::gev_cctv::accept_upstream_body_for_browser;
 use crate::monitor::{Ctx, Signal, Source};
 use super::providers::{self, CityCameraProvider};
 use super::{CameraRow, UPSERT_SQL};
@@ -42,6 +43,10 @@ const HEALTH_SAMPLE_PER_PROVIDER: i64 = 3;
 /// Probe timeout per HEAD request (frame hosts are often slow town-hall
 /// servers; keep it well under the 25s shared client ceiling).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Body-read deadline for the magic-byte sniff. Reading the full image
+/// would defeat the probe's budget — 8 KB is enough for every image
+/// magic header and keeps the per-camera cost bounded.
+const PROBE_BODY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Insert-or-update one row. Same statement (and bind order) as the T8
 /// static loader — one table, one write path, N sources.
@@ -259,14 +264,81 @@ impl Source for CctvHealth {
                 let mut ok = 0usize;
                 let mut down = 0usize;
                 for (cam_id, url) in sample {
-                    let status = match tokio::time::timeout(
-                        PROBE_TIMEOUT,
-                        ctx.http.get(&url).send(),
-                    )
-                    .await
-                    {
-                        Ok(Ok(resp)) if resp.status().is_success() || resp.status().is_redirection() => "ok",
-                        _ => "down",
+                    // TxDOT ITS returns a JSON envelope — body-sniff the
+                    // decoded JPEG magic bytes instead of the raw body.
+                    let is_txdot = url.contains("/GetCctvSnapshotByIcdId");
+                    let status = if is_txdot {
+                        // TxDOT: fetch JSON, decode base64, validate JPEG magic.
+                        match tokio::time::timeout(
+                            PROBE_TIMEOUT,
+                            ctx.http
+                                .get(&url)
+                                .header("Accept", "application/json")
+                                .send(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(resp))
+                                if resp.status().is_success()
+                                    || resp.status().is_redirection() =>
+                            {
+                                match resp.bytes().await {
+                                    Ok(body) => {
+                                        match serde_json::from_slice::<serde_json::Value>(&body)
+                                        {
+                                            Ok(json) => match crate::gev_cctv::parse_txdot_envelope(&json)
+                                            {
+                                                Ok(_) => "ok",
+                                                Err(_) => "down",
+                                            },
+                                            Err(_) => "down",
+                                        }
+                                    }
+                                    Err(_) => "down",
+                                }
+                            }
+                            _ => "down",
+                        }
+                    } else {
+                        // Standard image: GET + content-type + magic-byte sniff.
+                        // Reading just the first 8 KB is enough for the
+                        // header sniff and well under typical image sizes;
+                        // a tiny timeout aborts before a full image body.
+                        match tokio::time::timeout(
+                            PROBE_TIMEOUT,
+                            ctx.http.get(&url).send(),
+                        )
+                        .await
+                        {
+                            Ok(Ok(resp))
+                                if resp.status().is_success()
+                                    || resp.status().is_redirection() =>
+                            {
+                                let ct = resp
+                                    .headers()
+                                    .get(reqwest::header::CONTENT_TYPE)
+                                    .and_then(|v| v.to_str().ok())
+                                    .map(str::to_owned);
+                                // Read up to 8 KB — enough for any image
+                                // magic bytes, aborts the rest of the body.
+                                let probe = tokio::time::timeout(
+                                    PROBE_BODY_TIMEOUT,
+                                    resp.bytes(),
+                                )
+                                .await;
+                                match probe {
+                                    Ok(Ok(body)) => {
+                                        if accept_upstream_body_for_browser(ct.as_deref(), &body) {
+                                            "ok"
+                                        } else {
+                                            "down"
+                                        }
+                                    }
+                                    _ => "down",
+                                }
+                            }
+                            _ => "down",
+                        }
                     };
                     if status == "ok" {
                         ok += 1;
