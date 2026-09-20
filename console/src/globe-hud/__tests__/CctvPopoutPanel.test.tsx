@@ -97,6 +97,22 @@ describe("CctvPopoutPanel", () => {
     expect(v.getAttribute("src")).toMatch(/\/api\/v1\/gev\/cctv\/media\//);
   });
 
+  // P12 follow-up: NY511 cameras (1565) are catalog-tagged as
+  // feed_type=image but their actual feed is HLS (.m3u8) per
+  // cctv_cameras.media_url. The popout must detect the .m3u8
+  // extension and play real video, not show a frozen JPEG.
+  it("treats HLS mediaUrl as video even when feedType=image (NY511)", () => {
+    const hlsCam = {
+      ...baseCamera,
+      feedType: "image" as const,
+      mediaUrl: "https://s53.nysdot.skyvdn.com/rtplive/R3_030/playlist.m3u8",
+    };
+    render(<CctvPopoutPanel camera={hlsCam} onClose={vi.fn()} />);
+    const v = screen.getByTestId("cctv-popout-video");
+    expect(v).toBeInTheDocument();
+    expect(v.getAttribute("src")).toBe(hlsCam.mediaUrl);
+  });
+
   it("close button calls onClose", () => {
     const onClose = vi.fn();
     render(<CctvPopoutPanel camera={baseCamera} onClose={onClose} />);
