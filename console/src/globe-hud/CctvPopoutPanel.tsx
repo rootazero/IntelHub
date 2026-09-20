@@ -4,9 +4,26 @@
 // mp4/hls/webm → <video>; image/mjpeg → <img> with SVG onerror fallback.
 // Drag: mousedown on header → mousemove updates position → mouseup persists.
 // localStorage key: godsEyeView.v11.cctvPopout.pos (P11 namespace).
+//
+// P12 follow-up (2026-09-20): the popout's <img> src MUST re-tick every
+// ACTIVE_FRAME_REFRESH_MS (10s) so the user sees live frames, not a
+// frozen snapshot from the moment the camera was clicked. The vendor
+// engine's 3D projection plane does this via
+// refreshProjectionImage() in cctv/frames.js — every refreshMs it
+// re-calls frameUrlFor() which embeds a fresh floor(now/refreshMs) ts
+// query, so the browser's <img> cache buster fires. The popout mirrors
+// the same pattern with setInterval: see the liveRefresh effect below.
 import { useEffect, useState } from "react";
 import { cctvSource } from "../gev-adapters/cctv";
 import { makeApiFetch } from "../gev-adapters/http";
+
+/**
+ * Refresh cadence for still-image cameras in the popout panel. Mirrors
+ * the vendor engine's ACTIVE_FRAME_REFRESH_MS (sourcePolicy.js) so the
+ * 3D plane and the face-on popout tick together. Video feeds stream
+ * natively and don't need this.
+ */
+const POPOUT_FRAME_REFRESH_MS = 10_000;
 
 export interface PopoutCamera {
   id: string;
@@ -113,6 +130,30 @@ export function CctvPopoutPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // P12 follow-up: live-refresh tick for still-image cameras.
+  //
+  // cctvSource.getFrameUrl() embeds a `ts=floor(Date.now()/refreshMs)` query
+  // — the engine's `ts` tick that gates the proxy's Redis cache. Without
+  // re-invoking it, the <img> src is frozen at the moment the panel opened
+  // and the user sees a stale snapshot forever (the 2026-09-20 bug).
+  //
+  // Mirrors the vendor engine's cctv/frames.js::refreshProjectionImage():
+  // every refreshMs we re-call frameUrlFor() to produce a fresh ts, then
+  // bump a state counter so React re-renders the <img src={...}> with the
+  // new URL. The browser's <img> cache treats a different `?ts=` as a new
+  // fetch, so the upstream is hit again.
+  //
+  // Video feeds (mp4/hls/webm) stream natively — no refresh needed, the
+  // <video> element loops itself.
+  const [frameTick, setFrameTick] = useState(0);
+  useEffect(() => {
+    if (isVideo) return;
+    const id = window.setInterval(() => {
+      setFrameTick((t) => t + 1);
+    }, POPOUT_FRAME_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [isVideo]);
+
   // Drag: mousedown on header → mousemove updates position → mouseup persists
   const onHeaderMouseDown = (e: React.MouseEvent<HTMLElement>) => {
     // Prevent text selection during drag
@@ -132,6 +173,12 @@ export function CctvPopoutPanel({
     document.addEventListener("mouseup", onUp);
   };
 
+  // frameTick is referenced by the <img>/<video> key prop (below) so React
+  // re-renders the entire element every refresh interval. getFrameUrl() /
+  // getMediaUrl() invoke frameUrlFor() / mediaUrlFor() which embed a fresh
+  // `ts=floor(Date.now()/refreshMs)` tick, so the URL is genuinely different
+  // each tick and the browser re-fetches. Without this re-render the <img>
+  // would never reload after mount (the 2026-09-20 frozen-snapshot bug).
   const frameUrl = cctv.getFrameUrl(camera);
   const mediaUrl = cctv.getMediaUrl(camera);
   const fallbackDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(buildFallbackSvg(camera))}`;
@@ -164,6 +211,7 @@ export function CctvPopoutPanel({
         <div className="cctv-popout-frame">
           {isVideo ? (
             <video
+              key={`v-${frameTick}`}
               data-testid="cctv-popout-video"
               autoPlay
               loop
@@ -171,9 +219,10 @@ export function CctvPopoutPanel({
               src={mediaUrl}
             />
           ) : imgError ? (
-            <img src={fallbackDataUrl} alt="frame unavailable" />
+            <img key={`fb-${frameTick}`} src={fallbackDataUrl} alt="frame unavailable" />
           ) : (
             <img
+              key={`img-${frameTick}`}
               src={frameUrl}
               alt={`live camera ${camera.name ?? camera.id}`}
               onError={() => setImgError(true)}
