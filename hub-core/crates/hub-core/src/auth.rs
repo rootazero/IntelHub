@@ -77,13 +77,36 @@ pub async fn check_rate_limit(state: &AppState, agent: &AgentIdentity) -> bool {
 /// Axum middleware: authenticate + rate-limit + trace. Only /api/* and /mcp
 /// are protected; static console assets and /healthz are public (the SPA
 /// shell holds no data — every data request still requires a key, §24).
+/// CCTV frame and media proxy paths must accept unauthenticated GETs.
+///
+/// The vendor engine sets `runtime.image.src = frameUrl` (and
+/// `<video src=mediaUrl>` for video feeds). Browsers cannot attach an
+/// `Authorization` header to these tag-driven fetches, so requiring a
+/// bearer token here would 401 every `<img>` and produce the
+/// black-screen flicker (the original 2026-09-20 user report).
+///
+/// SSRF is structurally impossible for these endpoints (the fetch URL
+/// comes from the PG catalog keyed by id; the client never supplies a
+/// URL). The image bytes themselves are public upstream data already
+/// exposed by the unauthenticated `/api/v1/gev/cctv/sources` catalog.
+/// Token-gating the *catalog* but not the *image* would protect
+/// nothing while breaking the browser — so we exempt both. Any
+/// authenticated request still goes through the standard auth path.
+fn is_public_cctv_proxy_path(path: &str) -> bool {
+    path.starts_with("/api/v1/gev/cctv/frame/")
+        || path.starts_with("/api/v1/gev/cctv/media/")
+}
+
 pub async fn auth_middleware(
     State(state): State<Arc<AppState>>,
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
     let path = req.uri().path();
-    if path == "/healthz" || (!path.starts_with("/api/") && !path.starts_with("/mcp")) {
+    if path == "/healthz"
+        || (!path.starts_with("/api/") && !path.starts_with("/mcp"))
+        || is_public_cctv_proxy_path(path)
+    {
         return next.run(req).await;
     }
     let Some(token) = bearer_token(req.headers()) else {
@@ -107,4 +130,44 @@ pub async fn auth_middleware(
     req.extensions_mut().insert(identity);
     req.extensions_mut().insert(RequestTrace::new());
     next.run(req).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_public_cctv_proxy_path;
+
+    #[test]
+    fn cctv_frame_path_is_public() {
+        assert!(is_public_cctv_proxy_path("/api/v1/gev/cctv/frame/ca-d7-i-10"));
+        assert!(is_public_cctv_proxy_path(
+            "/api/v1/gev/cctv/frame/austin%3A1?label=x&city=y&lat=0&lon=0&heading=0&fov=74&pitch=-10&ts=1"
+        ));
+    }
+
+    #[test]
+    fn cctv_media_path_is_public() {
+        assert!(is_public_cctv_proxy_path("/api/v1/gev/cctv/media/tfl:JamCams_00002.00865"));
+    }
+
+    #[test]
+    fn cctv_catalog_paths_still_require_auth() {
+        // The catalog and health endpoints carry agent attribution —
+        // they MUST still require auth so request logs trace who pulled
+        // the camera list.
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/cctv/sources"));
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/cctv/health"));
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/cctv"));
+    }
+
+    #[test]
+    fn unrelated_api_paths_still_require_auth() {
+        assert!(!is_public_cctv_proxy_path("/api/v1/overview"));
+        assert!(!is_public_cctv_proxy_path("/api/v1/search"));
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/ais-live"));
+        // Prefix-only match — `/api/v1/gev/cctv/framexxx` is NOT exempt
+        // (no slash after the leaf), so a future endpoint called
+        // `cctv/frametypes` cannot accidentally bypass auth.
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/cctv/frametypes"));
+        assert!(!is_public_cctv_proxy_path("/api/v1/gev/cctv/mediahealth"));
+    }
 }
