@@ -117,6 +117,17 @@ export function CctvPopoutPanel({
     camera.feedType === "mp4" ||
     camera.feedType === "hls" ||
     camera.feedType === "webm";
+  // Some providers (NY511/Skyline) have real HLS video streams
+  // (cctv_cameras.media_url ending in .m3u8) but the catalog tags
+  // them as feed_type=image because the engine's cctv projection
+  // plane treats HLS the same as image (stateless texture frame).
+  // The popout panel is a real <video> element, so we can play HLS
+  // natively. Use mediaUrl's extension as the ground truth.
+  const upstreamMediaUrl = camera.mediaUrl;
+  const hasUpstreamVideo =
+    !!upstreamMediaUrl &&
+    /\.(m3u8|mp4|webm)(\?|$)/i.test(upstreamMediaUrl);
+  const useVideoElement = isVideo || hasUpstreamVideo;
 
   const [imgError, setImgError] = useState(false);
 
@@ -158,12 +169,12 @@ export function CctvPopoutPanel({
   // <video> element loops itself.
   const [frameTick, setFrameTick] = useState(0);
   useEffect(() => {
-    if (isVideo) return;
+    if (useVideoElement) return;
     const id = window.setInterval(() => {
       setFrameTick((t) => t + 1);
     }, POPOUT_FRAME_REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [isVideo]);
+  }, [useVideoElement]);
 
   // Drag: mousedown on header → mousemove updates position → mouseup persists
   const onHeaderMouseDown = (e: React.MouseEvent<HTMLElement>) => {
@@ -196,9 +207,8 @@ export function CctvPopoutPanel({
   // natively). Fall back to the hub proxy when the catalog hasn't
   // returned a mediaUrl — the proxy can still serve the same bytes via
   // its 4-concurrency-capped T12 path (gev_cctv.rs::media_proxy_stream).
-  const upstreamMediaUrl = camera.mediaUrl;
   const mediaUrl =
-    isVideo && upstreamMediaUrl ? upstreamMediaUrl : cctv.getMediaUrl(camera);
+    useVideoElement && upstreamMediaUrl ? upstreamMediaUrl : cctv.getMediaUrl(camera);
   const fallbackDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(buildFallbackSvg(camera))}`;
 
   return (
@@ -227,7 +237,7 @@ export function CctvPopoutPanel({
         </header>
 
         <div className="cctv-popout-frame">
-          {isVideo ? (
+          {useVideoElement ? (
             <video
               key={`v-${frameTick}`}
               data-testid="cctv-popout-video"
