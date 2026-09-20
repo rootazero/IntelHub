@@ -226,6 +226,13 @@ export function normalizeSelection(record: unknown): GlobeSelection {
       // the link target for the 「实时画面」 entry — LINK SEMANTICS ONLY; the
       // HUD never embeds <img>/<video> (live pixels are the engine pipeline's
       // job: layers/cctv/projection.js monitor plane via canvas texture).
+      //
+      // P12 follow-up: mediaUrl is now passed through so the GEV popout
+      // panel can stream upstream H.264 video directly when the camera
+      // has one. Source field: gev_cctv.rs::camera_source_json — emits
+      // `mediaUrl` only when cctv_cameras.media_url IS NOT NULL (TfL,
+      // static-tokyo). Image cameras omit it; the popout falls back to
+      // the hub proxy in that case.
       return {
         kind,
         data: {
@@ -238,6 +245,7 @@ export function normalizeSelection(record: unknown): GlobeSelection {
           fovDeg: typeof p.fovDeg === "number" ? p.fovDeg : null,
           pitchDeg: typeof p.pitchDeg === "number" ? p.pitchDeg : null,
           frameUrl: typeof p.frameUrl === "string" ? p.frameUrl : "",
+          mediaUrl: typeof p.mediaUrl === "string" ? p.mediaUrl : "",
           live:
             typeof p.live === "boolean"
               ? p.live
