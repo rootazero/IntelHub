@@ -109,6 +109,13 @@ pub fn camera_source_json(r: &CamRow) -> Value {
     if let Some(x) = &r.license_note { v["license"] = json!(x); }
     if let Some(x) = &r.credit { v["credit"] = json!(x); }
     if let Some(x) = &r.code { v["code"] = json!(x); }
+    // P12 follow-up: separate `mediaUrl` field so the GEV popout panel
+    // can play upstream H.264 video (mp4/hls/webm) directly, skipping
+    // the hub proxy. TfL JamCams' S3 bucket sends
+    // `Access-Control-Allow-Origin: *`, so the browser's <video> element
+    // handles CORS natively. Image cameras (Caltrans/TxDOT/Austin) have
+    // `media_url = NULL` and keep using the proxy for stills.
+    if let Some(x) = &r.media_url { v["mediaUrl"] = json!(x); }
     v
 }
 

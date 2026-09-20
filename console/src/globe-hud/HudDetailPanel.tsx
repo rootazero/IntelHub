@@ -219,6 +219,13 @@ function CctvBody({
                 provider: String(data.provider ?? ""),
                 license: String(data.license ?? ""),
                 frameUrl: String(data.frameUrl ?? ""),
+                // P12 follow-up: pass upstream mediaUrl through so mp4/
+                // hls/webm cameras stream real H.264 video in the popout
+                // (skipping the hub proxy). Image cameras omit this.
+                mediaUrl:
+                  typeof data.mediaUrl === "string" && data.mediaUrl
+                    ? data.mediaUrl
+                    : undefined,
                 live: typeof data.live === "boolean" ? data.live : undefined,
               })
             }
