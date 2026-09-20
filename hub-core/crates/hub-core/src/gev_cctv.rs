@@ -207,6 +207,93 @@ pub fn sanitize_frame_content_type(raw: Option<&str>) -> &'static str {
     }
 }
 
+/// TxDOT ITS upstream returns a JSON envelope, NOT image bytes directly
+/// (per the upstream `fetchTxdotSnapshot` reference in
+/// `gods-eye-view/server/providers/cctv/media.js`). The envelope shape
+/// is `{icd_Id: "...", snippet: "<base64 JPEG>"}` and `snippet` may
+/// carry an optional `data:image/jpeg;base64,` URI prefix.
+///
+/// This helper:
+/// 1. Extracts the base64 string (strips URI prefix if present)
+/// 2. Validates canonical base64 (rejects junk characters that the
+///    decoder would silently skip)
+/// 3. Decodes and enforces JPEG magic bytes (`FF D8 FF`) so the proxy
+///    never serves a non-image body with the `image/jpeg` content-type
+///    label
+///
+/// Errors are returned to the caller (which falls through to the
+/// Street View / SVG fallback chain) — never silently passed through.
+pub fn parse_txdot_envelope(raw_json: &Value) -> std::result::Result<Vec<u8>, String> {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine as _;
+
+    let snippet = raw_json
+        .get("snippet")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "txdot envelope: missing or empty snippet field".to_string())?;
+
+    // Strip optional `data:image/jpeg;base64,` prefix.
+    let b64 = if let Some(rest) = snippet.strip_prefix("data:") {
+        rest.split_once(';')
+            .and_then(|(_, tail)| tail.strip_prefix("base64,"))
+            .unwrap_or(rest)
+    } else {
+        snippet
+    };
+
+    // Canonical base64 (groups of 4, padding only at end). Buffer.from()
+    // silently skips junk — a permissive check would let non-image
+    // bodies decode into "something" with `image/jpeg` on the wire.
+    if !b64.chars().all(|c| matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '+' | '/' | '='))
+        || b64.contains('=') && !b64.ends_with('=')
+    {
+        return Err("txdot envelope: snippet is not canonical base64".to_string());
+    }
+    let decoded = B64
+        .decode(b64)
+        .map_err(|e| format!("txdot envelope: base64 decode: {e}"))?;
+
+    if decoded.len() < 4 {
+        return Err(format!(
+            "txdot envelope: decoded body too small ({} bytes)",
+            decoded.len()
+        ));
+    }
+    if decoded[0] != 0xFF || decoded[1] != 0xD8 || decoded[2] != 0xFF {
+        return Err("txdot envelope: decoded body lacks JPEG magic bytes".to_string());
+    }
+    Ok(decoded)
+}
+
+/// Content-type + magic-byte guard for non-TxDOT upstreams.
+///
+/// Browsers refuse to render an `<img>` whose bytes do not match the
+/// declared content-type. Upstreams like NSW livetraffic have been
+/// observed to return HTTP 200 + `text/html` "Page not found" when a
+/// camera URL goes stale — passing that through with a coerced
+/// `image/jpeg` content-type is the original black-screen bug.
+///
+/// Required:
+/// - `content_type` starts with `image/`
+/// - body starts with the magic bytes of the declared image family
+///   (JPEG `FF D8 FF`, PNG `89 50 4E 47`, GIF `47 49 46 38`, WEBP `RIFF...WEBP`)
+pub fn accept_upstream_body_for_browser(content_type: Option<&str>, body: &[u8]) -> bool {
+    let Some(ct) = content_type else {
+        return false;
+    };
+    let family = ct.split(';').next().unwrap_or("").trim().to_lowercase();
+    match family.as_str() {
+        "image/jpeg" => body.len() >= 3 && body[0] == 0xFF && body[1] == 0xD8 && body[2] == 0xFF,
+        "image/png" => body.len() >= 4 && body[..4] == [0x89, b'P', b'N', b'G'],
+        "image/gif" => body.len() >= 3 && body[..3] == [b'G', b'I', b'F'],
+        "image/webp" => body.len() >= 12 && body[..4] == [b'R', b'I', b'F', b'F']
+            && body[8..12] == [b'W', b'E', b'B', b'P'],
+        _ => false,
+    }
+}
+
 /// Look up the fetch URL for a camera id. The client NEVER supplies a
 /// URL — SSRF is impossible by construction (catalog-curated hosts only).
 async fn lookup_urls(
@@ -221,6 +308,37 @@ async fn lookup_urls(
     .await
     .map_err(|e| {
         tracing::warn!(error = %e, "gev cctv url lookup failed");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "cctv catalog unavailable"})),
+        )
+            .into_response()
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "unknown or inactive camera id"})),
+        )
+            .into_response()
+    })
+}
+
+/// Source-kind-aware frame lookup. Returns `(frame_url, source_kind)` so
+/// the proxy can route TxDOT ITS (JSON envelope) through `parse_txdot_envelope`
+/// before serving to the client — the upstream gods-eye-view cctv/media.js
+/// reference gates `fetchTxdotSnapshot` on `source.sourceKind === 'txdot-its'`.
+async fn lookup_frame_target(
+    state: &AppState,
+    id: &str,
+) -> Result<(Option<String>, Option<String>), Response> {
+    sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT frame_url, source_kind FROM cctv_cameras WHERE id = $1 AND active",
+    )
+    .bind(id)
+    .fetch_optional(&state.pg)
+    .await
+    .map_err(|e| {
+        tracing::warn!(error = %e, "gev cctv frame lookup failed");
         (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({"error": "cctv catalog unavailable"})),
@@ -252,8 +370,8 @@ pub async fn gev_cctv_frame(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // ── Tier 1: upstream fetch (existing logic, unchanged) ────────────────
-    let (frame_url, _, _) = match lookup_urls(&state, &id).await {
+    // ── Tier 1: upstream fetch ──────────────────────────────────
+    let (frame_url, source_kind) = match lookup_frame_target(&state, &id).await {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -279,36 +397,28 @@ pub async fn gev_cctv_frame(
         }
     }
 
-    let resp = match cctv_http().get(&url).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame upstream fetch failed");
-            return frame_fallback_on_upstream_failure(&state, &id).await;
-        }
-    };
-    if !resp.status().is_success() {
-        tracing::warn!(status = %resp.status(), camera = %id, "cctv frame upstream HTTP non-200");
-        return frame_fallback_on_upstream_failure(&state, &id).await;
-    }
-    let ct = sanitize_frame_content_type(
-        resp.headers()
-            .get(axum::http::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok()),
-    );
-    let body = match resp.bytes().await {
-        Ok(b) if b.len() <= FRAME_MAX_BYTES => b,
-        Ok(_) => {
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "frame exceeds size cap"})),
-            )
-                .into_response();
-        }
-        Err(e) => {
-            tracing::warn!(error = %e.to_string(), camera = %id, "cctv frame body read failed");
-            return frame_fallback_on_upstream_failure(&state, &id).await;
-        }
-    };
+    // TxDOT ITS returns JSON envelope; everything else returns image bytes
+    // (verified upstream Content-Type matches the body magic bytes).
+    let txdot_kind = source_kind.as_deref() == Some("txdot-its");
+
+    let (body, content_type, source_header): (Vec<u8>, &'static str, &'static str) =
+        if txdot_kind {
+            match fetch_txdot_envelope_via_proxy(&url).await {
+                Ok(bytes) => (bytes, "image/jpeg", "txdot"),
+                Err(e) => {
+                    tracing::warn!(error = %e, camera = %id, "cctv frame txdot decode failed");
+                    return frame_fallback_on_upstream_failure(&state, &id).await;
+                }
+            }
+        } else {
+            match fetch_image_via_proxy(&url).await {
+                Ok((bytes, ct, src)) => (bytes, ct, src),
+                Err(e) => {
+                    tracing::warn!(error = %e, camera = %id, "cctv frame upstream invalid");
+                    return frame_fallback_on_upstream_failure(&state, &id).await;
+                }
+            }
+        };
 
     // Best-effort cache write (degrade to plain proxy on Redis trouble).
     let _: Option<()> = state
@@ -316,9 +426,9 @@ pub async fn gev_cctv_frame(
             redis::cmd("HSET")
                 .arg(&key)
                 .arg("data")
-                .arg(body.as_ref())
+                .arg(body.as_slice())
                 .arg("ct")
-                .arg(ct)
+                .arg(content_type)
                 .clone(),
             2000,
         )
@@ -330,7 +440,74 @@ pub async fn gev_cctv_frame(
         )
         .await;
 
-    ([(axum::http::header::CONTENT_TYPE, ct)], body).into_response()
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        content_type.parse().unwrap(),
+    );
+    headers.insert("x-cctv-source", source_header.parse().unwrap());
+    (headers, body).into_response()
+}
+
+/// Fetch + decode a TxDOT JSON envelope via the shared `cctv_http` client.
+/// The upstream's `application/json` body holds `snippet: data:image/jpeg;base64,`
+/// (or bare base64); `parse_txdot_envelope` validates magic bytes so a
+/// non-image body never reaches the browser with the `image/jpeg` label.
+pub async fn fetch_txdot_envelope_via_proxy(url: &str) -> std::result::Result<Vec<u8>, String> {
+    let resp = cctv_http()
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("upstream fetch: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("upstream HTTP {}", resp.status()));
+    }
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("upstream body read: {e}"))?;
+    if body.len() > FRAME_MAX_BYTES {
+        return Err(format!("envelope exceeds {} bytes", FRAME_MAX_BYTES));
+    }
+    let json: Value =
+        serde_json::from_slice(&body).map_err(|e| format!("envelope parse: {e}"))?;
+    parse_txdot_envelope(&json)
+}
+
+/// Fetch a non-TxDOT upstream image with the content-type + magic-byte guard.
+/// Returns `(bytes, content_type, source_header)` on success or an error
+/// message describing why the upstream failed the guard.
+pub async fn fetch_image_via_proxy(url: &str) -> std::result::Result<(Vec<u8>, &'static str, &'static str), String> {
+    let resp = cctv_http()
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("upstream fetch: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("upstream HTTP {}", resp.status()));
+    }
+    let upstream_ct = resp
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let body = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("upstream body read: {e}"))?;
+    if body.len() > FRAME_MAX_BYTES {
+        return Err(format!("body exceeds {} bytes", FRAME_MAX_BYTES));
+    }
+    if !accept_upstream_body_for_browser(upstream_ct.as_deref(), &body) {
+        return Err(format!(
+            "body rejected: ct={:?} magic={:?}",
+            upstream_ct,
+            body.get(..4)
+        ));
+    }
+    let ct = sanitize_frame_content_type(upstream_ct.as_deref());
+    Ok((body.to_vec(), ct, "upstream"))
 }
 
 /// P11 T4: 3-tier fallback chain — Street View (env-gated) then SVG.
@@ -544,6 +721,123 @@ mod tests {
         assert_eq!(sanitize_frame_content_type(Some("text/html")), "image/jpeg");
         assert_eq!(sanitize_frame_content_type(Some("application/octet-stream")), "image/jpeg");
         assert_eq!(sanitize_frame_content_type(None), "image/jpeg");
+    }
+
+    // ---- TxDOT JSON envelope: pure helpers (TDD red phase) ----
+
+    /// Real TxDOT response shape — `{"icd_Id": "...", "snippet": "<base64 JPEG>"}`.
+    /// The snippet may carry a `data:image/jpeg;base64,` URI prefix that
+    /// must be stripped before base64-decoding.
+    #[test]
+    fn txdot_decode_envelope_returns_jpeg_bytes_with_magic() {
+        // Tiny valid JPEG (FFD8FFE0 ... FFD9) base64-encoded. ~134 bytes.
+        // Constructed from "real" JPEG header so the magic-byte check passes.
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        jpeg.extend_from_slice(&[0u8; 64]);
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &jpeg);
+
+        let envelope = json!({
+            "icd_Id": "LP-1 @ Gault Rd",
+            "snippet": format!("data:image/jpeg;base64,{}", b64),
+        });
+
+        let out = parse_txdot_envelope(&envelope).expect("envelope decodes");
+        assert_eq!(out, jpeg, "decoded bytes must match the original JPEG");
+    }
+
+    /// TxDOT sometimes omits the `data:` URI prefix — the helper must still
+    /// decode raw base64.
+    #[test]
+    fn txdot_decode_envelope_handles_bare_base64() {
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 0xFF, 0xD9];
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &jpeg);
+        let envelope = json!({ "snippet": b64 });
+        let out = parse_txdot_envelope(&envelope).expect("bare base64 decodes");
+        assert_eq!(out, jpeg);
+    }
+
+    /// Decoded bytes that lack JPEG magic must be rejected — prevents a
+    /// permissive decoder from serving a non-image body with the
+    /// `image/jpeg` content-type label (the pre-fix bug).
+    #[test]
+    fn txdot_decode_envelope_rejects_non_jpeg_decoded_bytes() {
+        // Non-JPEG bytes base64-encoded: starts with 0x89 (PNG) and
+        // the rest is random. A valid base64 decode must NOT pass the
+        // JPEG magic-byte check.
+        let png_like = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png_like);
+        let envelope = json!({ "snippet": b64 });
+
+        let err = parse_txdot_envelope(&envelope).expect_err("non-JPEG must reject");
+        assert!(err.contains("magic bytes"), "error must mention magic bytes: {err}");
+    }
+
+    /// Strict base64: junk characters (length not multiple of 4) must
+    /// reject rather than silently decoding.
+    #[test]
+    fn txdot_decode_envelope_rejects_non_canonical_base64() {
+        let envelope = json!({ "snippet": "!!!not-base64!!!" });
+        let err = parse_txdot_envelope(&envelope).expect_err("junk must reject");
+        assert!(err.contains("base64"), "error must mention base64: {err}");
+    }
+
+    /// Missing snippet field is an upstream contract violation — must error
+    /// so the caller falls through to the Street View / SVG chain.
+    #[test]
+    fn txdot_decode_envelope_rejects_missing_snippet() {
+        let envelope = json!({ "icd_Id": "no snippet here" });
+        assert!(parse_txdot_envelope(&envelope).is_err());
+    }
+
+    /// Empty snippet is also an error (whitespace-only after trim).
+    #[test]
+    fn txdot_decode_envelope_rejects_empty_snippet() {
+        let envelope = json!({ "snippet": "   " });
+        assert!(parse_txdot_envelope(&envelope).is_err());
+    }
+
+    // ---- Content-type + magic-byte guard for non-TxDOT upstreams ----
+
+    /// Real upstream JPEG with `Content-Type: image/jpeg` must pass
+    /// `accept_upstream_body_for_browser`.
+    #[test]
+    fn accept_upstream_body_passes_real_jpeg() {
+        let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        jpeg.extend_from_slice(&[0u8; 8]);
+        jpeg.extend_from_slice(&[0xFF, 0xD9]);
+        assert!(accept_upstream_body_for_browser(
+            Some("image/jpeg"),
+            &jpeg
+        ));
+    }
+
+    /// NSW livetraffic returns 200 + `text/html` "Page not found" with
+    /// no image body. The guard must reject so the proxy falls through
+    /// to the SVG fallback chain (the pre-fix bug masked this).
+    #[test]
+    fn accept_upstream_body_rejects_html_404_page() {
+        let html = b"<html><body>Page not found</body></html>";
+        assert!(!accept_upstream_body_for_browser(Some("text/html"), html));
+    }
+
+    /// `application/json` must also reject — upstream errors or TxDOT
+    /// leaks past the source_kind gate must not serve JSON to the browser.
+    #[test]
+    fn accept_upstream_body_rejects_application_json() {
+        let json = br#"{"snippet":"foo"}"#;
+        assert!(!accept_upstream_body_for_browser(
+            Some("application/json"),
+            json
+        ));
+    }
+
+    /// A body with a missing/falsy Content-Type must reject so the
+    /// browser never receives an unlabeled payload as `image/jpeg`.
+    #[test]
+    fn accept_upstream_body_rejects_missing_content_type() {
+        let png = b"\x89PNG\r\n\x1a\n";
+        assert!(!accept_upstream_body_for_browser(None, png));
     }
 
     #[test]
