@@ -10,3 +10,4 @@ console/tsconfig.tsbuildinfo
 __pycache__/
 *.pyc
 .superpowers/
+console/node_modules
