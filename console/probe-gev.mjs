@@ -1092,6 +1092,82 @@ try {
   } catch (e) {
     failures.push(`P12 flight-layer segment threw: ${e.message}`);
   }
+
+  // ---- GEV P13: flight-display optimization — default camera + enrich +
+  //      HudAircraftDetail + 3rd ADS-B source (2026-09-21) ----
+  // The P12 segment exited cockpit via Escape, so the HUD right rail is back
+  // to its resting state: HudAircraftDetail renders its empty aside (nothing
+  // tracked) — the mount + i18n half of T3. The camera/enrich halves assert
+  // bundle text + the live QA seam (window.__GEV_ENRICH_AMBIENT_QA is a real
+  // runtime global, written by applyEnrichAmbientOverride at boot). The adsbx
+  // probe reads the merged coverage off the already-fetched aircraft envelope.
+  try {
+    const P13_PROBES = [
+      // 1. T1 mountDefaultCamera shipped: the bundle carries the contract-gate
+      //    TypeError literal (unique to default-camera.ts; minification keeps
+      //    string literals intact).
+      ["p13-default-camera-bundle", () =>
+        page.evaluate(async () => {
+          const urls = performance
+            .getEntriesByType("resource")
+            .map((e) => e.name)
+            .filter((n) => /\/assets\/.*\.js(\?|$)/.test(n));
+          for (const u of urls) {
+            const t = await (await fetch(u)).text().catch(() => "");
+            if (t.includes("viewer.camera.setView is missing"))
+              return true;
+          }
+          return false;
+        })],
+      // 2. T2 enrich budget live: the QA seam must carry ceil >= 800 at
+      //    runtime (written by applyEnrichAmbientOverride before the first
+      //    vendor sweep; the vendor reads it lazily on every refill).
+      ["p13-enrich-budget-live", () =>
+        page.evaluate(
+          () => (window.__GEV_ENRICH_AMBIENT_QA?.ceil ?? 0) >= 800,
+        )],
+      // 3. T3 HudAircraftDetail mounted: either the populated card or the
+      //    empty-state aside is present (nothing is tracked after cockpit exit).
+      ["p13-hud-detail-mount", () =>
+        page.evaluate(
+          () =>
+            !!document.querySelector('[data-testid="hud-aircraft-detail"]') ||
+            !!document.querySelector('[data-testid="hud-aircraft-detail-empty"]'),
+        )],
+      // 4. T3 empty-state i18n: the empty aside carries the translated text
+      //    (en or zh — the locale is browser-dependent, so accept either).
+      ["p13-hud-detail-empty-text", () =>
+        page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="hud-aircraft-detail-empty"]',
+          );
+          if (!el) return false;
+          return /Click a flight to inspect|点击飞机查看详情/.test(
+            el.textContent ?? "",
+          );
+        })],
+      // 5. T4 3rd ADS-B source: the merged aircraft coverage must carry the
+      //    +adsbx suffix (the suffix is only appended when the adsbx snapshot
+      //    has non-empty rows — i.e. the 3rd source actually contributed).
+      ["p13-adsbx-coverage", () =>
+        typeof aircraft?.coverage === "string" &&
+        aircraft.coverage.includes("adsbx")],
+    ];
+
+    for (const [name, fn] of P13_PROBES) {
+      let ok = false;
+      let note = "";
+      try {
+        ok = !!(await fn());
+      } catch (e) {
+        note = ` err=${e.message}`;
+      }
+      console.log(`${name}=${ok ? 1 : 0}${note}`);
+      if (!ok) failures.push(`P13: ${name} failed`);
+    }
+  } catch (e) {
+    failures.push(`P13 flight-display segment threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
