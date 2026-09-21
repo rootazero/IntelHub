@@ -29,6 +29,18 @@
 // the engine's LayerPresentation into #data-toggles and requires
 // controls.styleManager, both engine chrome the IntelHub HUD replaces (T9).
 // T9's layer rail drives enable/disable via getComponents().data.dataManager.
+//
+// GEV P13 T2: publish the raised ambient enrichment budget on the vendor QA
+// seam at boot. The vendor reads window.__GEV_ENRICH_AMBIENT_QA lazily
+// (enrichment.js::_ambientBudgetKnobs, enrichment.js:132-141), so installing it
+// at module-load time — ahead of app.start() and therefore ahead of the first
+// enrichment sweep — is what makes it apply. Kept at the very top of the boot
+// module so the override is impossible to miss when reading the bootstrap.
+// (ESM hoists the imports below, but the vendor only reads the seam at refill
+// time, never during its own module evaluation, so source position here is
+// about intent discoverability, not evaluation order.)
+import { applyEnrichAmbientOverride } from "./enrich-override";
+applyEnrichAmbientOverride();
 
 import { createApplication } from "gev-engine/src/app/application.js";
 import { createApplicationScene } from "gev-engine/src/app/scene.js";
