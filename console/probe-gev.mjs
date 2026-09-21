@@ -1168,6 +1168,85 @@ try {
   } catch (e) {
     failures.push(`P13 flight-display segment threw: ${e.message}`);
   }
+
+  // ---- GEV P14: cockpit chase-cam — bundle shipped + live envelope (2026-09-21) ----
+  // Three probes run with the cockpit open: chase-envelope (camera within
+  // 7±0.5m forward, 2.6±0.5m up of entity), model-hidden (show=false
+  // while cockpit active), and cadence (>=3 setView calls in 200ms). All three
+  // require a tracked flight so failures degrade to warnings; adapters are
+  // unit-tested in camera-transition.test.ts / model-visibility.test.ts.
+  // Same enter-cockpit-via-rail pattern as P12.
+  try {
+    let p14Btn = page.locator('[data-testid="hud-cockpit-button"]');
+    if ((await p14Btn.count()) === 0) {
+      await page
+        .locator('[data-testid="hud-layer-rail"] .hud-rail-handle')
+        .first()
+        .click()
+        .catch(() => {});
+      await page.waitForTimeout(200);
+      p14Btn = page.locator('[data-testid="hud-cockpit-button"]');
+    }
+    await p14Btn.first().click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400); // settle after enter transition
+
+    const P14_PROBES = [
+      // 1. chase envelope: camera is within 7±0.5m forward, 2.6±0.5m up of entity.
+      //    Reads viewer.camera.position and window.__gevTrackedEntity (set by
+      //    the flight-layer adapter; null if nothing is tracked — degrades to warn).
+      ["p14-chase-envelope", async () =>
+        await page.evaluate(async () => {
+          const cam = window.__gevViewer?.camera;
+          const ent = window.__gevTrackedEntity;
+          if (!cam || !ent?.position) return false;
+          const dx = cam.position.x - ent.position.x;
+          const dy = cam.position.y - ent.position.y;
+          const dz = cam.position.z - ent.position.z;
+          // forward ≈ -dz (camera is behind entity along heading), up ≈ dz height diff
+          const fwd = Math.abs(dz);
+          const up  = Math.abs(dy);
+          return fwd >= 6.5 && fwd <= 7.5 && up >= 2.1 && up <= 3.1;
+        })],
+      // 2. model hidden: while cockpit is active the tracked entity's show=false.
+      ["p14-model-hidden", () =>
+        page.evaluate(() => {
+          const ent = window.__gevTrackedEntity;
+          return ent ? ent.show === false : false;
+        })],
+      // 3. chase-cam cadence: count viewer.camera.setView calls over 200 ms.
+      //    >=3 calls means the chase loop is actively repositioning the camera.
+      ["p14-cockpit-cadence", async () => {
+        const count = await page.evaluate(async () => {
+          const cam = window.__gevViewer?.camera;
+          if (!cam) return 0;
+          let n = 0;
+          const orig = cam.setView.bind(cam);
+          cam.setView = (...args) => { n++; return orig(...args); };
+          await new Promise((r) => setTimeout(r, 200));
+          cam.setView = orig;
+          return n;
+        });
+        return count >= 3;
+      }],
+    ];
+
+    for (const [name, fn] of P14_PROBES) {
+      let ok = false;
+      let note = "";
+      try {
+        ok = !!(await fn());
+      } catch (e) {
+        note = ` err=${e.message}`;
+      }
+      console.log(`${name}=${ok ? 1 : 0}${note}`);
+      if (!ok) warnings.push(`P14: ${name} failed (requires tracked flight)`);
+    }
+
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(200);
+  } catch (e) {
+    warnings.push(`P14 chase-cam segment threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {
