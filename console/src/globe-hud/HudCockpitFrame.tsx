@@ -11,6 +11,11 @@ import type {
   CockpitStore,
   CockpitStoreState,
 } from "../gev-visual/cockpit/cockpit-store";
+import {
+  mountCockpitCameraTransition,
+  type CockpitCameraTransition,
+  type CockpitCameraTransitionDeps,
+} from "../gev-visual/cockpit/camera-transition";
 import type {
   CockpitTrackedInfo,
   InstrumentsHandle,
@@ -36,6 +41,10 @@ export function useCockpitStore(store: CockpitStore): CockpitStoreState {
 
 export interface HudCockpitFrameProps {
   store: CockpitStore;
+  /** Engine Cesium viewer — drives the enter/exit camera transition (T6).
+   *  Surfaced by the page only after start() resolves (P2 lesson), so it may
+   *  be null on the first render. */
+  viewer?: unknown;
   /** flights.getTrackedInfo() seam for the context + briefing children. */
   getTrackedInfo?: () => CockpitTrackedInfo | null;
   instruments: InstrumentsHandle | null;
@@ -45,6 +54,7 @@ export interface HudCockpitFrameProps {
 
 export function HudCockpitFrame({
   store,
+  viewer,
   getTrackedInfo,
   instruments,
   briefing,
@@ -52,6 +62,11 @@ export function HudCockpitFrame({
 }: HudCockpitFrameProps) {
   const state = useCockpitStore(store);
   const { t } = useT();
+  // T6 camera transition: mounted once the viewer exists and torn down when it
+  // goes away. Held in state so the enter/exit effect re-runs if the viewer
+  // arrives after the cockpit did.
+  const [cameraTransition, setCameraTransition] =
+    useState<CockpitCameraTransition | null>(null);
   // Tab / Shift+Tab drive the briefing tab. The panel stays uncontrolled when
   // no tab prop is passed, so this is additive.
   const [briefingTab, setBriefingTab] = useState<CockpitBriefingTab>("weather");
@@ -72,6 +87,55 @@ export function HudCockpitFrame({
     onNextTab,
     onPrevTab,
   });
+
+  useEffect(() => {
+    if (!viewer) return;
+    let transition: CockpitCameraTransition;
+    try {
+      transition = mountCockpitCameraTransition({
+        viewer: viewer as CockpitCameraTransitionDeps["viewer"],
+      });
+    } catch (e) {
+      // A half-built viewer (mock / pre-start frame) must not take the HUD
+      // down — the P2 Leaflet class of failure is exactly this.
+      console.warn("[HudCockpitFrame] camera transition mount failed:", e);
+      return;
+    }
+    setCameraTransition(transition);
+    return () => {
+      transition.destroy();
+      setCameraTransition(null);
+    };
+  }, [viewer]);
+
+  // Enter: fly to the tracked aircraft one frame AFTER the store flips active,
+  // so the vendor follow controller has already applied its camera frame and
+  // our fly is a short delta on top of a settled pose (spec R4). Exit: fly back
+  // to the pre-cockpit pose — decoupled from store.exit() itself (which the
+  // keyboard handler and the exit button drive).
+  useEffect(() => {
+    if (!cameraTransition) return;
+    if (state.active && state.trackedId) {
+      const raf = requestAnimationFrame(() => {
+        const info = getTrackedInfo?.();
+        if (
+          info?.longitude != null &&
+          info?.latitude != null &&
+          info?.altitudeM != null
+        ) {
+          void cameraTransition.flyToTracked({
+            longitude: info.longitude,
+            latitude: info.latitude,
+            altitude: info.altitudeM,
+          });
+        }
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+    if (!state.active) {
+      void cameraTransition.flyBackToBaseline();
+    }
+  }, [state.active, state.trackedId, cameraTransition, getTrackedInfo]);
 
   if (!state.active) return null;
 
