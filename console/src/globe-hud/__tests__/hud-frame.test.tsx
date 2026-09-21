@@ -28,7 +28,11 @@ const h = vi.hoisted(() => {
     token: String(i),
     disposition: "enabled-only",
   }));
-  const viewer = { fake: "viewer" };
+  // P13 T1: the controls phase calls mountDefaultCamera(scene.viewer), whose
+  // contract is `viewer.camera.setView` — the fake must expose that seam the
+  // real Cesium.Viewer has, or the mock would hide the wiring (P3 lesson:
+  // lenient mocks must mirror the real constructor contract).
+  const viewer = { fake: "viewer", camera: { setView: vi.fn() } };
   const mapStackController = { fake: "mapStackController" };
   class MockLayerLifecycle {
     static instances: InstanceType<typeof MockLayerLifecycle>[] = [];
@@ -116,6 +120,17 @@ describe("createData LayerLifecycle wiring (Ruling 9)", () => {
       cesiumToken: "",
     });
     await globe.start();
+
+    // P13 T1: the controls phase applies the global default view to the live
+    // viewer (one top-down setView — DEFAULT_VIEW.pitch = -90).
+    const setView = h.viewer.camera.setView;
+    expect(setView).toHaveBeenCalledTimes(1);
+    const view = setView.mock.calls[0][0] as {
+      orientation: { pitch: number };
+      destination: { x: number };
+    };
+    expect(view.orientation.pitch).toBeCloseTo(-Math.PI / 2);
+    expect(view.destination.x).toBeGreaterThan(0);
 
     const dm = h.MockLayerLifecycle.instances.at(-1)!;
     expect(dm).toBeDefined();
