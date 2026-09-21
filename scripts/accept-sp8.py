@@ -689,5 +689,55 @@ check_deferred(
     "lock's observable effect (canvas cursor:none); enableInputs is unit-tested "
     "in viewport-lock.test.ts (spec §7.2 NOTE/R10)")
 
+# ---------------------------------------------------------------------------
+# GEV P13 (2026-09-21): flight-display optimization — default camera, enrich
+# budget override, HudAircraftDetail panel, 3rd ADS-B source. Same source-vs-
+# bundle split as the P9-P12 blocks. checks 54/55 are console-side (bundle +
+# source truth); 56 pins the raised enrich value in source; 57 is the hub-side
+# monitor registration (sp6 check_46 asserts the snapshot content).
+# ---------------------------------------------------------------------------
+
+# 54. T3 HudAircraftDetail: the panel's testid ships in dist AND the source is
+#     mounted in GlobeV2 (the IntelHub mount point — vendor GlobeHud.tsx does
+#     not exist in this tree, per the accepted T3 deviation).
+detail_bundle = vm('grep -lF "hud-aircraft-detail" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+detail_mount = vm('grep -c "HudAircraftDetail" /home/zou/IntelHub/console/src/pages/GlobeV2.tsx 2>/dev/null | head -1')
+check("p13: HudAircraftDetail testid in bundle + mounted in GlobeV2",
+      bool(detail_bundle) and detail_mount.strip() not in ("", "0"),
+      f"bundle={bool(detail_bundle)} globev2_refs={detail_mount.strip()}")
+
+# 55. T3 i18n: the aircraft.detail namespace must be defined in BOTH dicts and
+#     the dotted t() key literal must ship in the bundle. en/zh dicts use
+#     nested-object keys (`aircraft: { detail: {...} }`); the component
+#     references them as t("aircraft.detail.*") — the dotted literal is the
+#     wire marker that survives in dist. Source pins: unique en value (ASCII)
+#     + the `aircraft:` block in zh (the Dict type enforces shape parity, so
+#     zh_block + en_value together prove both dicts carry the namespace).
+i18n_en = vm('grep -cF "Click a flight to inspect" /home/zou/IntelHub/console/src/i18n/en.ts 2>/dev/null | head -1')
+i18n_zh = vm('grep -cF "aircraft: {" /home/zou/IntelHub/console/src/i18n/zh.ts 2>/dev/null | head -1')
+detail_key = vm('grep -lF "aircraft.detail." /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p13: aircraft.detail i18n (en value + zh block + bundle key)",
+      i18n_en.strip() == "1" and i18n_zh.strip() == "1" and bool(detail_key),
+      f"en={i18n_en.strip()} zh={i18n_zh.strip()} bundle_key={bool(detail_key)}")
+
+# 56. T2 enrich budget: the raised budget must be `ceil: 800` (not the vendor
+#     default 300). Source truth is enrich-override.ts — the value is pinned
+#     by the T2 test's toEqual. The bundle marker is covered by sp6 check_45;
+#     here the VALUE is what gates.
+ceil_src = vm('grep -cF "ceil: 800" /home/zou/IntelHub/console/src/gev-boot/enrich-override.ts 2>/dev/null | head -1')
+check("p13: enrich QA override ceil=800 (raised from vendor 300)",
+      ceil_src.strip() == "1", f"ceil_800={ceil_src.strip()}")
+
+# 57. T4 3rd ADS-B source: the monitor loop must be registered and running.
+#     name() = "adsbx" → the module logs "adsbx us-hub sweep" after each
+#     successful sweep, and the scheduler writes the `hub:monitor:health` cell
+#     `adsbx` (registration proof). Both must be present after the restart's
+#     first sweep (~125s hub sweep + stagger, well inside the 5-min wait).
+adsbx_journal = vm('sudo journalctl -u hub-core --since "12 minutes ago" --no-pager 2>/dev/null | grep -F "adsbx us-hub sweep" | head -1')
+adsbx_cell8 = redis("HGET", "hub:monitor:health", "adsbx").strip()
+check("p13: adsbx monitor loop running (sweep journal + health cell)",
+      bool(adsbx_journal) and adsbx_cell8 not in ("", "nil"),
+      f"journal={bool(adsbx_journal)} cell={adsbx_cell8[:50]}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
