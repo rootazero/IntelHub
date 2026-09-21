@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { HudCockpitFrame, useCockpitStore } from "../HudCockpitFrame";
 import { createCockpitStore } from "../../gev-visual/cockpit/cockpit-store";
 import { mountCockpitInstruments } from "../../gev-visual/cockpit/instruments-mount";
+import { I18nProvider } from "../../i18n";
 
 beforeEach(() => {
   // The instruments child schedules a rAF poll; jsdom has no rAF.
@@ -101,6 +102,79 @@ describe("HudCockpitFrame", () => {
       "aria-pressed",
       "true",
     );
+  });
+  test("shows the keyboard-shortcut hint strip only while active", () => {
+    const store = createCockpitStore();
+    expect(
+      screen.queryByTestId("hud-cockpit-shortcut-hint"),
+    ).not.toBeInTheDocument();
+    act(() => store.enter("abc123"));
+    render(
+      <I18nProvider>
+        <HudCockpitFrame
+          store={store}
+          getTrackedInfo={() => null}
+          instruments={null}
+          briefing={null}
+          vision={null}
+        />
+      </I18nProvider>,
+    );
+    const hint = screen.getByTestId("hud-cockpit-shortcut-hint");
+    expect(hint).toHaveTextContent("Shift+C");
+    act(() => store.exit());
+    expect(
+      screen.queryByTestId("hud-cockpit-shortcut-hint"),
+    ).not.toBeInTheDocument();
+  });
+
+  test("Shift+C hides the panels and keeps a way back", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(screen.getByTestId("hud-cockpit-briefing")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "C",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(store.getState().hidden).toBe(true);
+    expect(screen.getByTestId("hud-cockpit-frame")).toHaveAttribute(
+      "data-hidden",
+      "true",
+    );
+    expect(
+      screen.queryByTestId("hud-cockpit-briefing"),
+    ).not.toBeInTheDocument();
+    // The hint strip is the affordance that gets you back out.
+    expect(screen.getByTestId("hud-cockpit-shortcut-hint")).toBeInTheDocument();
+
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "C",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(store.getState().hidden).toBe(false);
+    expect(screen.getByTestId("hud-cockpit-briefing")).toBeInTheDocument();
   });
 });
 

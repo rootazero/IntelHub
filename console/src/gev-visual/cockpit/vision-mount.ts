@@ -32,6 +32,11 @@ export const VISION_MODES = [
 ] as const;
 export type VisionMode = (typeof VISION_MODES)[number];
 
+/** localStorage key holding the user's last vision pick (spec §3.2). Exported
+ *  so every writer/reader (HudCockpitVisionSwitch, the T5 shortcut hook)
+ *  shares one literal instead of re-typing it. */
+export const VISION_MODE_STORAGE_KEY = "intelhub.cockpit.visionMode";
+
 export function isVisionMode(value: unknown): value is VisionMode {
   return (
     typeof value === "string" &&

@@ -294,6 +294,12 @@ export const en = {
     thResult: "Result",
     noMatch: "no audit records match",
   },
+  cockpit: {
+    shortcut: {
+      hint: "← → briefing · Esc exit · 1-5 vision · Space pause · Tab switch · Shift+C hide",
+      hintHidden: "Shift+C show panels · Esc exit",
+    },
+  },
   hud: {
     deck: "Monitor Command Deck",
     sources: "SOURCES",
