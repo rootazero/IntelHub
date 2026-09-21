@@ -114,7 +114,7 @@ done
 ```
 
 - **测试 VM 验收**：`KEY=$(ssh -o BatchMode=yes IntelHub-test '...')` + 同样的脚本
-- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 39+5shelved/0f（共 42 项，GEV P2 6 检查位：per-category 卫星地板（10/100/25/20/20/400 按真实星座规模校准）+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE、opensky OAuth 缺席 shelved。GEV P3 再 +9 检查位：ais-live 三态信封（无 key shelved）、installations rows>0+bbox+400、overpass 代理 round-trip、tomtom status（无 key shelved flow）、cctv catalog>200+frame 抽查×3、starlink TLE；shelved 不计 failure、退码只看 failed） · sp7 16+11shelved · sp8 48+2shelved（P3 45+2sh/0f；P10 +3 检查位：recording body class via setMode regex、`hud-scene-panel` testid in bundle、panel-drag vendor key + adapter wiring。**315 clean baseline tracking** —— 410 生产 baseline 不同但同等稳定） · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
+- 当前基线：sp2a 19 · sp2b 33 · sp3 19 · sp4 25 · sp5 9 · **sp6 49+5shelved/0f（共 42 项，GEV P2 6 检查位：per-category 卫星地板（10/100/25/20/20/400 按真实星座规模校准）+总>600、flights envelope coverage 容忍 +opensky、earthquakes rows>0、celestrak stations TLE、starlink 代理 TLE、opensky OAuth 缺席 shelved。GEV P3 再 +9 检查位：ais-live 三态信封（无 key shelved）、installations rows>0+bbox+400、overpass 代理 round-trip、tomtom status（无 key shelved flow）、cctv catalog>200+frame 抽查×3、starlink TLE；shelved 不计 failure、退码只看 failed） · sp7 16+11shelved · sp8 54+2shelved+3deferred/0f（P3 45+2sh/0f；P10 +3 检查位：recording body class via setMode regex、`hud-scene-panel` testid in bundle、panel-drag vendor key + adapter wiring。**315 clean baseline tracking** —— 410 生产 baseline 不同但同等稳定） · sp9 14**。改动某个面时对应脚本必须加检查项并保持全绿。
 
 ## 健康检查速查
 
