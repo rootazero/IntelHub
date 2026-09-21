@@ -124,7 +124,8 @@ import {
   COCKPIT_VIEW_PITCH_DEG,
   COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX,
   COCKPIT_MOUSE_LOOK_PITCH_RATE_RAD_PER_PX,
-  COCKPIT_MOUSE_LOOK_PITCH_CLAMP_RAD,
+  COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MIN_RAD,
+  COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MAX_RAD,
   COCKPIT_MOUSE_LOOK_SNAPBACK_MS,
   COCKPIT_MOUSE_LOOK_SNAPBACK_THRESHOLD_RAD,
   COCKPIT_MOUSE_WHEEL_RANGE_RATE_M_PER_DELTA,
@@ -245,7 +246,7 @@ unregistered on deactivate or destroy):
    - `dx = event.endPosition.x - lastDragX`; `dy = event.endPosition.y - lastDragY`
    - `headingDeltaRad += dx * COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX`
    - `pitchDeltaRad += dy * COCKPIT_MOUSE_LOOK_PITCH_RATE_RAD_PER_PX`
-   - `pitchDeltaRad = clamp(pitchDeltaRad, COCKPIT_MOUSE_LOOK_PITCH_CLAMP_RAD[0], COCKPIT_MOUSE_LOOK_PITCH_CLAMP_RAD[1])`
+   - `pitchDeltaRad = clamp(pitchDeltaRad, COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MIN_RAD, COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MAX_RAD)`
    - `lastDragX/Y = event.endPosition.x/y`
    - Note: heading is NOT clamped — operator can spin 360° freely.
 
@@ -379,8 +380,9 @@ in-flight mouse-look offsets aren't read by a destroyed chase-cam.
 4. `getFrameOffset()` defaults to `(0, 0, 0)` after mount.
 5. `RIGHT_DOWN` + `MOUSE_MOVE` → `headingDeltaRad` updates by
    `dx * COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX`; pitch similarly.
-6. `MOUSE_MOVE` past `COCKPIT_MOUSE_LOOK_PITCH_CLAMP_RAD` clamps the
-   pitch; heading does not clamp.
+6. `MOUSE_MOVE` past `COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MIN_RAD` /
+   `COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MAX_RAD` clamps the pitch; heading does
+   not clamp.
 7. `WHEEL` updates `rangeOffsetM`; sign convention: `deltaY < 0`
    (mouse wheel-up OR trackpad pinch-in) → `rangeOffsetM` decreases
    (zoom IN, camera closer); `deltaY > 0` (wheel-down OR pinch-out) →
