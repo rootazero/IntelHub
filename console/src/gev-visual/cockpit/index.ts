@@ -75,3 +75,12 @@ export {
   type CockpitViewportLock,
   type CockpitViewportLockViewer,
 } from "./viewport-lock";
+
+export {
+  mountCockpitMouseLook,
+  MOUSE_LOOK_ZERO_OFFSET,
+  type MouseLookHandle,
+  type MouseLookDeps,
+  type MouseLookFrameOffset,
+  type MouseLookStoreShape,
+} from "./mouse-look";

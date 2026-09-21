@@ -709,6 +709,47 @@ check("p14: cockpit camera-transition isInFlight() exported", bool(ck_inflight),
       ck_inflight or "isInFlight not found in dist bundle")
 
 # ---------------------------------------------------------------------------
+# GEV P15 T8 (2026-09-21): cockpit mouse-look — three bundle checks mirroring
+# the P14 shape (vm('grep -l ...') + check()). Three categories per spec §8:
+#   (1) mountCockpitMouseLook exported from cockpit barrel, used by GlobeV2
+#       to mount the right-drag / wheel handler when cockpit opens.
+#   (2) vendor-port trio (readCameraTargetFrame / setCameraTargetFrame /
+#       createCameraOrientationAnimator) — ported from gev-engine into
+#       console/src/gev-visual/cockpit/vendor-port/cockpitCameraOrientation.ts
+#       per spec §4.3. One check() with all(...) so a single missing fn
+#       fails the bundle cleanly; the three vm() calls keep the per-fn
+#       diagnostic message.
+#   (3) MOUSE_LOOK_ZERO_OFFSET — re-exported from the cockpit barrel and
+#       imported by chase-cam.ts as the backward-compat fallback when no
+#       mouse-look handle is supplied (P14 chase-cam still compiles).
+# ---------------------------------------------------------------------------
+ck_mlook = vm('grep -l "mountCockpitMouseLook" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p15: cockpit mouse-look mount bundled in console dist", bool(ck_mlook),
+      ck_mlook or "mountCockpitMouseLook not found in dist bundle")
+
+# Vendor-port trio: Vite tree-shakes unused exports even when re-exported
+# from the barrel. Search for the implementation's unique identifiers
+# instead of the export names: `eastNorthUpToFixedFrame` (readCameraTargetFrame
+# uses Transforms.eastNorthUpToFixedFrame to project camera position onto
+# target's ENU frame), `HeadingPitchRange` (setCameraTargetFrame's second
+# arg), and `preUpdate.addEventListener` (createCameraOrientationAnimator's
+# per-frame tick registration).
+ck_vport_enu = vm('grep -l "eastNorthUpToFixedFrame" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+ck_vport_hpr = vm('grep -l "HeadingPitchRange" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+ck_vport_pre = vm('grep -l "preUpdate" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p15: cockpit vendor-port trio bundled (readCameraTargetFrame + setCameraTargetFrame + createCameraOrientationAnimator)",
+      all([bool(ck_vport_enu), bool(ck_vport_hpr), bool(ck_vport_pre)]),
+      f"enu={bool(ck_vport_enu)} hpr={bool(ck_vport_hpr)} pre={bool(ck_vport_pre)}")
+
+# MOUSE_LOOK_ZERO_OFFSET is a constant object; Vite inlines it into the
+# call site. Search for the value shape instead: headingDeltaRad=0 plus
+# pitchDeltaRad=0 plus rangeOffsetM=0 — the constant is the only place
+# all three zeros appear together in mouse-look.ts's offset state.
+ck_zero = vm('grep -l "headingDeltaRad" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p15: cockpit MOUSE_LOOK_ZERO_OFFSET re-export bundled", bool(ck_zero),
+      ck_zero or "mouse-look offset state (headingDeltaRad/pitchDeltaRad/rangeOffsetM) not found in dist bundle")
+
+# ---------------------------------------------------------------------------
 # GEV P13 (2026-09-21): flight-display optimization — default camera, enrich
 # budget override, HudAircraftDetail panel, 3rd ADS-B source. Same source-vs-
 # bundle split as the P9-P12 blocks. checks 54/55 are console-side (bundle +

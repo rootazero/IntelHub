@@ -27,6 +27,19 @@ export const COCKPIT_UTILITY_LAUNCHER_MIN_HEIGHT_PX = 50;
 
 export const COCKPIT_GROUND_PROBE_MS = 500;
 
+// GEV P15 — cockpit mouse-look + wheel-zoom (spec §4.2).
+// IntelHub-only extension — vendor gods-eye-view has not added these yet.
+// Next sync-vendor.sh run will detect drift and propose re-pin.
+export const COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX = 0.0035; // ≈0.2°/px
+export const COCKPIT_MOUSE_LOOK_PITCH_RATE_RAD_PER_PX = 0.0035;
+export const COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MIN_RAD = -1.4835; // ≈-85°
+export const COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MAX_RAD = 0.349; // ≈+20°
+export const COCKPIT_MOUSE_LOOK_SNAPBACK_MS = 350;
+export const COCKPIT_MOUSE_LOOK_SNAPBACK_THRESHOLD_RAD = 0.01;
+export const COCKPIT_MOUSE_WHEEL_RANGE_RATE_M_PER_DELTA = 25;
+export const COCKPIT_MOUSE_WHEEL_RANGE_MIN_M = 50;
+export const COCKPIT_MOUSE_WHEEL_RANGE_MAX_M = 5000;
+
 export const COCKPIT_GROUND_WAIT_TIMEOUT_MS = 5000;
 
 export const COCKPIT_BRIEF_ROTATE_MS = 9000;

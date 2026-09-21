@@ -16,5 +16,16 @@
       "file": "console/gev-engine/.gitignore",
       "reason": "Upstream-carried, vendored verbatim and inert for IntelHub (T1 verified it ignores 0 files under console/gev-engine): whitelisted so a sync diff never reads it as a local modification."
     }
+  ],
+  "intelhub_extensions": [
+    "COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX",
+    "COCKPIT_MOUSE_LOOK_PITCH_RATE_RAD_PER_PX",
+    "COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MIN_RAD",
+    "COCKPIT_MOUSE_LOOK_PITCH_CLAMP_MAX_RAD",
+    "COCKPIT_MOUSE_LOOK_SNAPBACK_MS",
+    "COCKPIT_MOUSE_LOOK_SNAPBACK_THRESHOLD_RAD",
+    "COCKPIT_MOUSE_WHEEL_RANGE_RATE_M_PER_DELTA",
+    "COCKPIT_MOUSE_WHEEL_RANGE_MIN_M",
+    "COCKPIT_MOUSE_WHEEL_RANGE_MAX_M"
   ]
 }
