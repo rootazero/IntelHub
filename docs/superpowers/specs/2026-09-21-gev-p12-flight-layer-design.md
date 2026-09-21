@@ -120,7 +120,7 @@
 │     → adsbdb.com /v0/aircraft/{hex}                              │
 │   GET /api/adsbdb/route/<cs>                                     │
 │     → adsbdb.com /v0/callsign/{cs}                               │
-│   缓存：/var/lib/intelhub/adsbdb-cache.json (24h TTL)            │
+│   缓存：/home/zou/IntelHub/data/adsbdb-cache.json (24h TTL, HUB_ADSBDB_CACHE_PATH 可覆盖)  │
 │   + 启动 loadOnce + dirty + setInterval(15s, .unref()) 刷盘    │
 │   (Section 4 A)                                                  │
 │                                                                  │
@@ -262,7 +262,8 @@ pub struct EnrichmentCache {
 }
 
 const TTL_MS: u64 = 24 * 3600 * 1000;
-const CACHE_PATH: &str = "/var/lib/intelhub/adsbdb-cache.json";
+const CACHE_PATH: &str = "/home/zou/IntelHub/data/adsbdb-cache.json";
+// 实施调整：原 `/var/lib/intelhub/...` 与 hub-core systemd unit 的 ProtectSystem=strict 冲突；改用 data/ 目录。env HUB_ADSBDB_CACHE_PATH 可覆盖
 
 struct CachedRoute { at: u64, data: Option<RouteData> }  // Option for negative cache
 struct CachedAircraft { at: u64, data: Option<AircraftData> }
