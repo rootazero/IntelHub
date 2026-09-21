@@ -176,6 +176,54 @@ describe("HudCockpitFrame", () => {
     expect(store.getState().hidden).toBe(false);
     expect(screen.getByTestId("hud-cockpit-briefing")).toBeInTheDocument();
   });
+
+  test("enter flies the camera to the tracked aircraft; exit flies back", async () => {
+    const flyTo = vi.fn().mockResolvedValue(true);
+    const viewer = {
+      scene: { canvas: {} },
+      camera: {
+        position: { clone: () => ({ x: 1, y: 2, z: 3 }) },
+        heading: 0.5,
+        pitch: -0.3,
+        roll: 0,
+        flyTo,
+      },
+    };
+    // jsdom has no rAF: run the enter callback synchronously so the one-frame
+    // deferral (spec R4) is observable in the test.
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    const getTrackedInfo = () => ({
+      longitude: -74.17,
+      latitude: 40.69,
+      altitudeM: 10000,
+    });
+    const store = createCockpitStore();
+    render(
+      <HudCockpitFrame
+        store={store}
+        viewer={viewer}
+        getTrackedInfo={getTrackedInfo}
+        instruments={null}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    // Viewer mounted but cockpit inactive → no flight yet.
+    expect(flyTo).not.toHaveBeenCalled();
+
+    act(() => store.enter("abc123"));
+    await act(async () => {});
+    expect(flyTo).toHaveBeenCalledTimes(1);
+    const enterReq = flyTo.mock.calls[0][0] as { duration: number };
+    expect(enterReq.duration).toBe(0.7);
+
+    act(() => store.exit());
+    await act(async () => {});
+    expect(flyTo).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("useCockpitStore", () => {

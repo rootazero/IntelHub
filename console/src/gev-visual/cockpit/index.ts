@@ -49,3 +49,11 @@ export {
   useCockpitShortcuts,
   type CockpitShortcutsOptions,
 } from "./shortcuts";
+
+export {
+  mountCockpitCameraTransition,
+  type CockpitCameraTransition,
+  type CockpitCameraTransitionDeps,
+  type CockpitCameraTarget,
+  type CockpitCameraFlyOptions,
+} from "./camera-transition";

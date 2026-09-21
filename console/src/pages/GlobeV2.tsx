@@ -1121,6 +1121,7 @@ export default function GlobeV2() {
       />
       <HudCockpitFrame
         store={cockpitStore}
+        viewer={sceneHandles?.viewer}
         getTrackedInfo={flightsRef.current}
         instruments={cockpitInstruments}
         briefing={cockpitBriefing}
