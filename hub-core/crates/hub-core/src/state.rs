@@ -25,6 +25,10 @@ pub struct AppState {
     /// Constructed empty here; `gev_enrichment::start` loads the disk cache
     /// and spawns the 15s dirty flusher during boot.
     pub enrichment: Arc<crate::gev_enrichment::EnrichmentService>,
+    /// GEV P12 T2: aircraft track backfill proxies (OpenSky OAuth + adaptive
+    /// TTL + 429 cooldown + serve-stale; adsb.lol trace fallback).
+    /// Constructed empty here — both caches self-warm on demand.
+    pub tracks: Arc<crate::gev_tracks::TracksService>,
 }
 
 impl AppState {
@@ -114,6 +118,10 @@ impl AppState {
         // subject to the same stampede guard as every other collector.
         let enrichment = Arc::new(crate::gev_enrichment::EnrichmentService::new(http.clone()));
 
+        // GEV P12 T2: track backfill proxies share the same client (and its
+        // per-host cap). OAuth credentials are read from the env once here.
+        let tracks = Arc::new(crate::gev_tracks::TracksService::new(http.clone()));
+
         Ok(Self {
             config,
             pg,
@@ -122,6 +130,7 @@ impl AppState {
             neo4j: Arc::new(neo4j),
             http,
             enrichment,
+            tracks,
             event_tx,
         })
     }

@@ -21,6 +21,7 @@ pub mod gev_geocode;
 pub mod provider_priority;
 pub mod gev_installations;
 pub mod gev_summary;
+pub mod gev_tracks;
 pub mod gev_traffic;
 pub mod gev_vessels;
 pub mod gev_weather;

@@ -93,6 +93,12 @@ pub fn router() -> Router<Arc<AppState>> {
         // literal strings in the engine (`enrichment.js`) — do not rename.
         .route("/api/adsbdb/type/{hex}", get(crate::gev_enrichment::gev_adsbdb_type))
         .route("/api/adsbdb/route/{callsign}", get(crate::gev_enrichment::gev_adsbdb_route))
+        // GEV P12 T2: aircraft track backfill proxies — OpenSky `/tracks/all`
+        // (OAuth + adaptive TTL + 429 cooldown + serve-stale) and the adsb.lol
+        // trace long-tail fallback. Both paths are literal strings in the
+        // vendor engine (`standalone.js`) — do not rename.
+        .route("/api/opensky-track", get(crate::gev_tracks::gev_opensky_track))
+        .route("/api/adsblol/trace", get(crate::gev_tracks::gev_adsblol_trace))
         // GEV P7: location search geocode proxy (photon, keyless, cached 1h)
         .route("/api/v1/gev/geocode", get(crate::gev_geocode::gev_geocode))
         // GEV P9: weather brief (NOAA + Open-Meteo dual-source fallback)
