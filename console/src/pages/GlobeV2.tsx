@@ -96,6 +96,11 @@ import {
   type ModelVisibilityHandle,
   type GatedStyleControl,
 } from "../gev-visual/cockpit";
+// GEV P15 T6: mouse-look provides per-frame offset consumed by chase-cam.
+import {
+  mountCockpitMouseLook,
+  type MouseLookHandle,
+} from "../gev-visual/cockpit/mouse-look";
 import { HudCockpitFrame, useCockpitStore } from "../globe-hud/HudCockpitFrame";
 import { readPersistedVisionMode } from "../globe-hud/HudCockpitVisionSwitch";
 // P10-T3: 9 tail adapters + URL hash share hook.
@@ -243,6 +248,10 @@ export default function GlobeV2() {
   const cockpitCameraTransitionRef = useRef<CockpitCameraTransition | null>(null);
   const chaseCamRef = useRef<ChaseCamHandle | null>(null);
   const modelVisRef = useRef<ModelVisibilityHandle | null>(null);
+  // GEV P15 T6: mouse-look handle. Mounted BEFORE chase-cam so chase-cam's
+  // first cadence tick can read getFrameOffset(); destroyed AFTER chase-cam
+  // so any in-flight offsets aren't read by a destroyed chase-cam.
+  const mouseLookRef = useRef<MouseLookHandle | null>(null);
   const [cockpitVision, setCockpitVision] =
     useState<VisionMountHandle | null>(null);
   const flightsRef = useRef<(() => CockpitTrackedInfo | null) | undefined>(
@@ -517,6 +526,16 @@ export default function GlobeV2() {
           }
           if (cockpitCameraTransitionRef.current) {
             try {
+              // GEV P15 T6: mount mouse-look first so chase-cam's first
+              // cadence tick can read getFrameOffset(). The handle is stored
+              // on a ref so cleanup can destroy it in the correct order.
+              const ml = mountCockpitMouseLook({
+                viewer: viewer as Parameters<
+                  typeof mountCockpitMouseLook
+                >[0]["viewer"],
+                store: cockpitStore,
+              });
+              mouseLookRef.current = ml;
               const cc = mountCockpitChaseCam({
                 viewer: viewer as Parameters<
                   typeof mountCockpitChaseCam
@@ -539,6 +558,9 @@ export default function GlobeV2() {
                   const info = flightsRef.current?.() ?? null;
                   return info?.track ?? null;
                 },
+                // GEV P15 T6: mouse-look feeds per-frame heading/pitch/range
+                // offsets that chase-cam applies on top of its baseline pose.
+                mouseLook: ml,
               });
               chaseCamRef.current = cc;
               cc.start();
@@ -922,8 +944,12 @@ export default function GlobeV2() {
       // its rotation timer, instruments drops its frame).
       // GEV P14 T4: destroy chase-cam first (depends on transition),
       // then model-visibility, then drop the transition ref (stateless).
+      // GEV P15 T6: destroy mouse-look AFTER chase-cam so any in-flight
+      // offsets aren't read by a destroyed chase-cam.
       chaseCamRef.current?.destroy();
       chaseCamRef.current = null;
+      mouseLookRef.current?.destroy();
+      mouseLookRef.current = null;
       modelVisRef.current?.destroy();
       modelVisRef.current = null;
       cockpitCameraTransitionRef.current = null;
