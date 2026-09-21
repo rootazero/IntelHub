@@ -29,6 +29,26 @@
 7. **`git push origin main`**
 8. **绝不**：① 直接在 main 工作区改；② 跳过 415 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
 
+## 🔴 重启 hub-core 后必须等 5 分钟（2026-09-20 PVE40 崩溃教训）
+
+> **`sudo systemctl restart hub-core` 之后必须等至少 5 分钟才能再做验收 / 重启 / 高流量动作。**
+
+**为什么**：hub-core 重启会 spawn **74 个 monitor 任务同时打外网**（cnn/misp/gdelt/overpass/celestrak/adsb/bluesky/telegram/...），加上 cctv-refresh 内部 11 个 provider 串联 retry（最坏 103s），所有出口走 `openclash` fake-IP（10.10.10.1）。未限速的 reqwest pool + 7-source-per-slot stagger 会在重启瞬间产生 ~70 个并发 TCP 出站请求，击穿 openclash 的 NAT 表 + PVE40 bridge fdb → **PVE40 宿主机断网（`Host is down`）**。P10 ledger + 2026-09-20 实测都记录了这个模式（恢复需要重启 PVE40 硬件）。
+
+**强制等待协议**：
+1. `sudo systemctl restart hub-core` 后**至少 `sleep 300`**，才能跑 acceptance
+2. 在等待期间，**禁止**再 `systemctl restart hub-core`（背靠背重启会让问题翻倍）
+3. 验收前 `sudo journalctl -u hub-core --since "5 minutes ago"` 确认 `cctv-refresh` 一轮跑完（修复后 < 30s，修复前可能 > 60s），且没有 stampede 重启痕迹
+
+**验证 stampede 已经修复**（fix/deploy-stampede 合并后生效）：
+```bash
+ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ago" --no-pager \
+  | grep "cctv-refresh" | tail -3'
+# 期望：ms<30000 (修复后 ~5s)。修复前会看到 ms=100000+
+```
+
+详见：`docs/superpowers/execution/2026-09-20-deploy-stampede-postmortem.md`
+
 ## 部署命令（每次必走的完整序列）
 
 ### 阶段 1：IntelHub-test 验收（必做）
