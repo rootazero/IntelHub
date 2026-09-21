@@ -33,6 +33,40 @@ function makeEntity(opts: { lon?: number; lat?: number; alt?: number; id?: strin
   };
 }
 
+/** Entity whose position advances metersPerTick meters north on every call to
+ *  getValue. Reuse the same handle across calls so tickCount accumulates. */
+function makeMovingEntity(opts: {
+  startLon?: number;
+  startLat?: number;
+  alt?: number;
+  metersPerTick?: number;
+  id?: string;
+} = {}) {
+  const startLon = opts.startLon ?? NYC_LON;
+  const startLat = opts.startLat ?? NYC_LAT;
+  const alt = opts.alt ?? NYC_ALT;
+  const metersPerTick = opts.metersPerTick ?? 100;
+  // 1 deg latitude ≈ 111 111 m (good enough for short distances).
+  const deltaLat = metersPerTick / 111111;
+  let tickCount = 0;
+  return {
+    id: opts.id ?? "icao-moving",
+    position: {
+      getValue: (_time: unknown, result?: Cesium.Cartesian3) => {
+        const c = Cesium.Cartesian3.fromDegrees(
+          startLon,
+          startLat + tickCount * deltaLat,
+          alt,
+          undefined,
+          result,
+        );
+        tickCount++;
+        return c;
+      },
+    },
+  };
+}
+
 function makeStore(initial: { active: boolean; trackedId: string | null }) {
   const listeners = new Set<() => void>();
   let state = initial;
@@ -250,6 +284,54 @@ describe("mountCockpitChaseCam", () => {
     tickAdvance(60);
     flushRafs(1);
     expect(viewer.camera.setView).toHaveBeenCalledTimes(1);
+    handle.destroy();
+  });
+
+  it("anchor follows entity motion via inertial advance", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-moving" });
+    const transition = makeTransition();
+    // heading=0 → forward vector points north, so the 7m forward offset adds
+    // to the anchor's north motion rather than canceling it.
+    const movingEntity = makeMovingEntity({ metersPerTick: 100 });
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => movingEntity as never,
+      getHeading: () => 0,
+    });
+    handle.start();
+    // First tick: anchor = target (at start). Snapshot initial destination
+    // by computing lat/lon RIGHT NOW — the chase-cam closure reuses a single
+    // scratchCartesian3 across ticks, so reading mock.calls[i].destination
+    // later returns the final tick's value.
+    tickAdvance(60);
+    flushRafs(1);
+    const initialDestCart = Cesium.Cartographic.fromCartesian(
+      viewer.camera.setView.mock.calls[0][0].destination,
+    );
+    // Three more ticks. Entity has moved 3 * 100 m north; anchor should
+    // track it via the inertial-advance path.
+    tickAdvance(60);
+    flushRafs(1);
+    tickAdvance(60);
+    flushRafs(1);
+    tickAdvance(60);
+    flushRafs(1);
+    const lastDestCart = Cesium.Cartographic.fromCartesian(
+      viewer.camera.setView.mock.calls[
+        viewer.camera.setView.mock.calls.length - 1
+      ][0].destination,
+    );
+    const deltaLatDeg = Cesium.Math.toDegrees(
+      lastDestCart.latitude - initialDestCart.latitude,
+    );
+    const metersPerDegLat = 111111;
+    const deltaMeters = deltaLatDeg * metersPerDegLat;
+    // With a 200 m/s entity the destination should be ~300 m farther north
+    // after 4 ticks. Old (correction-only) code capped at ~0.14 m total.
+    expect(deltaMeters).toBeGreaterThan(50);
     handle.destroy();
   });
 

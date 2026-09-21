@@ -102,6 +102,12 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
   const scratchCamera = new Cesium.Cartesian3();
   const scratchOffset = new Cesium.Cartesian3();
   const cockpitAnchor = new Cesium.Cartesian3();
+  // Previous tick's resolved position — used to derive the entity's motion
+  // delta and advance the anchor inertially. Without this, the bounded
+  // cockpitAnchorCorrectionStep is capped at 0.75 m/s and a 200 m/s aircraft
+  // leaves the anchor 100+ m behind after 1 s.
+  const prevTarget = new Cesium.Cartesian3();
+  let prevTargetValid = false;
   let heading: number | null = null;
   let lastFrameMs = 0;
   let lastCameraUpdateMs = 0;
@@ -145,6 +151,19 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
       Cesium.Cartesian3.clone(target, cockpitAnchor);
       cockpitAnchorValid = true;
     } else {
+      // 6a. Inertial advance: anchor moves by the entity's reported motion
+      // delta so we don't depend on cockpitAnchorCorrectionStep's bounded
+      // rate (0.75 m/s floor when speed input is 0). For a 200 m/s aircraft
+      // a correction-only path leaves the anchor ~133 m behind after 1 s;
+      // tracking the entity's reported position keeps the anchor glued.
+      if (prevTargetValid) {
+        const motion = Cesium.Cartesian3.subtract(target, prevTarget, scratchOffset);
+        Cesium.Cartesian3.add(cockpitAnchor, motion, cockpitAnchor);
+      }
+      // 6b. Bounded correction step — converges on any residual position
+      // drift that wasn't captured by the inertial advance (e.g. a feed
+      // re-anchor that didn't propagate through motion). Vendor behavior:
+      // min(distance, distance*(1-e^{-1.25 dt}), max(0.75, speed*0.22)*dt).
       const distanceM = Cesium.Cartesian3.distance(cockpitAnchor, target);
       const correctionM = cockpitAnchorCorrectionStep(distanceM, 0, dtSec);
       if (correctionM > 0 && distanceM > 0) {
@@ -154,6 +173,9 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
         Cesium.Cartesian3.add(cockpitAnchor, dir, cockpitAnchor);
       }
     }
+    // Save the resolved target for the next tick's velocity derivation.
+    Cesium.Cartesian3.clone(target, prevTarget);
+    prevTargetValid = true;
 
     // 7. Build ENU frame at anchor
     Cesium.Transforms.eastNorthUpToFixedFrame(cockpitAnchor, undefined, scratchEnu);
@@ -204,6 +226,11 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
       running = true;
       lastFrameMs = performance.now();
       lastCameraUpdateMs = 0;
+      // Reset prevTarget so a fresh enter re-anchors cleanly. Without this,
+      // the first tick after a new enter would try to advance the anchor by
+      // (newTarget - oldTarget) which can span the whole globe if the user
+      // switched aircraft.
+      prevTargetValid = false;
       if (rafId === null) rafId = requestAnimationFrame(step);
     },
     stop(): void {
@@ -219,6 +246,7 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
       }
       unsubscribe();
       cockpitAnchorValid = false;
+      prevTargetValid = false;
       heading = null;
     },
   };
