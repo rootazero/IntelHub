@@ -53,3 +53,34 @@ describe("c2: chase-cam reuses vendor cockpit libraries (no re-implementation)",
     expect(src).toContain('from "gev-engine/src/ui/cockpitPresentation.js"');
   });
 });
+
+// ── c3: single-camera-writer invariant (GEV P15 T7) ───────────────────────
+//
+// chase-cam is the SOLE camera writer in cockpit mode (it calls
+// viewer.camera.setView). mouse-look is an INPUT-only module — it must
+// mutate only closure-scoped {headingDeltaRad, pitchDeltaRad,
+// rangeOffsetM} state and surface them via getFrameOffset(). Camera
+// writes flow through the animator (setCameraTargetFrame) only on
+// snap-back; live drag offsets never touch the camera directly.
+//
+// Why this guard matters: if mouse-look ever starts calling
+// viewer.camera.setView (or .flyTo / .lookAt outside the animator),
+// chase-cam's 50ms tick will fight the drag handler and the camera
+// will jitter.
+
+describe("c3: mouse-look is input-only — never writes camera directly", () => {
+  test("mouse-look.ts does NOT call viewer.camera.setView (single-camera-writer invariant)", () => {
+    const src = readCockpitSource("mouse-look.ts");
+    // Camera writes go through setCameraTargetFrame (animator) only.
+    expect(src).not.toMatch(/\.camera\.setView\b/);
+  });
+
+  test("mouse-look.ts READS viewer.camera (constructor contract — proves camera is wired, not bypassed)", () => {
+    const src = readCockpitSource("mouse-look.ts");
+    // mouse-look reads viewer.camera in its constructor seam
+    // (`if (!deps?.viewer?.camera)`); optional-chained forms must count too
+    // since the file uses `viewer?.camera` rather than `viewer.camera.`.
+    const cameraReads = (src.match(/\?\.camera\b|\.camera\b/g) ?? []).length;
+    expect(cameraReads).toBeGreaterThan(0);
+  });
+});

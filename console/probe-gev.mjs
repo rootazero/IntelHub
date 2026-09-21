@@ -1242,6 +1242,108 @@ try {
       if (!ok) warnings.push(`P14: ${name} failed (requires tracked flight)`);
     }
 
+    // ---- GEV P15: cockpit mouse-look — synthetic right-drag snap-back (2026-09-21) ----
+    // Runs while cockpit is still active (mouse-look.ts only registers its
+    // ScreenSpaceEventHandler when cockpitStore.active === true, so the
+    // Escape press above MUST stay after this block). Same globals-missing
+    // degradation as P14 (chase-envelope requires a tracked flight). The
+    // behavioral snap-back surface (RIGHT_DOWN → MOUSE_MOVE → RIGHT_UP →
+    // headingDeltaRad=0 / pitchDeltaRad=0) is unit-tested in
+    // mouse-look.test.ts; here the live probe verifies the cockpit surface
+    // (viewer + tracked entity + canvas) is configured so the handler CAN
+    // fire, then tries to read getFrameOffset() if a handle global is
+    // exposed. With no exposed global (the default), the assertion reduces
+    // to a structural check — the drag cycle completes without crashing
+    // Cesium's input handler. Any handler exception surfaces as a pageerror
+    // and is captured by the top-level filter.
+    try {
+      // COCKPIT_MOUSE_LOOK_SNAPBACK_MS — gev-engine/src/ui/cockpitPresentation.js.
+      // Pinned here (350ms) instead of imported: the probe is a vendored
+      // Playwright script with no module resolution, and the engine const
+      // can drift independently — the +50ms slack absorbs any drift.
+      const SNAPBACK_MS = 350;
+      const P15_PROBES = [
+        [
+          "p15-snap-back",
+          async () => {
+            // Pre-flight: viewer + tracked + canvas all reachable. Mirrors
+            // P14 chase-envelope's globals check — degrades to warning when
+            // the cockpit is open but no flight is being tracked.
+            const ready = await page.evaluate(() => {
+              const cam = window.__gevViewer?.camera;
+              const ent = window.__gevTrackedEntity;
+              const canvas = window.__gevViewer?.scene?.canvas;
+              return !!(cam && ent?.position && canvas);
+            });
+            if (!ready) return false;
+
+            // Locate the canvas center for synthetic events.
+            const box = await page.evaluate(() => {
+              const c = window.__gevViewer?.scene?.canvas;
+              if (!c) return null;
+              const r = c.getBoundingClientRect();
+              return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            });
+            if (!box) return false;
+
+            // Right-drag cycle: down → move → up. Cesium's RIGHT_DOWN
+            // fires isDragging=true; MOUSE_MOVE accumulates headingDeltaRad
+            // / pitchDeltaRad; RIGHT_UP synchronously zeroes the offsets
+            // (mouse-look.ts:RIGHT_UP handler — both branches below and
+            // above SNAPBACK_THRESHOLD_RAD set deltas to zero immediately).
+            await page.mouse.move(box.x, box.y);
+            await page.mouse.down({ button: "right" });
+            await page.mouse.move(box.x + 100, box.y, { steps: 5 });
+            await page.mouse.up({ button: "right" });
+            await page.waitForTimeout(SNAPBACK_MS + 50);
+
+            // Post-drag: try to read getFrameOffset() if a handle global
+            // is exposed. With no exposed global the assertion reduces to
+            // a structural success — the drag cycle exercised Cesium's
+            // ScreenSpaceEventHandler path; any handler crash would be
+            // caught as a pageerror above and surfaced as a fatal in the
+            // post-loop assertions.
+            const offset = await page.evaluate(() => {
+              const h = window.__gevMouseLook;
+              if (h && typeof h.getFrameOffset === "function") {
+                const o = h.getFrameOffset();
+                return {
+                  headingDeltaRad: o.headingDeltaRad ?? null,
+                  pitchDeltaRad: o.pitchDeltaRad ?? null,
+                };
+              }
+              return null;
+            });
+            if (offset) {
+              const near = (n) => Math.abs(n) < 0.05;
+              return (
+                near(offset.headingDeltaRad) && near(offset.pitchDeltaRad)
+              );
+            }
+            // No exposed handle global — structural check only.
+            return true;
+          },
+        ],
+      ];
+
+      for (const [name, fn] of P15_PROBES) {
+        let ok = false;
+        let note = "";
+        try {
+          ok = !!(await fn());
+        } catch (e) {
+          note = ` err=${e.message}`;
+        }
+        console.log(`${name}=${ok ? 1 : 0}${note}`);
+        if (!ok)
+          warnings.push(
+            `P15: ${name} failed (requires tracked flight + mouse-look handle global)`,
+          );
+      }
+    } catch (e) {
+      warnings.push(`P15 mouse-look segment threw: ${e.message}`);
+    }
+
     await page.keyboard.press("Escape").catch(() => {});
     await page.waitForTimeout(200);
   } catch (e) {

@@ -355,4 +355,170 @@ describe("mountCockpitChaseCam", () => {
     flushRafs(2);
     expect(viewer.camera.setView).not.toHaveBeenCalled();
   });
+
+  // GEV P15 T4 — mouse-look offset injection into chase-cam.
+  //
+  // These three tests pin the contract that:
+  //   (1) when mouseLook is omitted, chase-cam produces the P14 pose
+  //       (anchor + forward*7 + up*2.6) — exact backward-compat,
+  //   (2) when mouseLook IS provided, getFrameOffset() is read on each
+  //       cadence tick and applied to heading/pitch/range,
+  //   (3) heading composition is ADDITIVE — drag rides on top of track
+  //       slew, not a replacement.
+
+  it("uses ZERO_OFFSET when mouseLook is omitted (backward-compat with P14)", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    tickAdvance(60);
+    flushRafs(1);
+    expect(viewer.camera.setView).toHaveBeenCalled();
+    // Capture the destination and assert it's exactly 7m forward + 2.6m up
+    // (no offset applied). With heading=90° and COCKPIT_VIEW_PITCH_DEG=-4
+    // (note: it's NEGATIVE — slightly looking down) the camera sits at
+    // anchor + forward*7 + up*2.6 in LOCAL ENU, with forward's z-component
+    // contributing a small downward shift. Distance from anchor in local
+    // ENU = sqrt((7*cos(PITCH_RAD))² + (7*sin(PITCH_RAD) + 2.6)²). For
+    // PITCH_RAD=-4°, that's ≈7.30m. We assert with 1-decimal tolerance
+    // to absorb Cesium's tiny re-projection rounding.
+    const call = viewer.camera.setView.mock.calls.at(-1)?.[0] as
+      | { destination: Cesium.Cartesian3 }
+      | undefined;
+    expect(call).toBeDefined();
+    const dest = call!.destination;
+    const anchor = Cesium.Cartesian3.fromDegrees(NYC_LON, NYC_LAT, NYC_ALT);
+    const dist = Cesium.Cartesian3.distance(dest, anchor);
+    // Import the actual constant so the test stays in sync with engine.
+    // gev-engine is consumed as an ES module via the engine's vite alias;
+    // in vitest, importing it requires the package alias configured in
+    // vitest.config — we just hardcode -4 here, with a comment that any
+    // pitch change in cockpitPresentation.js requires updating this value.
+    const pitchRad = Cesium.Math.toRadians(-4); // COCKPIT_VIEW_PITCH_DEG = -4
+    const horiz = 7 * Math.cos(pitchRad);
+    const vert = 7 * Math.sin(pitchRad) + 2.6;
+    const expected = Math.sqrt(horiz * horiz + vert * vert);
+    expect(dist).toBeCloseTo(expected, 1);
+    handle.destroy();
+  });
+
+  it("reads mouseLook.getFrameOffset() on each cadence tick (offset injection)", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    // Mouse-look offset: heading +0.35 rad, pitch +0.20 rad, range +500m.
+    // The range offset is the cleanest signal that getFrameOffset() was
+    // read and applied — without it, the camera sits ~7.7m from anchor;
+    // with +500m, the camera sits ~507m away. (Note: heading/pitch offsets
+    // also apply, but the ECEF dot-product assertion the brief sketches
+    // is non-portable across anchor longitudes — at NYC lon=-74° the
+    // local-ENU-north vector tilts well off the ECEF (0,1,0) axis, so a
+    // pure ECEF dot is a confusing signal. Distance from anchor is
+    // longitude-invariant.)
+    const mouseLook = {
+      getFrameOffset: () => ({
+        headingDeltaRad: 0.35,
+        pitchDeltaRad: 0.20,
+        rangeOffsetM: 500,
+      }),
+      snapBack: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+      mouseLook,
+    });
+    handle.start();
+    tickAdvance(60);
+    flushRafs(1);
+    expect(viewer.camera.setView).toHaveBeenCalled();
+    const call = viewer.camera.setView.mock.calls.at(-1)?.[0] as
+      | { destination: Cesium.Cartesian3 }
+      | undefined;
+    expect(call).toBeDefined();
+    const dest = call!.destination;
+    const anchor = Cesium.Cartesian3.fromDegrees(NYC_LON, NYC_LAT, NYC_ALT);
+    const dist = Cesium.Cartesian3.distance(dest, anchor);
+    // 500m range offset → camera sits ~507m from anchor. Assert > 100m
+    // to leave plenty of slack for any future envelope tweaks.
+    expect(dist).toBeGreaterThan(100);
+    handle.destroy();
+  });
+
+  it("heading slew composes drag offset with track slew (additive, not replacement)", () => {
+    // Verify slewHeading's target is (getHeading() + offset.headingDeltaRad),
+    // not just getHeading() — drag rides ON TOP of track slew. Track angle
+    // = 90°, drag offset = 1 rad → expected heading slew target is 90° + 1
+    // rad ≈ 147.3°. With heading ≈147°, the local-ENU forward direction
+    // has a strongly negative y-component (south). We verify by inverse-
+    // transforming the ECEF direction back into the anchor's ENU frame
+    // and checking that the local-north component is negative. Without
+    // the offset, heading would stay at 90° and localDir.y would be ~0.
+    //
+    // SLEW TIMING: COCKPIT_HEADING_SLEW_DPS = 28°/s. To slew from 90° to
+    // 147.3° (delta ≈ 57.3°) takes ≈ 2.05 s. dtSec is clamped at 0.1 s
+    // per tick, so we need ≥ 21 ticks. We run 30 ticks at 200 ms each
+    // (dtSec clamps at 0.1) to give the slew well past convergence.
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    const mouseLook = {
+      getFrameOffset: () => ({
+        headingDeltaRad: 1.0,
+        pitchDeltaRad: 0,
+        rangeOffsetM: 0,
+      }),
+      snapBack: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+      mouseLook,
+    });
+    handle.start();
+    for (let i = 0; i < 30; i++) {
+      tickAdvance(200);
+      flushRafs(1);
+    }
+    expect(viewer.camera.setView).toHaveBeenCalled();
+    const call = viewer.camera.setView.mock.calls.at(-1)?.[0] as
+      | { orientation: { direction: Cesium.Cartesian3 } }
+      | undefined;
+    expect(call).toBeDefined();
+    // Inverse-transform direction from ECEF to local ENU at the anchor.
+    // ENU frame is orthonormal, so the inverse is its transpose.
+    const anchor = Cesium.Cartesian3.fromDegrees(NYC_LON, NYC_LAT, NYC_ALT);
+    const enu = Cesium.Transforms.eastNorthUpToFixedFrame(anchor);
+    const enuInv = Cesium.Matrix4.inverseTransformation(
+      enu,
+      new Cesium.Matrix4(),
+    );
+    const localDir = Cesium.Matrix4.multiplyByPointAsVector(
+      enuInv,
+      call!.orientation.direction,
+      new Cesium.Cartesian3(),
+    );
+    // With heading ≈147°, local-north component < 0 (camera looks south).
+    // Without offset, heading would be 90° and local-north = 0; this
+    // assertion would fail (expect.toBeLessThan(-0.5) requires the value
+    // to be less than -0.5, and 0 is not). The threshold -0.5 is loose
+    // enough to absorb Cesium's normalization/ENU-transform rounding.
+    expect(localDir.y).toBeLessThan(-0.5);
+    handle.destroy();
+  });
 });
