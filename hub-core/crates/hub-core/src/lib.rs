@@ -15,6 +15,7 @@ pub mod entity_seeder;
 pub mod error;
 pub mod events;
 pub mod gev_cctv;
+pub mod gev_enrichment;
 pub mod gev_cctv_frame_fallback;
 pub mod gev_geocode;
 pub mod provider_priority;

@@ -87,6 +87,12 @@ pub fn router() -> Router<Arc<AppState>> {
         // hls → 501 until the P4 playlist proxy. SSRF-impossible: ids only.
         .route("/api/v1/gev/cctv/frame/{id}", get(crate::gev_cctv::gev_cctv_frame))
         .route("/api/v1/gev/cctv/media/{id}", get(crate::gev_cctv::gev_cctv_media))
+        // GEV P12 T1: adsbdb.com enrichment proxy — callsign → route,
+        // ICAO24 hex → aircraft type. 24h disk-persisted cache + per-key
+        // request coalescing; keyless upstream (CC0). Vendor paths are
+        // literal strings in the engine (`enrichment.js`) — do not rename.
+        .route("/api/adsbdb/type/{hex}", get(crate::gev_enrichment::gev_adsbdb_type))
+        .route("/api/adsbdb/route/{callsign}", get(crate::gev_enrichment::gev_adsbdb_route))
         // GEV P7: location search geocode proxy (photon, keyless, cached 1h)
         .route("/api/v1/gev/geocode", get(crate::gev_geocode::gev_geocode))
         // GEV P9: weather brief (NOAA + Open-Meteo dual-source fallback)

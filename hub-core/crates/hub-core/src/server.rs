@@ -110,6 +110,17 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         tokio::spawn(async move { crate::spiderfoot::run_spiderfoot_sync(s, t).await });
     }
 
+    {
+        // GEV P12 T1: adsbdb enrichment — load the disk cache and start the
+        // 15s dirty flusher. Missing/corrupt cache starts empty, never fatal.
+        let s = (*state).clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::gev_enrichment::start(s).await {
+                tracing::warn!(error = %e, "adsbdb enrichment start failed");
+            }
+        });
+    }
+
     // Qdrant collection provisioning (idempotent; failure is non-fatal —
     // the embedding worker will surface outages as alerts).
     if let Err(e) = crate::vector::ensure_collection(&state).await {

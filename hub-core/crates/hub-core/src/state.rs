@@ -21,6 +21,10 @@ pub struct AppState {
     pub neo4j: Arc<neo4rs::Graph>,
     pub http: reqwest::Client,
     pub event_tx: broadcast::Sender<BusEvent>,
+    /// GEV P12 T1: adsbdb enrichment proxy state (24h cache + coalescer).
+    /// Constructed empty here; `gev_enrichment::start` loads the disk cache
+    /// and spawns the 15s dirty flusher during boot.
+    pub enrichment: Arc<crate::gev_enrichment::EnrichmentService>,
 }
 
 impl AppState {
@@ -105,6 +109,11 @@ impl AppState {
 
         let (event_tx, _) = broadcast::channel(1024);
 
+        // GEV P12 T1: adsbdb enrichment shares the pooled HTTP client
+        // (per-host cap already applied above) so its upstream fetches are
+        // subject to the same stampede guard as every other collector.
+        let enrichment = Arc::new(crate::gev_enrichment::EnrichmentService::new(http.clone()));
+
         Ok(Self {
             config,
             pg,
@@ -112,6 +121,7 @@ impl AppState {
             redis_slot: Arc::new(RwLock::new(redis)),
             neo4j: Arc::new(neo4j),
             http,
+            enrichment,
             event_tx,
         })
     }
