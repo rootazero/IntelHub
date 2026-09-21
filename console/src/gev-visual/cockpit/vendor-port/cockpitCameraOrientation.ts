@@ -104,7 +104,8 @@ function pickViewTarget(viewer: PickedViewer): Cesium.Cartesian3 | null {
     typeof camera.getPickRay === "function"
   ) {
     try {
-      target = scene.globe?.pick(camera.getPickRay(center), scene) || null;
+      const ray = camera.getPickRay(center);
+      target = ray ? scene.globe?.pick(ray, scene) || null : null;
     } catch {
       target = null;
     }

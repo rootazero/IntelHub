@@ -18,7 +18,7 @@ import {
 } from "gev-engine/src/ui/cockpitPresentation.js";
 
 interface MouseEvent {
-  position: { x: number; y: number };
+  position?: { x: number; y: number };
   endPosition?: { x: number; y: number };
   deltaY?: number;
   deltaMode?: number;
@@ -81,7 +81,7 @@ function makeViewer() {
         getScreenSpaceEventHandler: vi.fn(() => screenSpaceEventHandler),
       },
       isDestroyed: () => false,
-    } as never,
+    } as any,
   };
 }
 
@@ -118,8 +118,8 @@ describe("mountCockpitMouseLook", () => {
       const { store } = makeStore();
       expect(() =>
         mountCockpitMouseLook({
-          viewer: { scene: {}, camera: {} } as never,
-          store: store as never,
+          viewer: { scene: {}, camera: {} } as unknown as Parameters<typeof mountCockpitMouseLook>[0]["viewer"],
+          store: store as unknown as Parameters<typeof mountCockpitMouseLook>[0]["store"],
         }),
       ).toThrow(TypeError);
     });
@@ -128,8 +128,8 @@ describe("mountCockpitMouseLook", () => {
       const { viewer } = makeViewer();
       expect(() =>
         mountCockpitMouseLook({
-          viewer: viewer as never,
-          store: { subscribe: () => () => {} } as never,
+          viewer: viewer as any,
+          store: { subscribe: () => () => {} } as any,
         }),
       ).toThrow(TypeError);
     });
@@ -138,8 +138,8 @@ describe("mountCockpitMouseLook", () => {
       const { viewer } = makeViewer();
       expect(() =>
         mountCockpitMouseLook({
-          viewer: viewer as never,
-          store: { getState: () => ({ active: true }) } as never,
+          viewer: viewer as any,
+          store: { getState: () => ({ active: true }) } as any,
         }),
       ).toThrow(TypeError);
     });
@@ -150,8 +150,8 @@ describe("mountCockpitMouseLook", () => {
       const { viewer } = makeViewer();
       const { store } = makeStore();
       const handle = mountCockpitMouseLook({
-        viewer: viewer as never,
-        store: store as never,
+        viewer: viewer as any,
+        store: store as any,
       });
       expect(handle.getFrameOffset()).toEqual({
         headingDeltaRad: 0,
@@ -171,8 +171,8 @@ describe("mountCockpitMouseLook", () => {
       v = makeViewer();
       s = makeStore(true);
       handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
     });
 
@@ -255,8 +255,8 @@ describe("mountCockpitMouseLook", () => {
       v = makeViewer();
       s = makeStore(true);
       handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
     });
 
@@ -296,8 +296,8 @@ describe("mountCockpitMouseLook", () => {
       v = makeViewer();
       s = makeStore(true);
       handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
       v.handlers.get(WHEEL)!({ deltaY: -1_000_000, deltaMode: 0 });
       const minOffset =
@@ -357,8 +357,8 @@ describe("mountCockpitMouseLook", () => {
       v = makeViewer();
       s = makeStore(true);
       handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
     });
 
@@ -410,8 +410,8 @@ describe("mountCockpitMouseLook", () => {
       const v = makeViewer();
       const s = makeStore(true);
       const handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
       handle.destroy();
       // screenSpaceEventHandler.destroy should have been called
@@ -425,8 +425,8 @@ describe("mountCockpitMouseLook", () => {
       const v = makeViewer();
       const s = makeStore(true);
       const handle = mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
       v.handlers.get(RIGHT_DOWN)!({ position: { x: 100, y: 100 } });
       v.handlers.get(MOUSE_MOVE)!({
@@ -446,8 +446,8 @@ describe("mountCockpitMouseLook", () => {
       const v = makeViewer();
       const s = makeStore(false);
       mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
       expect(v.screenSpaceEventHandler.setInputAction).not.toHaveBeenCalled();
     });
@@ -456,8 +456,8 @@ describe("mountCockpitMouseLook", () => {
       const v = makeViewer();
       const s = makeStore(false);
       mountCockpitMouseLook({
-        viewer: v.viewer as never,
-        store: s.store as never,
+        viewer: v.viewer as any,
+        store: s.store as any,
       });
       expect(v.screenSpaceEventHandler.setInputAction).not.toHaveBeenCalled();
       s.store.setActive(true);
