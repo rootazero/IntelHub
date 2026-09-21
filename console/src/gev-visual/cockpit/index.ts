@@ -59,6 +59,12 @@ export {
 } from "./camera-transition";
 
 export {
+  mountModelVisibility,
+  type ModelVisibilityDeps,
+  type ModelVisibilityHandle,
+} from "./model-visibility";
+
+export {
   mountCockpitViewportLock,
   type CockpitViewportLock,
   type CockpitViewportLockViewer,
