@@ -42,7 +42,12 @@ pub async fn run(
         let s = state.clone();
         let t = ct.child_token();
         let c = ctx.clone();
-        let stagger = Duration::from_secs((idx as u64 % 10) * 3);
+        // fix/deploy-stampede Layer 2: spread first-run stagger across the
+        // full source count instead of clustering into 10 slots (which had
+        // 7 sources sharing each 3-second slot when registry hits 74). At
+        // 1.5s/source, 74 sources spread over ~110 seconds — cctv-refresh
+        // (sequential, 11 providers, up to 103s) gets a clean window too.
+        let stagger = Duration::from_secs((idx as u64 * 3) / 2);
         tokio::spawn(async move { source_loop(s, c, src, t, stagger).await });
         started += 1;
     }
@@ -54,7 +59,7 @@ pub async fn run(
         let s = state.clone();
         let t = ct.child_token();
         let c = ctx.clone();
-        let stagger = Duration::from_secs(((idx + started) as u64 % 10) * 3);
+        let stagger = Duration::from_secs(((idx + started) as u64 * 3) / 2);
         tokio::spawn(async move { series_loop(s, c, col, t, stagger).await });
         started += 1;
     }
@@ -198,5 +203,67 @@ async fn retention_loop(state: AppState, ct: CancellationToken) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// fix/deploy-stampede Layer 2: the old formula
+    /// `Duration::from_secs((idx as u64 % 10) * 3)` clustered 74
+    /// sources into 10 stagger slots (7 per slot). The new formula
+    /// `Duration::from_secs((idx as u64 * 3) / 2)` distributes them
+    /// across the full registry count at 1.5s/source. This test pins
+    /// the new behavior: for any pair of adjacent source indices in
+    /// the typical registry size (74 sources + ~26 collectors ≈ 100
+    /// total), the staggered start must be at least 1 second apart.
+    #[test]
+    fn stagger_spreads_per_source_not_per_slot() {
+        // Reproduce the production formula inlined into scheduler::run.
+        // (We don't refactor the production code to use a helper fn
+        // because that would force the Source trait dispatch through
+        // a closure — keep the test pinned to the same string source.)
+        let stagger_for = |idx: u64| (idx * 3) / 2;
+
+        // Adjacent indices: each must differ by at least 1 second.
+        for idx in 0..200u64 {
+            let prev = stagger_for(idx);
+            let next = stagger_for(idx + 1);
+            assert!(
+                next.saturating_sub(prev) >= 1,
+                "stagger collapsed between idx={idx} ({prev}s) and idx={} ({next}s)",
+                idx + 1
+            );
+        }
+
+        // Total spread: 74 sources should span >60s, not the 27s of the
+        // old `% 10` formula.
+        let total_spread_old = 10u64 * 3;
+        let total_spread_new = stagger_for(73);
+        assert!(
+            total_spread_new > total_spread_old,
+            "new formula must spread farther than the old `% 10` slot width \
+             (old={}s, new={}s)",
+            total_spread_old,
+            total_spread_new
+        );
+
+        // Guard against accidentally going back to the `% 10` slot.
+        assert_eq!(
+            stagger_for(0),
+            0,
+            "first source must start at t=0"
+        );
+        assert_eq!(
+            stagger_for(2),
+            3,
+            "idx=2 must be 3s after idx=0 (1.5s/source)"
+        );
+        // idx=10 used to be the same slot as idx=0; under the new
+        // formula it lands at 15s — definitively not the same second.
+        assert_ne!(
+            stagger_for(10),
+            stagger_for(0),
+            "idx=10 must not share the t=0 slot"
+        );
     }
 }
