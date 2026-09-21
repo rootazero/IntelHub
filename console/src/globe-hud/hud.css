@@ -1871,3 +1871,97 @@ body.scene-playback-mode
 .hud-scene-panel.collapsed .hud-scene-panel-header {
   margin-bottom: 2px;
 }
+
+/* ── GEV P13 T3 — tracked-flight metadata card ───────────────────────────────
+   Right-side card for the currently tracked flight (HudAircraftDetail).
+   DEVIATION from plan §Task 3 Step 4: the plan pinned `position: absolute;
+   top: 12px; right: 12px; z-index: 100`, but the right edge rail already owns
+   that corner (.hud-right: top 64px / right 8px) and the top bar ends at 56px,
+   so an absolute card at top 12 / right 12 would overlay BOTH. Instead the
+   card is the first child of the right rail and the rail becomes a column
+   flex, so it stacks above the T10 detail panel inside the existing geometry.
+   Same glass token family as .hud-detail (no new colors). */
+.hud-aircraft-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 272px;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border-radius: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+}
+
+.hud-aircraft-detail--empty {
+  font-style: italic;
+  color: #9aa4b2;
+}
+
+.hud-aircraft-detail__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hud-aircraft-detail__title {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: #9aa4b2;
+}
+
+.hud-aircraft-detail__hex {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: #ffce4d;
+}
+
+.hud-aircraft-detail__callsign {
+  font-size: 15px;
+  font-weight: 600;
+  color: #6cb6ff;
+}
+
+.hud-aircraft-detail__body {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 2px 8px;
+  margin: 0;
+}
+
+.hud-aircraft-detail__body dt {
+  color: #9aa4b2;
+}
+
+.hud-aircraft-detail__body dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hud-aircraft-detail__placeholder {
+  color: #55606d;
+}
+
+/* Rail becomes a column only while the card is a direct child, so the T10
+   panel keeps its 100% height everywhere else. */
+.hud-right:has(> .hud-aircraft-detail) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hud-right:has(> .hud-aircraft-detail) > .hud-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+/* Review focus 3: the card is a desktop affordance — below 768px the globe
+   viewport is too narrow for a second right-hand column. */
+@media (max-width: 768px) {
+  .hud-aircraft-detail {
+    display: none;
+  }
+}
