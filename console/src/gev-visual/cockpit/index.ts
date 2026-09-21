@@ -57,3 +57,9 @@ export {
   type CockpitCameraTarget,
   type CockpitCameraFlyOptions,
 } from "./camera-transition";
+
+export {
+  mountCockpitViewportLock,
+  type CockpitViewportLock,
+  type CockpitViewportLockViewer,
+} from "./viewport-lock";

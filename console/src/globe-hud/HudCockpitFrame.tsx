@@ -16,6 +16,12 @@ import {
   type CockpitCameraTransition,
   type CockpitCameraTransitionDeps,
 } from "../gev-visual/cockpit/camera-transition";
+import {
+  mountCockpitViewportLock,
+  type CockpitViewportLock,
+  type CockpitViewportLockViewer,
+} from "../gev-visual/cockpit/viewport-lock";
+import { setAllPanelDragDisabled } from "../gev-visual/tail/panel-drag";
 import type {
   CockpitTrackedInfo,
   InstrumentsHandle,
@@ -87,6 +93,34 @@ export function HudCockpitFrame({
     onNextTab,
     onPrevTab,
   });
+
+  // P12 T7: freeze the globe while the cockpit is live — camera inputs off,
+  // click/double-click/right-click selection swallowed, cursor hidden. We mount
+  // only while active and let destroy() (which auto-unlocks) restore the
+  // canvas on exit / viewer swap. A half-built viewer throws inside mount and
+  // must not take the HUD down (P2 lesson), so we warn and degrade.
+  useEffect(() => {
+    if (!viewer || !state.active) return;
+    let viewportLock: CockpitViewportLock;
+    try {
+      viewportLock = mountCockpitViewportLock(
+        viewer as CockpitViewportLockViewer,
+      );
+    } catch (e) {
+      console.warn("[HudCockpitFrame] viewport lock mount failed:", e);
+      return;
+    }
+    viewportLock.lock();
+    return () => viewportLock.destroy();
+  }, [viewer, state.active]);
+
+  // P12 T7 / R7: panel dragging under the cockpit HUD would move the detail
+  // panel while the operator is flying. The adapter instances live in
+  // GlobeV2's ref, so we flip the whole registry instead of one handle.
+  useEffect(() => {
+    setAllPanelDragDisabled(state.active);
+    return () => setAllPanelDragDisabled(false);
+  }, [state.active]);
 
   useEffect(() => {
     if (!viewer) return;

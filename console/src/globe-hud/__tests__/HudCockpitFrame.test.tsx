@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { HudCockpitFrame, useCockpitStore } from "../HudCockpitFrame";
 import { createCockpitStore } from "../../gev-visual/cockpit/cockpit-store";
 import { mountCockpitInstruments } from "../../gev-visual/cockpit/instruments-mount";
+import { mountPanelDrag } from "../../gev-visual/tail/panel-drag";
 import { I18nProvider } from "../../i18n";
 
 beforeEach(() => {
@@ -223,6 +224,59 @@ describe("HudCockpitFrame", () => {
     act(() => store.exit());
     await act(async () => {});
     expect(flyTo).toHaveBeenCalledTimes(2);
+  });
+
+  test("P12 T7: active cockpit locks the viewport and freezes panel drag", () => {
+    const canvas = document.createElement("canvas");
+    const controller = { enableInputs: true };
+    const viewer = {
+      scene: { screenSpaceCameraController: controller, canvas: {} },
+      cesiumWidget: { canvas },
+      camera: {
+        position: { clone: () => ({ x: 0, y: 0, z: 0 }) },
+        heading: 0,
+        pitch: 0,
+        roll: 0,
+        flyTo: vi.fn().mockResolvedValue(true),
+      },
+    };
+    const ppToggle = document.createElement("div");
+    ppToggle.id = "pp-toggles";
+    document.body.appendChild(ppToggle);
+    const drag = mountPanelDrag(ppToggle, {
+      syncPanelCollapseButton: vi.fn(),
+      layoutRightPanels: vi.fn(),
+      syncCctvPanelViewport: vi.fn(),
+      showToast: vi.fn(),
+    });
+    const store = createCockpitStore();
+    try {
+      render(
+        <HudCockpitFrame
+          store={store}
+          viewer={viewer}
+          getTrackedInfo={() => null}
+          instruments={null}
+          briefing={null}
+          vision={null}
+        />,
+      );
+      expect(controller.enableInputs).toBe(true);
+      expect(drag.isDisabled()).toBe(false);
+
+      act(() => store.enter("abc123"));
+      expect(controller.enableInputs).toBe(false);
+      expect(canvas.style.cursor).toBe("none");
+      expect(drag.isDisabled()).toBe(true);
+
+      act(() => store.exit());
+      expect(controller.enableInputs).toBe(true);
+      expect(canvas.style.cursor).toBe("");
+      expect(drag.isDisabled()).toBe(false);
+    } finally {
+      drag.destroy();
+      ppToggle.remove();
+    }
   });
 });
 
