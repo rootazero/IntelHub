@@ -90,6 +90,17 @@ impl AppState {
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .user_agent("intelhub-core/0.1 (SP3)")
+            // Per-host pool cap (fix/deploy-stampede Layer 1). The shared
+            // reqwest client is used by 74 monitor sources + cctv health
+            // probes (33 cameras sharing hosts) + gev_cctv frame/media
+            // proxy. Default reqwest pool is unbounded — on hub-core
+            // restart, all 74 sources spawn concurrently and saturate
+            // openclash on 10.10.10.1 (fake-IP), which cascades into the
+            // PVE40 host network outage documented in
+            // docs/superpowers/execution/2026-09-20-deploy-stampede-postmortem.md.
+            // 8 per host caps the worst-case fan-out while still letting
+            // one source drain a host at full TCP-window speed.
+            .pool_max_idle_per_host(8)
             .build()?;
 
         let (event_tx, _) = broadcast::channel(1024);
