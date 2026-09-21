@@ -1,5 +1,6 @@
 // GEV P9 cockpit briefing panel — dual tab (Weather / Summary) + summary-bullet
 // auto-rotation at the vendor cadence (COCKPIT_BRIEF_ROTATE_MS) + hover pause.
+// P12 T8: manual nav grace (5s) + CSS fade + rotation progress bar.
 //
 // The T3 briefing adapter owns fetch + normalization (it does NOT call the
 // vendor's DOM-coupled renderRegionalBrief); this panel renders the normalized
@@ -14,6 +15,9 @@ import type {
 import type { CockpitTrackedInfo } from "../gev-visual/cockpit/instruments-mount";
 
 type Tab = CockpitBriefingTab;
+
+/** P12 T8: how long a manual ←/→ suppresses the auto-rotation. */
+export const MANUAL_GRACE_MS = 5000;
 
 /** Briefing panel tabs. Exported so the frame can drive them from Tab /
  *  Shift+Tab (P12 T5) without the panel owning the state. */
@@ -54,7 +58,14 @@ export function HudCockpitBriefingPanel({
   };
   const [data, setData] = useState<Briefing | null>(null);
   const [index, setIndex] = useState(0);
+  const [fading, setFading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const fetchSeq = useRef(0);
+  // P12 T8: after a manual ←/→ the rotation stays quiet for 5s so the reader
+  // is not yanked off the bullet they just picked.
+  const manualUntilRef = useRef(0);
+  const lastRotateRef = useRef(Date.now());
+  const prevIndexRef = useRef(0);
 
   // Fetch on mount and whenever the tracked aircraft's identity/position
   // changes. The AbortController + seq guard make it StrictMode-safe and stop
@@ -104,22 +115,53 @@ export function HudCockpitBriefingPanel({
 
   // Summary-bullet auto-rotation at the vendor cadence. `data` in deps re-arms
   // the timer once the first fetch lands (total() reads the fetched bullets).
+  // Ticks landing inside the T8 manual-grace window are dropped (not queued).
   useEffect(() => {
     if (!briefing || paused || briefing.total() === 0) return;
+    lastRotateRef.current = Date.now();
+    setProgress(0);
     const timer = setInterval(() => {
+      if (Date.now() < manualUntilRef.current) return;
       briefing.next();
       setIndex(briefing.index());
+      lastRotateRef.current = Date.now();
+      setProgress(0);
     }, COCKPIT_BRIEF_ROTATE_MS);
-    return () => clearInterval(timer);
+    // Progress readout for the bar at the top of the briefing body: elapsed
+    // share of the current rotation cycle (100ms granularity is plenty for a
+    // 1px HUD bar and keeps the re-render cheap).
+    const progressTimer = setInterval(() => {
+      const elapsed = Date.now() - lastRotateRef.current;
+      setProgress(Math.min(1, elapsed / COCKPIT_BRIEF_ROTATE_MS));
+    }, 100);
+    return () => {
+      clearInterval(timer);
+      clearInterval(progressTimer);
+    };
   }, [briefing, paused, data]);
 
+  // Fade the bullet sheet out for 200ms whenever the visible bullet changes;
+  // the transition itself lives in .hud-cockpit-summary-bullet (hud.css).
+  useEffect(() => {
+    if (prevIndexRef.current === index) return;
+    prevIndexRef.current = index;
+    setFading(true);
+    const timer = setTimeout(() => setFading(false), 200);
+    return () => clearTimeout(timer);
+  }, [index]);
+
+  const markManual = () => {
+    manualUntilRef.current = Date.now() + MANUAL_GRACE_MS;
+  };
   const onNext = () => {
     briefing?.next();
     setIndex(briefing?.index() ?? 0);
+    markManual();
   };
   const onPrev = () => {
     briefing?.prev();
     setIndex(briefing?.index() ?? 0);
+    markManual();
   };
 
   const weather = data?.weather;
@@ -159,6 +201,18 @@ export function HudCockpitBriefingPanel({
         </button>
       </div>
 
+      <div
+        className="hud-cockpit-progress"
+        data-testid="hud-cockpit-progress"
+        aria-hidden="true"
+      >
+        <div
+          className="hud-cockpit-progress-bar"
+          data-testid="hud-cockpit-progress-bar"
+          style={{ width: `${Math.round((1 - progress) * 100)}%` }}
+        />
+      </div>
+
       {tab === "weather" ? (
         <div className="hud-cockpit-briefing-body">
           {weather?.degraded || !weather ? (
@@ -189,7 +243,10 @@ export function HudCockpitBriefingPanel({
             </div>
           ) : (
             <div className="hud-cockpit-summary">
-              <div className="hud-cockpit-summary-bullet">
+              <div
+                className={`hud-cockpit-summary-bullet${fading ? " fading" : ""}`}
+                data-testid="hud-cockpit-summary-bullet"
+              >
                 {currentBullet?.text ?? ""}
               </div>
               <div className="hud-cockpit-summary-meta">
