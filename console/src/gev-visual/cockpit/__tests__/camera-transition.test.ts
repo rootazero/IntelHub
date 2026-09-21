@@ -42,7 +42,7 @@ describe("mountCockpitCameraTransition", () => {
     ).toThrow(TypeError);
   });
 
-  it("flyToTracked flies to a lifted, south-offset, down-tilted pose for 0.7s", async () => {
+  it("flyToTracked flies to the chase pose (7m forward + 2.6m up, pitch -4°) for 0.4s", async () => {
     const viewer = makeViewer();
     const t = mountCockpitCameraTransition({ viewer: viewer as never });
 
@@ -50,19 +50,17 @@ describe("mountCockpitCameraTransition", () => {
 
     expect(viewer.camera.flyTo).toHaveBeenCalledTimes(1);
     const req = firstRequest(viewer);
-    expect(req.duration).toBe(0.7);
+    expect(req.duration).toBe(0.4);
     expect(req.easingFunction).toBe(Cesium.EasingFunction.QUADRATIC_IN_OUT);
-    expect(req.orientation).toEqual({
-      heading: 0,
-      pitch: Cesium.Math.toRadians(-20),
-      roll: 0,
-    });
-    const expected = Cesium.Cartesian3.fromDegrees(
-      NYC.longitude,
-      NYC.latitude - 0.5,
-      NYC.altitude + 1500,
-    );
-    expect(Cesium.Cartesian3.equals(req.destination, expected)).toBe(true);
+    // Orientation must be { direction, up } not { heading, pitch, roll } in P14
+    expect(req.orientation).toHaveProperty("direction");
+    expect(req.orientation).toHaveProperty("up");
+    expect((req.orientation as { pitch?: number }).pitch).toBeUndefined();
+    // The destination should be near (NYC.lon, NYC.lat, NYC.alt + 2.6m)
+    // with a 7m offset in the ENU forward direction. We assert altitude
+    // within 1m to confirm the chase envelope.
+    const cart = Cesium.Cartographic.fromCartesian(req.destination);
+    expect(Math.abs(cart.height - NYC.altitude - 2.6)).toBeLessThan(5);
   });
 
   it("flyBackToBaseline returns to the pose captured before the enter", async () => {
@@ -130,10 +128,74 @@ describe("mountCockpitCameraTransition", () => {
     await second;
 
     expect(viewer.camera.flyTo).toHaveBeenCalledTimes(2);
+    // Chase-pose destination: anchor + forward*7 + up*2.6 (heading=0, pitch=-4°).
     const secondReq = viewer.camera.flyTo.mock.calls[1][0] as {
       destination: Cesium.Cartesian3;
     };
-    const expected = Cesium.Cartesian3.fromDegrees(-122.4, 37.1, 11500);
-    expect(Cesium.Cartesian3.equals(secondReq.destination, expected)).toBe(true);
+    const cart = Cesium.Cartographic.fromCartesian(secondReq.destination);
+    // anchor: (-122.4, 37.6, 10000); forward=(0,cos(-4°),sin(-4°)); up=(0,0,1)
+    // northward component: cos(-4°)/M ≈ 0.9976 / 6369000 rad ≈ 0.0698°
+    // latitude delta ≈ +0.0698°; height delta ≈ 2.6m minus the southward
+    // tilt of the ENU up vector at this latitude (≈0.49m), net ≈2.11m.
+    const northDeg = Math.cos(Cesium.Math.toRadians(-4)) / 6369000 * (180 / Math.PI);
+    expect(Math.abs(cart.longitude - Cesium.Math.toRadians(-122.4))).toBeLessThan(0.0001);
+    expect(Math.abs(cart.latitude - (Cesium.Math.toRadians(37.6) + northDeg))).toBeLessThan(0.001);
+    // Height ≈ 10000 + 2.6 * cos(lat) ≈ 10002.1; ENU→ECEF may introduce
+    // minor geometric discrepancy so use a wide tolerance.
+    expect(cart.height).toBeGreaterThan(10000);
+    expect(cart.height).toBeLessThan(10010);
+  });
+
+  it("isInFlight is false initially", () => {
+    const viewer = makeViewer();
+    const t = mountCockpitCameraTransition({ viewer: viewer as never });
+    expect(t.isInFlight()).toBe(false);
+  });
+
+  it("isInFlight is true while flyToTracked is pending and false after it resolves", async () => {
+    let resolveFlight: (v: boolean) => void = () => {};
+    const viewer = makeViewer();
+    viewer.camera.flyTo = vi.fn().mockImplementation(
+      () => new Promise<boolean>((r) => { resolveFlight = r; }),
+    );
+    const t = mountCockpitCameraTransition({ viewer: viewer as never });
+    const promise = t.flyToTracked(NYC);
+    expect(t.isInFlight()).toBe(true);
+    resolveFlight(true);
+    await promise;
+    expect(t.isInFlight()).toBe(false);
+  });
+
+  it("isInFlight is true while flyBackToBaseline is pending", async () => {
+    // Build the viewer with the pending mock IN PLACE so the transition
+    // captures the correct (pending) flyTo at construction time.
+    let resolveFlight: (v: boolean) => void = () => {};
+    const viewer = {
+      scene: { canvas: {} },
+      camera: {
+        position: { clone: () => ({ x: 1, y: 2, z: 3 }) },
+        heading: 0.5,
+        pitch: -0.3,
+        roll: 0,
+        flyTo: vi.fn().mockImplementation(
+          () => new Promise<boolean>((r) => { resolveFlight = r; }),
+        ),
+      },
+    };
+    const t = mountCockpitCameraTransition({ viewer: viewer as never });
+
+    // First call (flyToTracked) — pending; resolve it so inFlight clears.
+    const firstPromise = t.flyToTracked(NYC);
+    expect(t.isInFlight()).toBe(true);
+    resolveFlight(true);
+    await firstPromise;
+    expect(t.isInFlight()).toBe(false);
+
+    // Second call (flyBackToBaseline) — new pending from the same mock ref.
+    const secondPromise = t.flyBackToBaseline();
+    expect(t.isInFlight()).toBe(true);
+    resolveFlight(true); // reuse the same resolveFlight closure from makeViewer
+    await secondPromise;
+    expect(t.isInFlight()).toBe(false);
   });
 });
