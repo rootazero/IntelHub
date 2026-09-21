@@ -6,12 +6,13 @@
 import { useEffect } from "react";
 import {
   VISION_MODES,
+  VISION_MODE_STORAGE_KEY,
   isVisionMode,
   type VisionMode,
   type VisionMountHandle,
 } from "../gev-visual/cockpit/vision-mount";
 
-const STORAGE_KEY = "intelhub.cockpit.visionMode";
+const STORAGE_KEY = VISION_MODE_STORAGE_KEY;
 
 export const VISION_LABELS: Record<VisionMode, string> = {
   optical: "OPTICAL",

@@ -13,7 +13,11 @@ import type {
 } from "../gev-visual/cockpit/briefing-mount";
 import type { CockpitTrackedInfo } from "../gev-visual/cockpit/instruments-mount";
 
-type Tab = "weather" | "summary";
+type Tab = CockpitBriefingTab;
+
+/** Briefing panel tabs. Exported so the frame can drive them from Tab /
+ *  Shift+Tab (P12 T5) without the panel owning the state. */
+export type CockpitBriefingTab = "weather" | "summary";
 
 export interface HudCockpitBriefingPanelProps {
   briefing: BriefingHandle | null;
@@ -23,6 +27,9 @@ export interface HudCockpitBriefingPanelProps {
   paused?: boolean;
   onPause?: () => void;
   onResume?: () => void;
+  /** Optional controlled tab. Omitted → the panel keeps its own state. */
+  tab?: CockpitBriefingTab;
+  onTabChange?: (tab: CockpitBriefingTab) => void;
 }
 
 function entityIdOf(info: CockpitTrackedInfo | null): string {
@@ -36,8 +43,15 @@ export function HudCockpitBriefingPanel({
   paused = false,
   onPause,
   onResume,
+  tab: controlledTab,
+  onTabChange,
 }: HudCockpitBriefingPanelProps) {
-  const [tab, setTab] = useState<Tab>("weather");
+  const [internalTab, setInternalTab] = useState<Tab>("weather");
+  const tab = controlledTab ?? internalTab;
+  const selectTab = (next: Tab) => {
+    setInternalTab(next);
+    onTabChange?.(next);
+  };
   const [data, setData] = useState<Briefing | null>(null);
   const [index, setIndex] = useState(0);
   const fetchSeq = useRef(0);
@@ -129,7 +143,7 @@ export function HudCockpitBriefingPanel({
           aria-selected={tab === "weather"}
           data-testid="hud-cockpit-tab-weather"
           className={`hud-cockpit-tab${tab === "weather" ? " active" : ""}`}
-          onClick={() => setTab("weather")}
+          onClick={() => selectTab("weather")}
         >
           Weather
         </button>
@@ -139,7 +153,7 @@ export function HudCockpitBriefingPanel({
           aria-selected={tab === "summary"}
           data-testid="hud-cockpit-tab-summary"
           className={`hud-cockpit-tab${tab === "summary" ? " active" : ""}`}
-          onClick={() => setTab("summary")}
+          onClick={() => selectTab("summary")}
         >
           Summary
         </button>
