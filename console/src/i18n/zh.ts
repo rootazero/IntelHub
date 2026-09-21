@@ -295,6 +295,12 @@ export const zh: Dict = {
     thResult: "结果",
     noMatch: "无匹配审计记录",
   },
+  cockpit: {
+    shortcut: {
+      hint: "← → 简报 · Esc 退出 · 1-5 视觉 · Space 暂停 · Tab 切换 · Shift+C 隐藏",
+      hintHidden: "Shift+C 显示面板 · Esc 退出",
+    },
+  },
   hud: {
     deck: "Monitor 指挥台",
     sources: "数据源",

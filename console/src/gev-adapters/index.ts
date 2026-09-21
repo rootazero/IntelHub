@@ -22,6 +22,17 @@ import type { ApiFetch } from "./http";
 
 export type LayerSources = Record<string, object>;
 
+// GEV P12 §5.2 — the aircraft source (getSnapshot + getTrack + getEnrichment)
+// the vendor flights layer consumes via `feed._source`. Re-exported here so the
+// bootstrap injects it through the single gev-adapters boundary.
+export {
+  createIntelHubAircraftSource,
+  type IntelHubAircraftSource,
+  type SnapshotQuery,
+  type TrackRecord,
+  type EnrichmentPayload,
+} from "./aircraft-source";
+
 export function createIntelHubLayerSources(deps: {
   apiFetch: ApiFetch;
 }): LayerSources {
@@ -31,6 +42,10 @@ export function createIntelHubLayerSources(deps: {
   const { apiFetch } = deps;
 
   return {
+    // Default snapshot-only source. The P12 bootstrap overrides this slot
+    // with `createIntelHubAircraftSource` (which also exposes getTrack +
+    // getEnrichment for the vendor trail/enrichment paths); this stays as the
+    // default so the T6 source and its suite remain the standalone contract.
     flights: flightsSource(apiFetch), // T6 → real adsb.lol snapshot source
     military: militarySource(apiFetch), // T6 → real military snapshot source
     satellites: satellitesSource(apiFetch), // T5 → real CelesTrak group source

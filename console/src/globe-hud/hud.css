@@ -1079,6 +1079,37 @@ button.hud-detail-link {
 .hud-cockpit-summary-bullet {
   color: #e6edf3;
   line-height: 1.4;
+  /* P12 T8: bullet swap fade — .fading is toggled for 200ms on index change. */
+  transition: opacity 200ms ease-in-out, transform 200ms ease-in-out;
+}
+
+.hud-cockpit-summary-bullet.fading {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* P12 T8: auto-rotate progress bar (top of the briefing body). The bar's width
+   is the remaining share of COCKPIT_BRIEF_ROTATE_MS; 1px tall with a soft
+   accent gradient. */
+.hud-cockpit-progress {
+  position: relative;
+  height: 1px;
+  margin-bottom: 8px;
+  background: rgba(154, 164, 178, 0.18);
+  overflow: hidden;
+}
+
+.hud-cockpit-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 149, 0, 0.35),
+    rgba(255, 149, 0, 0.85)
+  );
+  transition: width 100ms linear;
 }
 
 .hud-cockpit-summary-meta {
@@ -1178,6 +1209,29 @@ button.hud-detail-link {
 .hud-cockpit-exit:hover {
   background: rgba(255, 149, 0, 0.15);
   color: #e6edf3;
+}
+
+/* ── keyboard-shortcut hint strip (bottom, P12 T5) ── */
+.hud-cockpit-shortcut-hint {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(154, 164, 178, 0.25);
+  border-radius: 999px;
+  color: #9aa4b2;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.hud-cockpit-frame[data-hidden="true"] .hud-cockpit-shortcut-hint {
+  color: #ff9500;
+  border-color: rgba(255, 149, 0, 0.45);
 }
 
 /* ============================================================================

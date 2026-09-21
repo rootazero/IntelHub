@@ -13,6 +13,7 @@ describe("cockpitReducer (pure)", () => {
       trackedId: null,
       visionMode: "optical",
       briefingPaused: false,
+      hidden: false,
     });
   });
 
@@ -76,6 +77,19 @@ describe("cockpitReducer (pure)", () => {
     const next = cockpitReducer(INITIAL_COCKPIT_STATE, { type: "enter", id: "a" });
     expect(next).not.toBe(INITIAL_COCKPIT_STATE);
     expect(INITIAL_COCKPIT_STATE.active).toBe(false); // original untouched
+  });
+
+  test("toggleHidden flips hidden; enter/exit reset it to visible", () => {
+    const active: CockpitStoreState = {
+      ...INITIAL_COCKPIT_STATE,
+      active: true,
+      trackedId: "abc123",
+    };
+    const hidden = cockpitReducer(active, { type: "toggleHidden" });
+    expect(hidden.hidden).toBe(true);
+    expect(cockpitReducer(hidden, { type: "toggleHidden" }).hidden).toBe(false);
+    expect(cockpitReducer(hidden, { type: "enter", id: "abc123" }).hidden).toBe(false);
+    expect(cockpitReducer(hidden, { type: "exit" }).hidden).toBe(false);
   });
 });
 

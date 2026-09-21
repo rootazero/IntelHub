@@ -936,6 +936,162 @@ try {
   } catch (e) {
     warnings.push(`P11 cctv-popout segment threw: ${e.message}`);
   }
+
+  // ---- GEV P12: flight-layer parity — aircraft source + cockpit behaviors ----
+  // The P10 panel-drag segment reloaded the page, so the P9 cockpit entry is
+  // gone; re-enter before probing the live overlay. The aircraft-source probes
+  // assert the LOADED bundle text because the spec's `window.__gevAircraftSource`
+  // debug handle was never implemented — the adapter is reached only through
+  // the vendor's `_source` seam, so there is nothing to read off `window`.
+  // The cockpit probes drive the real T5 keyboard + T7 viewport-lock widgets
+  // (live counterparts of sp8 checks 51-53, which are acceptance-deferred).
+  try {
+    let p12Btn = page.locator('[data-testid="hud-cockpit-button"]');
+    if ((await p12Btn.count()) === 0) {
+      await page
+        .locator('[data-testid="hud-layer-rail"] .hud-rail-handle')
+        .first()
+        .click()
+        .catch(() => {});
+      await page.waitForTimeout(200);
+      p12Btn = page.locator('[data-testid="hud-cockpit-button"]');
+    }
+    await p12Btn.first().click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
+
+    const P12_PROBES = [
+      // 1. T3 adapter getTrack: the shipped asset must carry the adapter's
+      //    unique marker (`hub.intelhub`) + the vendor path literal. The bare
+      //    `getTrack`/`/api/opensky-track` also live in the vendored
+      //    standalone.js, so the marker is what separates T3 from pre-T3.
+      ["p12-aircraft-source-getTrack", () =>
+        page.evaluate(async () => {
+          const urls = performance
+            .getEntriesByType("resource")
+            .map((e) => e.name)
+            .filter((n) => /\/assets\/.*\.js(\?|$)/.test(n));
+          for (const u of urls) {
+            const t = await (await fetch(u)).text().catch(() => "");
+            if (
+              t.includes("hub.intelhub") &&
+              t.includes("getTrack") &&
+              t.includes("/api/opensky-track")
+            )
+              return true;
+          }
+          return false;
+        })],
+      // 2. T3 adapter getEnrichment: same bundle-text strategy (+ the unique
+      //    callsign-guard string that exists only in aircraft-source.ts).
+      ["p12-aircraft-source-getEnrichment", () =>
+        page.evaluate(async () => {
+          const urls = performance
+            .getEntriesByType("resource")
+            .map((e) => e.name)
+            .filter((n) => /\/assets\/.*\.js(\?|$)/.test(n));
+          for (const u of urls) {
+            const t = await (await fetch(u)).text().catch(() => "");
+            if (
+              t.includes("hub.intelhub") &&
+              t.includes("getEnrichment") &&
+              t.includes("/api/adsbdb")
+            )
+              return true;
+          }
+          return false;
+        })],
+      // 3. cockpit overlay mounted after the rail entry.
+      ["p12-cockpit-active", () =>
+        page.evaluate(
+          () => !!document.querySelector('[data-testid="hud-cockpit-frame"]'),
+        )],
+      // 4. exit affordance present.
+      ["p12-cockpit-exit-btn", () =>
+        page.evaluate(
+          () => !!document.querySelector('[data-testid="hud-cockpit-exit"]'),
+        )],
+      // 5. all five vision modes (the switch container shares the
+      //    `hud-cockpit-vision-` prefix, so count the mode ids explicitly).
+      ["p12-cockpit-vision-keys", () =>
+        page.evaluate(() => {
+          const modes = ["optical", "crt", "nvg", "thermal", "noir"];
+          return modes.every((m) =>
+            document.querySelector(`[data-testid="hud-cockpit-vision-${m}"]`),
+          );
+        })],
+      // 6. shortcut hint advertises the arrow keys.
+      ["p12-cockpit-shortcut-hint", () =>
+        page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="hud-cockpit-shortcut-hint"]',
+          );
+          return !!el && /← →/.test(el.textContent ?? "");
+        })],
+      // 7. T7 viewport lock: canvas cursor hidden while active (the lock's
+      //    observable effect; the spec's `__cockpitStore.viewportLocked` flag
+      //    was never implemented).
+      ["p12-cockpit-viewport-lock", () =>
+        page.evaluate(() => {
+          const c = document.querySelector("#cesiumContainer canvas");
+          return !!c && c.style.cursor === "none";
+        })],
+      // 8. T2 tracks endpoint reachable from the page origin: 200 + records[]
+      //    or the documented 503 missing-creds, and always a JSON body
+      //    (unmatched routes fall through to the SPA index.html 200 + HTML).
+      ["p12-tracks-endpoint-reachable", async () => {
+        const res = await page.request.get(
+          `${BASE}/api/opensky-track?icao24=4ca9b1`,
+          { headers: { Authorization: `Bearer ${key}` }, timeout: REST_TIMEOUT_MS },
+        );
+        const ct = res.headers()["content-type"] ?? "";
+        return (res.status() === 200 || res.status() === 503) && /json/.test(ct);
+      }],
+    ];
+
+    for (const [name, fn] of P12_PROBES) {
+      let ok = false;
+      let note = "";
+      try {
+        ok = !!(await fn());
+      } catch (e) {
+        note = ` err=${e.message}`;
+      }
+      console.log(`${name}=${ok ? 1 : 0}${note}`);
+      if (!ok) failures.push(`P12: ${name} failed`);
+    }
+
+    // T5 keyboard live check: Tab must flip the controlled briefing tab
+    // (weather→summary), then Escape must unmount the overlay. Kept in the
+    // segment (not a probe entry) because Escape mutates the page state.
+    const tabBefore = await page
+      .locator('[data-testid="hud-cockpit-tab-summary"]')
+      .getAttribute("aria-selected")
+      .catch(() => null);
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(250);
+    const tabAfter = await page
+      .locator('[data-testid="hud-cockpit-tab-summary"]')
+      .getAttribute("aria-selected")
+      .catch(() => null);
+    const tabOk = tabBefore !== tabAfter && tabAfter === "true";
+    console.log(
+      `p12-cockpit-keyboard-tab=${tabOk ? 1 : 0} before=${tabBefore} after=${tabAfter}`,
+    );
+    if (!tabOk)
+      failures.push(
+        `P12: cockpit Tab did not flip briefing tab (before=${tabBefore} after=${tabAfter})`,
+      );
+
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(300);
+    const exited =
+      (await page.locator('[data-testid="hud-cockpit-frame"]').count()) === 0;
+    console.log(`p12-cockpit-escape-exit=${exited ? 1 : 0}`);
+    if (!exited)
+      failures.push("P12: cockpit Escape did not exit the overlay");
+  } catch (e) {
+    failures.push(`P12 flight-layer segment threw: ${e.message}`);
+  }
 } catch (e) {
   failures.push(`probe crashed: ${String(e)}`);
 } finally {

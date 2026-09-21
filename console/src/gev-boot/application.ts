@@ -36,7 +36,7 @@ import { createApplicationCatalog } from "gev-engine/src/app/constructCatalog.js
 import { LayerLifecycle } from "gev-engine/src/data/lifecycle.js";
 import { setScopeMaskEnabled } from "gev-engine/src/scopeMask.js";
 import { createIntelHubRequestServices } from "./request-services";
-import { createIntelHubLayerSources } from "../gev-adapters";
+import { createIntelHubLayerSources, createIntelHubAircraftSource } from "../gev-adapters";
 import { bridgeCctvToContextStore } from "./cctv-bridge";
 
 // Default-enabled layer set (controller ruling 9). The vendor data.js has NO
@@ -82,6 +82,13 @@ export function createIntelHubGlobe(opts: IntelHubGlobeOptions) {
       }),
     createControls: ({ scene, signal, defer }: any) => {
       const sources = createIntelHubLayerSources({ apiFetch: opts.apiFetch });
+      // P12: inject the full aircraft source into the flights slot. The vendor
+      // flights layer's trail backfill (tracking.js:484) and enrichment drip
+      // (enrichment.js:60) read `feed._source.getTrack` / `.getEnrichment`,
+      // which the default snapshot-only flights source does not expose.
+      sources.flights = createIntelHubAircraftSource({
+        apiFetch: opts.apiFetch,
+      });
       const catalog = createApplicationCatalog({
         surface: scene.operations.surface,
         sources,

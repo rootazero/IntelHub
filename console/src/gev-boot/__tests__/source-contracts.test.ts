@@ -24,7 +24,10 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test, vi } from "vitest";
 import type { ApiFetch } from "../../gev-adapters/http";
-import { createIntelHubLayerSources } from "../../gev-adapters";
+import {
+  createIntelHubAircraftSource,
+  createIntelHubLayerSources,
+} from "../../gev-adapters";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const consoleRoot = join(here, "..", "..", "..");
@@ -1033,6 +1036,50 @@ describe("c1: contract pinning (upstream churn fuse)", () => {
     // family is `panelCollapsed` (pinned above), so that is the real seam this
     // guard protects; an upstream rename of either template trips here.
     expect(pos).toContain("panelCollapsed");
+  });
+});
+
+// ── GEV P12 anchors (T4): aircraft source surface + vendor URL path literals ──
+//
+// R3 (spec §8, CRITICAL): the vendor HARDCODES these two paths in
+// gev-engine/src/sources/live/standalone.js:86,99 and swallows transport
+// failures, so an adapter refactor that drifts either literal breaks vendor
+// tracking/enrichment SILENTLY. This guard reads the adapter source as text
+// and fails the moment a path literal changes — no vendor edit can hide it.
+
+describe("intelhub aircraft source contract (P12)", () => {
+  test("exposes getTrack method", () => {
+    const src = createIntelHubAircraftSource({ apiFetch: vi.fn<ApiFetch>() });
+    expect(typeof src.getTrack).toBe("function");
+  });
+
+  test("exposes getEnrichment method", () => {
+    const src = createIntelHubAircraftSource({ apiFetch: vi.fn<ApiFetch>() });
+    expect(typeof src.getEnrichment).toBe("function");
+  });
+
+  test("exposes getSnapshot method (P1 unchanged)", () => {
+    const src = createIntelHubAircraftSource({ apiFetch: vi.fn<ApiFetch>() });
+    expect(typeof src.getSnapshot).toBe("function");
+  });
+
+  test("hardcoded vendor URL strings preserved in aircraft adapter", () => {
+    const content = readConsole("src/gev-adapters/aircraft-source.ts");
+    // vendor standalone.js:86 → '/api/opensky-track?icao24=' + encodeURIComponent(reference)
+    expect(content).toContain("/api/opensky-track?icao24=");
+    // vendor standalone.js:99 → `/api/adsbdb/${query.kind}/${encodeURIComponent(query.id)}`
+    expect(content).toMatch(/\/api\/adsbdb\/\$\{query\.kind\}/);
+
+    // The adapter header comment quotes the SAME two URLs, so the raw text
+    // assertions above would keep passing after the real call sites drifted.
+    // Strip full-line comments and re-assert so the R3 guard is load-bearing
+    // (i.e. it pins executable code, not documentation).
+    const code = content
+      .split("\n")
+      .filter((line) => !/^\s*\/\//.test(line))
+      .join("\n");
+    expect(code).toContain("/api/opensky-track?icao24=");
+    expect(code).toMatch(/\/api\/adsbdb\/\$\{query\.kind\}/);
   });
 });
 

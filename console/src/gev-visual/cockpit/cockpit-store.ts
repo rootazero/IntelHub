@@ -11,6 +11,9 @@ export interface CockpitStoreState {
   trackedId: string | null;
   visionMode: VisionMode;
   briefingPaused: boolean;
+  /** Shift+C (T5): panels hidden so the globe is unobstructed. Reset on both
+   *  enter and exit so every session starts visible. */
+  hidden: boolean;
 }
 
 export type CockpitAction =
@@ -18,13 +21,15 @@ export type CockpitAction =
   | { type: "exit" }
   | { type: "setVisionMode"; mode: VisionMode }
   | { type: "pauseBriefing" }
-  | { type: "resumeBriefing" };
+  | { type: "resumeBriefing" }
+  | { type: "toggleHidden" };
 
 export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   active: false,
   trackedId: null,
   visionMode: "optical",
   briefingPaused: false,
+  hidden: false,
 };
 
 export function cockpitReducer(
@@ -33,18 +38,33 @@ export function cockpitReducer(
 ): CockpitStoreState {
   switch (action.type) {
     case "enter":
-      // A fresh entry starts with the briefing rotation unpaused.
-      return { ...state, active: true, trackedId: action.id, briefingPaused: false };
+      // A fresh entry starts with the briefing rotation unpaused and the
+      // panels visible.
+      return {
+        ...state,
+        active: true,
+        trackedId: action.id,
+        briefingPaused: false,
+        hidden: false,
+      };
     case "exit":
       // Leaving clears the tracked id and re-arms the briefing rotation so the
       // next entry begins fresh. visionMode persists (user preference).
-      return { ...state, active: false, trackedId: null, briefingPaused: false };
+      return {
+        ...state,
+        active: false,
+        trackedId: null,
+        briefingPaused: false,
+        hidden: false,
+      };
     case "setVisionMode":
       return { ...state, visionMode: action.mode };
     case "pauseBriefing":
       return { ...state, briefingPaused: true };
     case "resumeBriefing":
       return { ...state, briefingPaused: false };
+    case "toggleHidden":
+      return { ...state, hidden: !state.hidden };
   }
 }
 
@@ -55,6 +75,7 @@ export interface CockpitStore {
   setVisionMode(mode: VisionMode): void;
   pauseBriefing(): void;
   resumeBriefing(): void;
+  toggleHidden(): void;
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
@@ -96,6 +117,7 @@ export function createCockpitStore(
     setVisionMode: (mode) => dispatch({ type: "setVisionMode", mode }),
     pauseBriefing: () => dispatch({ type: "pauseBriefing" }),
     resumeBriefing: () => dispatch({ type: "resumeBriefing" }),
+    toggleHidden: () => dispatch({ type: "toggleHidden" }),
     subscribe(fn) {
       listeners.add(fn);
       return () => {
