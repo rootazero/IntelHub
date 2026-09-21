@@ -121,6 +121,18 @@ pub async fn serve(state: Arc<AppState>) -> anyhow::Result<()> {
         });
     }
 
+    {
+        // GEV P12 T2: track backfill proxies — no cache to load; logs the
+        // resolved upstreams + whether OpenSky OAuth is configured (the
+        // credential that gates /api/opensky-track). Never fatal.
+        let s = (*state).clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::gev_tracks::start(s).await {
+                tracing::warn!(error = %e, "tracks proxy start failed");
+            }
+        });
+    }
+
     // Qdrant collection provisioning (idempotent; failure is non-fatal —
     // the embedding worker will surface outages as alerts).
     if let Err(e) = crate::vector::ensure_collection(&state).await {
