@@ -65,6 +65,12 @@ export {
 } from "./model-visibility";
 
 export {
+  mountCockpitChaseCam,
+  type ChaseCamDeps,
+  type ChaseCamHandle,
+} from "./chase-cam";
+
+export {
   mountCockpitViewportLock,
   type CockpitViewportLock,
   type CockpitViewportLockViewer,
