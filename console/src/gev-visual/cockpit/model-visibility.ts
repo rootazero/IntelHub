@@ -12,8 +12,16 @@ interface VisibilityEntity {
   show: boolean;
 }
 
+/** Narrower than the full CockpitStore — model-visibility only uses
+ *  `getState` + `subscribe`. Lets tests supply a fake without implementing
+ *  the action methods. */
+export interface ModelVisibilityStoreShape {
+  getState(): { active: boolean; trackedId: string | null };
+  subscribe(fn: () => void): () => void;
+}
+
 export interface ModelVisibilityDeps {
-  store: CockpitStore;
+  store: ModelVisibilityStoreShape;
   getTrackedEntity: () => VisibilityEntity | null;
 }
 

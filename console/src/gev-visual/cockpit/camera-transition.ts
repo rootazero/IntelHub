@@ -39,10 +39,16 @@ interface CockpitCameraBaseline {
   roll: number;
 }
 
+/** Cesium's Camera.flyTo orientation can be either HeadingPitchRoll
+ *  (used by flyBackToBaseline — restores a captured pose) or
+ *  DirectionUp (used by flyToTracked — chase-pose entry). Both shapes
+ *  are valid; we accept either. */
 interface CockpitCameraOrientation {
-  heading: number;
-  pitch: number;
-  roll: number;
+  heading?: number;
+  pitch?: number;
+  roll?: number;
+  direction?: Cesium.Cartesian3;
+  up?: Cesium.Cartesian3;
 }
 
 interface CockpitCameraFlyRequest {
