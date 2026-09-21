@@ -142,9 +142,18 @@ impl EnrichmentCache {
 
     /// Load a persisted cache from disk. A missing file is an error
     /// (`NotFound`) — the caller decides whether that means "start empty".
-    pub fn load_from(path: &Path) -> Result<Self, std::io::Error> {
-        let s = std::fs::read_to_string(path)?;
-        let p: PersistedCache = serde_json::from_str(&s)
+    ///
+    /// Async on purpose (spec §4.A): `tokio::fs` runs the read on the blocking
+    /// pool, so a boot-time cache load never blocks a runtime worker.
+    pub async fn load_from(path: &Path) -> Result<Self, std::io::Error> {
+        let s = tokio::fs::read_to_string(path).await?;
+        Self::from_persisted_json(&s)
+    }
+
+    /// Decode a persisted cache body into the in-memory shape. Split out so
+    /// the wire→memory mapping is exercisable without touching disk.
+    fn from_persisted_json(s: &str) -> Result<Self, std::io::Error> {
+        let p: PersistedCache = serde_json::from_str(s)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         Ok(Self {
             routes: p
@@ -162,11 +171,10 @@ impl EnrichmentCache {
         })
     }
 
-    /// Persist atomically: write a sibling `.tmp` file, then `rename` over the
-    /// target. `rename` is atomic on the same filesystem, so a crash mid-write
-    /// can never leave a truncated cache.
-    pub fn persist_to(&self, path: &Path) -> Result<(), std::io::Error> {
-        let p = PersistedCache {
+    /// Snapshot into the on-disk shape. Pure memory copy — no syscalls and no
+    /// serialization — so it is safe to call while holding a read guard.
+    fn to_persisted(&self) -> PersistedCache {
+        PersistedCache {
             routes: self
                 .routes
                 .iter()
@@ -177,16 +185,45 @@ impl EnrichmentCache {
                 .iter()
                 .map(|(k, v)| (k.clone(), PersistedEntry { at: v.at, data: v.data.clone() }))
                 .collect(),
-        };
+        }
+    }
+
+    /// Serialize + atomically swap into place: write a sibling `.tmp` file,
+    /// then `rename` over the target. `rename` is atomic on the same
+    /// filesystem, so a crash mid-write can never leave a truncated cache.
+    ///
+    /// **Blocking**: only ever called inside
+    /// [`Self::write_persisted`]'s `spawn_blocking` closure. Serialization is
+    /// deliberately included — the flusher rewrites the whole cache on every
+    /// dirty tick, so the serde pass belongs off the runtime too.
+    fn write_persisted_blocking(p: &PersistedCache, path: &Path) -> Result<(), std::io::Error> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let tmp = path.with_extension("json.tmp");
-        let bytes = serde_json::to_vec_pretty(&p)
+        let bytes = serde_json::to_vec_pretty(p)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(&tmp, bytes)?;
         std::fs::rename(&tmp, path)?;
         Ok(())
+    }
+
+    /// Run [`Self::write_persisted_blocking`] on the blocking pool.
+    ///
+    /// `tokio::fs::write` is itself a thin `spawn_blocking` wrapper; doing the
+    /// whole serialize + write + rename in one `spawn_blocking` gives the same
+    /// "no syscall on a runtime worker" guarantee *and* moves the full-cache
+    /// serde pass off the worker (which `tokio::fs` alone would leave inline).
+    async fn write_persisted(p: PersistedCache, path: PathBuf) -> Result<(), std::io::Error> {
+        tokio::task::spawn_blocking(move || Self::write_persisted_blocking(&p, &path))
+            .await
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+    }
+
+    /// Persist the cache atomically, off the async runtime. Used by the dirty
+    /// flusher ([`EnrichmentService::spawn_flusher`]).
+    pub async fn persist_to(&self, path: &Path) -> Result<(), std::io::Error> {
+        Self::write_persisted(self.to_persisted(), path.to_path_buf()).await
     }
 
     /// Wire shape for `GET /api/adsbdb/type/{hex}` (spec §3.2). A negative
@@ -356,9 +393,51 @@ impl EnrichmentService {
         self.cache.read().await.upstream_calls.load(Ordering::Relaxed)
     }
 
+    /// Persist through a short-lived snapshot: the read guard is released
+    /// before the await, so a slow blocking write never stalls producers.
     pub async fn persist_to_path(&self, path: &Path) -> Result<(), std::io::Error> {
-        let c = self.cache.read().await;
-        c.persist_to(path)
+        let snapshot = { self.cache.read().await.to_persisted() };
+        EnrichmentCache::write_persisted(snapshot, path.to_path_buf()).await
+    }
+
+    /// Boot: load the persisted cache (missing/corrupt = start empty, never
+    /// fatal) and spawn the dirty flusher.
+    ///
+    /// Hosted on the service rather than on `AppState` so the whole
+    /// disk → warm cache → flusher path is testable without booting PG/Redis/
+    /// Neo4j. `flush_every` is [`FLUSH_INTERVAL_SECS`] in production; tests
+    /// pass a short interval so the flush is observable without waiting 15s.
+    pub async fn start(self: &Arc<Self>, path: PathBuf, flush_every: Duration) {
+        match EnrichmentCache::load_from(&path).await {
+            Ok(c) => {
+                let routes = c.routes.len();
+                let aircraft = c.aircraft.len();
+                {
+                    let mut w = self.cache.write().await;
+                    w.routes = c.routes;
+                    w.aircraft = c.aircraft;
+                }
+                tracing::info!(
+                    target: "hub.boot",
+                    routes, aircraft, path = %path.display(),
+                    "adsbdb enrichment cache loaded"
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::info!(
+                    target: "hub.boot",
+                    path = %path.display(),
+                    "adsbdb enrichment cache not present — starting empty"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e, path = %path.display(),
+                    "adsbdb enrichment cache load failed — starting empty"
+                );
+            }
+        }
+        self.spawn_flusher(path, flush_every);
     }
 
     async fn key_lock(&self, key: &str) -> Arc<Mutex<()>> {
@@ -525,12 +604,13 @@ impl EnrichmentService {
         Json(out).into_response()
     }
 
-    /// Spawn the 15s dirty-flush loop. First tick is skipped (interval fires
-    /// immediately otherwise).
-    fn spawn_flusher(self: &Arc<Self>, path: PathBuf) {
+    /// Spawn the dirty-flush loop (`every` = [`FLUSH_INTERVAL_SECS`] in
+    /// production). First tick is skipped (interval fires immediately
+    /// otherwise).
+    fn spawn_flusher(self: &Arc<Self>, path: PathBuf, every: Duration) {
         let svc = self.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(FLUSH_INTERVAL_SECS));
+            let mut interval = tokio::time::interval(every);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             interval.tick().await; // skip immediate
             loop {
@@ -583,40 +663,12 @@ pub async fn gev_adsbdb_route(
     handle_route(&format!("/api/adsbdb/route/{callsign}"), &state.enrichment).await
 }
 
-/// Boot hook: load the persisted cache (missing/corrupt = start empty, never
-/// fatal) and start the dirty flusher.
+/// Boot hook (called from `server.rs`): load the persisted cache and start
+/// the dirty flusher at the production 15s cadence.
 pub async fn start(state: AppState) -> Result<(), HubError> {
-    let svc = state.enrichment.clone();
-    let path = cache_path();
-    match EnrichmentCache::load_from(&path) {
-        Ok(c) => {
-            let routes = c.routes.len();
-            let aircraft = c.aircraft.len();
-            {
-                let mut w = svc.cache.write().await;
-                w.routes = c.routes;
-                w.aircraft = c.aircraft;
-            }
-            tracing::info!(
-                target: "hub.boot",
-                routes, aircraft, path = %path.display(),
-                "adsbdb enrichment cache loaded"
-            );
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::info!(
-                target: "hub.boot",
-                path = %path.display(),
-                "adsbdb enrichment cache not present — starting empty"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e, path = %path.display(),
-                "adsbdb enrichment cache load failed — starting empty"
-            );
-        }
-    }
-    svc.spawn_flusher(path);
+    state
+        .enrichment
+        .start(cache_path(), Duration::from_secs(FLUSH_INTERVAL_SECS))
+        .await;
     Ok(())
 }
