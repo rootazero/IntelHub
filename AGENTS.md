@@ -279,3 +279,22 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 单 CONTEXT：`CONTEXT.md` + `docs/adr/` 位于仓库根。详见 `docs/agents/domain.md`。
 - **A — Redis-backed query result cache**（2026-09-13 部署）：hybrid_search / semantic_search / keyword_search 在 Redis 里按 (mode, query, limit, url_contains) 哈希缓存响应 blob，TTL 300s。重复调用 590× 加速（7.1s → 12ms）。所有 search 响应顶层加 `cache: "hit"|"miss"|"disabled"|"error"` 字段；cost_records 新增 kind=`cache_hit`（带 agent_id + trace_id 串联到 D-trace）。环境变量 `HUB_QUERY_CACHE_ENABLED`（默认 true）+ `HUB_QUERY_CACHE_TTL_SECS`（默认 300）。模块 `hub-core/src/cache.rs` 暴露 `cache_key()` + `search_with_cache()` helper。模式隔离：mode 字节进入 hash 输入，hybrid/semantic/keyword 三套缓存互不污染。例：`tools.intelhub_hybrid_search({query:"BRICS"})` 第一次 `cache:"miss"`、第二次 `cache:"hit"`
 - **B — LLM-driven planner fallback**（2026-09-13 部署）：investigate() 在 rule-based plan 退化到只剩 1 步 hybrid_search 时，调 T8star `/v1/chat/completions` 让模型拆成 2-4 步。native `async fn in trait`（不用 async_trait crate），5s+100ms 超时，解析失败/空/hallucinated tool 都静默回退到 rule 计划。response 顶层 `planner: "rule"|"llm"|"llm_fallback"`，off by default（`HUB_LLM_ENABLED=false`）。模型默认 `gpt-4.1-mini`，预算约 800 tokens/call。cost_records kind=`llm_tokens`，~4 char/token 估算
+
+## GEV P15 — Cockpit Mouse-Look + Wheel-Zoom (2026-09-22)
+
+- **Branch**: `feat/gev-p15-cockpit-mouse-look` (merged + pushed to main @ `c1cbf43`).
+- **Behavior**: Right-mouse-drag pans cockpit view (snaps back to center on release if drag > threshold); mouse-wheel zooms within `[50 m, 5000 m]` envelope. Both flows through `chase-cam.ts`'s 50 ms cadence (single-camera-writer invariant — mouse-look never calls `viewer.camera.setView` directly; verified by `source-contracts.test.ts`).
+- **Vendor math**: `cockpitCameraOrientation.ts` ports 3 fns from `cameraOrientationControls.js` (`readCameraTargetFrame` / `setCameraTargetFrame` / `createCameraOrientationAnimator`). Math is byte-stable upstream; only TS types + module format change.
+- **Architecture**: mouse-look owns its own `Cesium.ScreenSpaceEventHandler` for RIGHT_DOWN/RIGHT_UP/MOUSE_MOVE. **WHEEL uses a direct canvas `addEventListener`** (NOT Cesium's setInputAction) because Cesium normalizes wheel events into a single delta, discarding `deltaMode` and `ctrlKey` that we need for normalization + trackpad pinch marker. Same pattern vendor `cameraOrientationControls.js:359-362` uses.
+- **Constants**: 9 new in `cockpitPresentation.js` — `COCKPIT_MOUSE_LOOK_YAW_RATE_RAD_PER_PX` (0.0035), `PITCH_RATE` (0.0035), `PITCH_CLAMP_MIN_RAD` (-1.4835 ≈-85°), `PITCH_CLAMP_MAX_RAD` (0.349 ≈+20°), `SNAPBACK_MS` (350), `SNAPBACK_THRESHOLD_RAD` (0.01), `WHEEL_RANGE_RATE_M_PER_DELTA` (25), `WHEEL_RANGE_MIN_M` (50), `WHEEL_RANGE_MAX_M` (5000). Marked in `UPSTREAM.json#intelhub_extensions` so vendor sync detects drift.
+- **Tests**: 133 cockpit tests pass (was 95 pre-P15). Full console suite 625/625 pass. 28 new tests across T2 (9 vendor port), T3 (24 mouse-look, brief said 26 — actual 24), T4 (3 chase-cam offset), T7 (2 source-contracts).
+- **Acceptance**: sp8 67 passed (64 P14 baseline + 3 P15). sp6 49/5/3 (3 pre-existing flakes: USGS network, txdot image, keyless collector count). sp7 16/11/0. sp3 19/0/0. **All P15 failures = 0**.
+- **Bundle checks**: T8 sp8 checks account for Vite tree-shaking (vendor-port 3 fns + `MOUSE_LOOK_ZERO_OFFSET` constant get inlined; checks look for `eastNorthUpToFixedFrame`, `HeadingPitchRange`, `preUpdate`, `headingDeltaRad` instead of export names).
+- **Notable rulings**:
+  - T1 spec/code drift on `PITCH_CLAMP_RAD` tuple form → split into MIN/MAX, repaired spec §4.2 before T2 (commit `ea9ef6f`).
+  - T2 brief had wrong test fixture (range assertion assumed WC-from-origin distance; vendor math computes ENU-local distance). 3 fix rounds caught the discrepancy. Implementation was always correct (vendor-byte-stable).
+  - T3 Cesium's `WheelEventCallback` signature is `(delta: number) => void` — NOT a `{deltaY, deltaMode, ctrlKey}` object. Brief's verbatim Cesium-shape assumption was wrong; replaced WHEEL with a direct canvas listener.
+  - T8 sp8 bundle checks needed to look for tree-shaking survivors (implementation identifiers), not export names.
+- **Roadmap** (per spec §6, deferred):
+  - §6.2 HUD avionics upgrade (heading/altitude/speed tapes + pitch ladder + bank indicator + vertical speed chevron) — ~300 LoC, locked behind this PR so the chase-cam API stabilizes first.
+  - §6.3 SVS / TCAS / replay — product decision required.
