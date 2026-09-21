@@ -17,6 +17,14 @@
 // Constructor contract (P3 lesson): assert the seam at mount — a lenient mock
 // that omits screenSpaceCameraController or the canvas would pass a test and
 // then silently no-op (or crash) against a real viewer.
+//
+// P15 note: mouse-look.ts owns its own Cesium.ScreenSpaceEventHandler for
+// RIGHT_DRAG / MOUSE_MOVE / WHEEL during cockpit. We deliberately do NOT
+// extend this handler — mouse-look and viewport-lock would create a circular
+// dep if mouse-look read viewport-lock's blocked events. Cesium's
+// screenSpaceCameraController and ScreenSpaceEventHandler are independent:
+// enableInputs=false blocks Cesium's *default* camera input but does NOT
+// block our own handler from firing.
 import * as Cesium from "cesium";
 
 export interface CockpitViewportLockViewer {
