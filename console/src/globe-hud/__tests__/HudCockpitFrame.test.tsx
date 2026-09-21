@@ -219,7 +219,7 @@ describe("HudCockpitFrame", () => {
     await act(async () => {});
     expect(flyTo).toHaveBeenCalledTimes(1);
     const enterReq = flyTo.mock.calls[0][0] as { duration: number };
-    expect(enterReq.duration).toBe(0.7);
+    expect(enterReq.duration).toBe(0.4);
 
     act(() => store.exit());
     await act(async () => {});
