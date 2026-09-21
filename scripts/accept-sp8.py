@@ -679,7 +679,7 @@ check_deferred(
     "live-render contract — asserted by console/probe-gev.mjs p12-cockpit-* "
     "(probe exit 0); sp8 is urllib+ssh without Playwright (spec §7.2 NOTE/R10)")
 check_deferred(
-    "p12: cockpit camera flyTo transition on enter (duration 0.6-0.8s)",
+    "p14: cockpit camera flyTo lands at chase pose (duration 0.3-0.5s, {direction, up} orientation)",
     "needs a tracked flight + a Cesium viewer handle; headless probe cannot "
     "enter cockpit with trackedId — unit-tested in camera-transition.test.ts, "
     "runtime handle deferred to P13 (spec R10)")
@@ -688,6 +688,25 @@ check_deferred(
     "live-render contract — probe-gev.mjs p12-cockpit-viewport-lock asserts the "
     "lock's observable effect (canvas cursor:none); enableInputs is unit-tested "
     "in viewport-lock.test.ts (spec §7.2 NOTE/R10)")
+
+# ---------------------------------------------------------------------------
+# GEV P14 (2026-09-21): cockpit chase-cam. Three bundle-level guards for the
+# three new adapters — chase-cam mount, model-visibility toggle, and the
+# camera-transition isInFlight() export. These mirror the P12/P13 bundle
+# checks (check the shipped dist, not the source) and are the acceptance
+# layer's counterpart to the live probe-gev.mjs P14_PROBES.
+# ---------------------------------------------------------------------------
+ck_chase = vm('grep -l "mountCockpitChaseCam\\|chase-cam" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p14: cockpit chase-cam module bundled in console dist", bool(ck_chase),
+      ck_chase or "mountCockpitChaseCam not found in dist bundle")
+
+ck_modvis = vm('grep -l "mountModelVisibility\\|model-visibility" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p14: cockpit model-visibility module bundled in console dist", bool(ck_modvis),
+      ck_modvis or "mountModelVisibility not found in dist bundle")
+
+ck_inflight = vm('grep -l "isInFlight" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p14: cockpit camera-transition isInFlight() exported", bool(ck_inflight),
+      ck_inflight or "isInFlight not found in dist bundle")
 
 # ---------------------------------------------------------------------------
 # GEV P13 (2026-09-21): flight-display optimization — default camera, enrich

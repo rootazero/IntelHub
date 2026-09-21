@@ -83,11 +83,17 @@ import {
   mountCockpitInstruments,
   mountCockpitBriefing,
   mountCockpitVision,
+  mountCockpitCameraTransition,
+  mountCockpitChaseCam,
+  mountModelVisibility,
   gateStyleWhileCockpitActive,
   type CockpitTrackedInfo,
   type InstrumentsHandle,
   type BriefingHandle,
   type VisionMountHandle,
+  type CockpitCameraTransition,
+  type ChaseCamHandle,
+  type ModelVisibilityHandle,
   type GatedStyleControl,
 } from "../gev-visual/cockpit";
 import { HudCockpitFrame, useCockpitStore } from "../globe-hud/HudCockpitFrame";
@@ -229,6 +235,14 @@ export default function GlobeV2() {
   const [cockpitBriefing, setCockpitBriefing] =
     useState<BriefingHandle | null>(null);
   const cockpitBriefingRef = useRef<BriefingHandle | null>(null);
+  // GEV P14 T4: chase-cam + model-visibility + camera-transition (handle
+  // trio mounted in the boot effect; transitioned in onToggleCockpit).
+  // Camera-transition is mounted first so chase-cam can take its
+  // isInFlight() handle (P14 lesson: chase-cam must skip setView while a
+  // flyTo is in flight, otherwise Cesium aborts the flight).
+  const cockpitCameraTransitionRef = useRef<CockpitCameraTransition | null>(null);
+  const chaseCamRef = useRef<ChaseCamHandle | null>(null);
+  const modelVisRef = useRef<ModelVisibilityHandle | null>(null);
   const [cockpitVision, setCockpitVision] =
     useState<VisionMountHandle | null>(null);
   const flightsRef = useRef<(() => CockpitTrackedInfo | null) | undefined>(
@@ -478,6 +492,72 @@ export default function GlobeV2() {
             setCockpitVision(vs);
           } catch (e) {
             console.warn("[GlobeV2] cockpit vision disabled:", e);
+          }
+        }
+        // GEV P14 T4: cockpit camera-transition + chase-cam + model-visibility.
+        // Camera-transition is mounted first (no deps); chase-cam takes its
+        // isInFlight() handle and a getTrackedEntity closure that reads the
+        // Cesium viewer's trackedEntity at each tick. model-visibility hides
+        // the tracked aircraft model while the cockpit is active so the
+        // cockpit frame is "sky + HUD + instruments" instead of "plane +
+        // cockpit chrome". All three are guarded like the other cockpit
+        // adapters so a partial/mock boot degrades gracefully.
+        if (viewer) {
+          try {
+            cockpitCameraTransitionRef.current = mountCockpitCameraTransition({
+              viewer: viewer as Parameters<
+                typeof mountCockpitCameraTransition
+              >[0]["viewer"],
+            });
+          } catch (e) {
+            console.warn(
+              "[GlobeV2] cockpit camera transition disabled:",
+              e,
+            );
+          }
+          if (cockpitCameraTransitionRef.current) {
+            try {
+              const cc = mountCockpitChaseCam({
+                viewer: viewer as Parameters<
+                  typeof mountCockpitChaseCam
+                >[0]["viewer"],
+                store: cockpitStore,
+                transition: cockpitCameraTransitionRef.current,
+                // Closure captures `viewer` from the boot .then() scope;
+                // viewer.trackedEntity is set synchronously by follow()
+                // and read every rAF tick.
+                getTrackedEntity: () => {
+                  const v = viewer as {
+                    trackedEntity?: { position: { getValue: (t: Date) => unknown } } | undefined;
+                  };
+                  return (v.trackedEntity ?? null) as never;
+                },
+                // Heading (degrees) comes from the flights layer's tracked
+                // info — the same source cockpit instruments read. track
+                // is degrees, same field as heading.
+                getHeading: () => {
+                  const info = flightsRef.current?.() ?? null;
+                  return info?.track ?? null;
+                },
+              });
+              chaseCamRef.current = cc;
+              cc.start();
+            } catch (e) {
+              console.warn("[GlobeV2] cockpit chase cam disabled:", e);
+            }
+          }
+          try {
+            modelVisRef.current = mountModelVisibility({
+              store: cockpitStore,
+              getTrackedEntity: () => {
+                const v = viewer as {
+                  trackedEntity?: { show: boolean } | undefined;
+                };
+                return (v.trackedEntity ?? null) as never;
+              },
+            });
+          } catch (e) {
+            console.warn("[GlobeV2] cockpit model visibility disabled:", e);
           }
         }
         // P8: annotation engine + store + load existing. mountAnnotationEngine
@@ -840,6 +920,13 @@ export default function GlobeV2() {
 
       // 2. cockpit (P9; vision drops its captured baseline, briefing stops
       // its rotation timer, instruments drops its frame).
+      // GEV P14 T4: destroy chase-cam first (depends on transition),
+      // then model-visibility, then drop the transition ref (stateless).
+      chaseCamRef.current?.destroy();
+      chaseCamRef.current = null;
+      modelVisRef.current?.destroy();
+      modelVisRef.current = null;
+      cockpitCameraTransitionRef.current = null;
       cockpitVisionRef.current?.destroy();
       cockpitVisionRef.current = null;
       setCockpitVision(null);
@@ -1019,6 +1106,27 @@ export default function GlobeV2() {
         followRef.current.follow("flight", id);
       }
       cockpitStore.enter(id ?? "");
+      // GEV P14 T4: kick off the 0.4s cinematic fly to the chase pose.
+      // Chase-cam's rAF (already started at mount) will skip setView while
+      // the flight is in flight (guarded by transition.isInFlight()), then
+      // take over for steady-state chase. Target lat/lon/alt comes from
+      // flights.getTrackedInfo() — the same source cockpit instruments
+      // read. (FollowHandle doesn't expose trackedEntity/trackInfo, so we
+      // read from the flights layer directly.)
+      const info = flightsRef.current?.();
+      if (
+        info &&
+        info.longitude != null &&
+        info.latitude != null &&
+        info.altitudeM != null &&
+        cockpitCameraTransitionRef.current
+      ) {
+        cockpitCameraTransitionRef.current.flyToTracked({
+          longitude: info.longitude,
+          latitude: info.latitude,
+          altitude: info.altitudeM,
+        });
+      }
     }
   }, [cockpitStore, cockpitSelection]);
 
