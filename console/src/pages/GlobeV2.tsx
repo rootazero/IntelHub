@@ -48,6 +48,10 @@ import { HudDrawToolbar } from "../globe-hud/HudDrawToolbar";
 import { HudAnnotationList } from "../globe-hud/HudAnnotationList";
 import { HudPanelDragHandle } from "../globe-hud/HudPanelDragHandle";
 import { HudScenePanel } from "../globe-hud/HudScenePanel";
+import {
+  HudAircraftDetail,
+  type CatalogLike,
+} from "../globe-hud/HudAircraftDetail";
 import { HudRecordingControls } from "../globe-hud/HudRecordingControls";
 import { HudShortcutCheatsheet } from "../globe-hud/HudShortcutCheatsheet";
 import { HudFrameRateReadout } from "../globe-hud/HudFrameRateReadout";
@@ -175,6 +179,7 @@ export default function GlobeV2() {
   const [sceneHandles, setSceneHandles] = useState<{
     viewer: unknown;
     mapStack: BasemapStack | null;
+    catalog: CatalogLike | null;
   } | null>(null);
   // T-P6: visual-effects adapter handle — surfaced via state so HudTopBar's
   // style switcher mounts only after start() resolves. A plain ref holds the
@@ -361,12 +366,21 @@ export default function GlobeV2() {
         if (cancelled) return;
         const components = globe.getComponents() as {
           data?: { dataManager?: RailManager };
-          scene?: { viewer?: unknown; mapStackController?: BasemapStack };
+          scene?: {
+            viewer?: unknown;
+            mapStackController?: BasemapStack;
+            catalog?: unknown;
+          };
         };
         setRailManager(components?.data?.dataManager ?? null);
         setSceneHandles({
           viewer: components?.scene?.viewer ?? null,
           mapStack: components?.scene?.mapStackController ?? null,
+          // GEV P13 T3: the flights layer has no `.state` on its published
+          // object (vendor index.js Object.assigns only the parts' methods),
+          // so HudAircraftDetail's real source is `getTrackedInfo` below. The
+          // catalog is forwarded anyway for the plan's fixture-shaped input.
+          catalog: (components?.scene?.catalog as CatalogLike | undefined) ?? null,
         });
         // T-P6: mount the visual-effects adapter against the live viewer.
         // PostProcessStage needs a fully-built viewer (the P2 Leaflet class
@@ -1055,7 +1069,16 @@ export default function GlobeV2() {
         ) : null
       }
       right={
-        <HudDetailPanel follow={follow} camera={cameraOrientation}>
+        <>
+          <HudAircraftDetail
+            // Read the ref at call time (not the render-time value) so the
+            // card's own 1 s tick picks up the seam even if the page never
+            // re-renders after start() resolves.
+            getTrackedInfo={() => flightsRef.current?.() ?? null}
+            catalog={sceneHandles?.catalog ?? null}
+            cockpitActive={cockpitState.active}
+          />
+          <HudDetailPanel follow={follow} camera={cameraOrientation}>
           <HudPanelDragHandle
             panelId="detail-panel"
             title="拖拽详情面板 / Drag detail panel"
@@ -1077,6 +1100,7 @@ export default function GlobeV2() {
             }}
           />
         </HudDetailPanel>
+        </>
       }
       bottom={
         <HudBottomBar

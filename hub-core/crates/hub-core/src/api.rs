@@ -889,14 +889,23 @@ async fn console_metrics_summary(
 async fn console_globe_aircraft(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
-    // Ruling 3 (GEV P2 T13): two independent snapshots — adsb.lol rotating
-    // (`hub:globe:aircraft`, TTL 300s) and OpenSky OAuth full vectors
+    // Ruling 3 (GEV P2 T13) + P13 T4: three independent snapshots — adsb.lol
+    // rotating (`hub:globe:aircraft`, TTL 300s), the six-hub US sweep
+    // (`hub:globe:aircraft:adsbx`, TTL 300s), and OpenSky OAuth full vectors
     // (`hub:globe:aircraft:opensky`, TTL 120s) — merged by hex at read time
-    // (fresher age_s wins; adsb priority without age info).
+    // (fresher age_s wins; earlier source wins without age info).
     let adsb_blob: Option<String> = state
         .redis_timed(
             redis::cmd("GET")
                 .arg(crate::monitor::sources::adsb::AIRCRAFT_KEY)
+                .clone(),
+            2000,
+        )
+        .await;
+    let adsbx_blob: Option<String> = state
+        .redis_timed(
+            redis::cmd("GET")
+                .arg(crate::monitor::sources::adsbexchange::ADSBX_AIRCRAFT_KEY)
                 .clone(),
             2000,
         )
@@ -910,11 +919,14 @@ async fn console_globe_aircraft(
         )
         .await;
     let adsb = adsb_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
+    let adsbx = adsbx_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
     let opensky = opensky_blob.and_then(|s| serde_json::from_str::<Value>(&s).ok());
-    // Both missing/corrupt = both collectors dead (adsb >300s, opensky >120s).
-    // 200 + stale flag, never 5xx — the frontend degrades visibly (spec §5).
+    // All missing/corrupt = every collector dead (adsb/adsbx >300s, opensky
+    // >120s). 200 + stale flag, never 5xx — the frontend degrades visibly
+    // (spec §5).
     Ok(Json(crate::monitor::sources::adsb::merge_globe_snapshots(
         adsb.as_ref(),
+        adsbx.as_ref(),
         opensky.as_ref(),
     )))
 }

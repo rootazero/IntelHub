@@ -138,6 +138,15 @@ pub fn registry() -> Vec<Box<dyn Source>> {
         // rotation: 1 request/tick over a 14-item queue (~4 req/min, inside
         // measured upstream quota); scheduler backoff is the 429 cooldown.
         Box::new(sources::adsb::Adsb::default()),
+        // GEV P13 T4 (2026-09-21): 3rd ADS-B source — six-hub US point sweep
+        // (ATL/JFK/ORD/DFW/DEN/PHX, 50nm) → its OWN snapshot at
+        // `hub:globe:aircraft:adsbx` (TTL 300s), merged read-time by
+        // adsb::merge_globe_snapshots (priority adsb > adsbx > opensky).
+        // 300s interval; the sweep paces its six upstream calls through the
+        // shared per-host limiter (25s gap) so it adds only ~1.2 req/min to
+        // the egress budget the adsb rotation already spends (~4 req/min).
+        // Snapshot-only: emits no geo Signals (celestrak/cctv precedent).
+        Box::new(sources::adsbexchange::AdsbExchange::default()),
         Box::new(sources::rss::Rss),
         // SP8-E compliance/financial plane expansion: SEC EDGAR EFTS
         // for material-event filings (default form=8-K). Fills the gap

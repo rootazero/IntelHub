@@ -349,4 +349,20 @@ export const zh: Dict = {
     filteredBy: "已过滤：{source}",
     clearFilter: "清除",
   },
+  // GEV P13 T3 — 追踪航班右侧元数据卡片（HudAircraftDetail）。
+  aircraft: {
+    detail: {
+      title: "追踪航班",
+      empty: "点击飞机查看详情",
+      evicted: "已失联",
+      aircraft: "机型",
+      registration: "注册号",
+      airline: "航司",
+      route: "航线",
+      altitude: "高度",
+      speed: "速度",
+      heading: "航向",
+      coords: "位置",
+    },
+  },
 };

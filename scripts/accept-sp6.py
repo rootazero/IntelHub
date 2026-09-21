@@ -734,5 +734,54 @@ check("gev: opensky-track endpoint contract (200 records[] or 503 missing-creds)
       not _tr_bad,
       f"http={st_tr} bad={_tr_bad or 'none'} body={raw_tr[:120]!r}")
 
+# ---- GEV P13: flight-display optimization (2026-09-21) ----
+# T1 default camera, T2 enrichment budget, T4 3rd ADS-B source. The two
+# console-side pieces (camera + QA seam) are bundle-level here because sp6
+# has no browser (the live-render halves live in probe-gev.mjs P13_PROBES);
+# the T4 piece is a native-monitor check and belongs in this suite.
+
+# T1 default camera: mountDefaultCamera (console/src/gev-boot/default-camera.ts)
+# forces the globe's initial framing to a global top-down view (alt 12,000 km).
+# Its contract-gate TypeError string is the only source of that literal — a
+# unique marker that survives minification and proves the module shipped in
+# dist (application.ts imports + calls it at the controls phase, so shipping ==
+# wiring). Source truth pins DEFAULT_VIEW's alt (anything lower stays regional).
+cam_bundle = vm('grep -lF "viewer.camera.setView is missing" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+cam_src = vm('grep -c "alt: 12_000_000" /home/zou/IntelHub/console/src/gev-boot/default-camera.ts 2>/dev/null | head -1')
+check("gev: default camera shipped (bundle marker + DEFAULT_VIEW alt=12000km)",
+      bool(cam_bundle) and cam_src.strip() == "1",
+      f"bundle={bool(cam_bundle)} src_alt={cam_src.strip()}")
+
+# T2 enrichment QA seam: applyEnrichAmbientOverride writes
+# window.__GEV_ENRICH_AMBIENT_QA at module load (vendor enrichment.js:132-141
+# reads it lazily on every refill). The property name survives minification
+# (object keys + string literals are not mangled), so its presence in dist
+# proves the override module is bundled AND wired (application.ts imports it).
+qa_bundle = vm('grep -lF "__GEV_ENRICH_AMBIENT_QA" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("gev: enrichment QA seam shipped in bundle",
+      bool(qa_bundle), qa_bundle or "not found")
+
+# T4 3rd ADS-B source: the adsbx monitor (module adsbexchange) polls six US
+# hubs every 300s and publishes its own snapshot hub:globe:aircraft:adsbx
+# (TTL 300s), merged read-time (priority adsb > adsbx > opensky). NOTE the
+# snapshot KEY has a recurring ~2min dead window (TTL 300 == interval 300, but
+# the sweep takes ~125s, so the key expires before the next sweep rewrites it)
+# — the key is therefore NOT a stable gate. The stable signals are the
+# scheduler health cell (written every sweep, no TTL) and the module's own
+# "adsbx us-hub sweep" success log (only emitted when at least one hub fetched;
+# carries the deduped aircraft count).
+adsbx_cell = redis("HGET", "hub:monitor:health", "adsbx").strip()
+adsbx_sweep = vm('sudo journalctl -u hub-core --since "15 minutes ago" --no-pager 2>/dev/null | grep -F "adsbx us-hub sweep" | tail -1')
+_adsbx_n = 0
+for _tok in adsbx_sweep.split():
+    if _tok.startswith("aircraft="):
+        _v = _tok.split("=", 1)[1]
+        if _v.isdigit():
+            _adsbx_n = int(_v)
+check("gev: adsbx 3rd source (health cell ok + sweep aircraft>0)",
+      '"state":"ok"' in adsbx_cell.replace(" ", "")
+      and _adsbx_n > 0,
+      f"cell={adsbx_cell[:60]} aircraft={_adsbx_n}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)

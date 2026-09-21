@@ -29,6 +29,18 @@
 // the engine's LayerPresentation into #data-toggles and requires
 // controls.styleManager, both engine chrome the IntelHub HUD replaces (T9).
 // T9's layer rail drives enable/disable via getComponents().data.dataManager.
+//
+// GEV P13 T2: publish the raised ambient enrichment budget on the vendor QA
+// seam at boot. The vendor reads window.__GEV_ENRICH_AMBIENT_QA lazily
+// (enrichment.js::_ambientBudgetKnobs, enrichment.js:132-141), so installing it
+// at module-load time — ahead of app.start() and therefore ahead of the first
+// enrichment sweep — is what makes it apply. Kept at the very top of the boot
+// module so the override is impossible to miss when reading the bootstrap.
+// (ESM hoists the imports below, but the vendor only reads the seam at refill
+// time, never during its own module evaluation, so source position here is
+// about intent discoverability, not evaluation order.)
+import { applyEnrichAmbientOverride } from "./enrich-override";
+applyEnrichAmbientOverride();
 
 import { createApplication } from "gev-engine/src/app/application.js";
 import { createApplicationScene } from "gev-engine/src/app/scene.js";
@@ -38,6 +50,7 @@ import { setScopeMaskEnabled } from "gev-engine/src/scopeMask.js";
 import { createIntelHubRequestServices } from "./request-services";
 import { createIntelHubLayerSources, createIntelHubAircraftSource } from "../gev-adapters";
 import { bridgeCctvToContextStore } from "./cctv-bridge";
+import { mountDefaultCamera } from "./default-camera";
 
 // Default-enabled layer set (controller ruling 9). The vendor data.js has NO
 // default-enable logic of its own (lifecycle entries start disabled; upstream
@@ -81,6 +94,15 @@ export function createIntelHubGlobe(opts: IntelHubGlobeOptions) {
         defer,
       }),
     createControls: ({ scene, signal, defer }: any) => {
+      // GEV P13 T1: global default camera. application.ts never calls the
+      // vendor createApplicationControls, so the vendor's startup flyToAustin
+      // (controls.js:45) never runs — this is what replaces it. The viewer is
+      // created inside the vendor scene factory (scene.js), so the controls
+      // phase is the first IntelHub-owned hook where `scene.viewer` exists.
+      // Called inline, NOT via defer(): the engine's defer() registers a
+      // *cleanup* (application.js:76-84), which would apply the view at
+      // teardown instead of at startup.
+      mountDefaultCamera(scene.viewer);
       const sources = createIntelHubLayerSources({ apiFetch: opts.apiFetch });
       // P12: inject the full aircraft source into the flights slot. The vendor
       // flights layer's trail backfill (tracking.js:484) and enrichment drip
