@@ -348,6 +348,22 @@ export const en = {
     filteredBy: "filtered: {source}",
     clearFilter: "clear",
   },
+  // GEV P13 T3 — right-side tracked-flight metadata card (HudAircraftDetail).
+  aircraft: {
+    detail: {
+      title: "TRACKED FLIGHT",
+      empty: "Click a flight to inspect",
+      evicted: "Selection lost",
+      aircraft: "Aircraft",
+      registration: "Reg",
+      airline: "Airline",
+      route: "Route",
+      altitude: "Alt",
+      speed: "Spd",
+      heading: "Hdg",
+      coords: "Pos",
+    },
+  },
 };
 
 export type Dict = typeof en;
