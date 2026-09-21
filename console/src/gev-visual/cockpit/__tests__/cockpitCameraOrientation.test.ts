@@ -47,7 +47,7 @@ describe("readCameraTargetFrame", () => {
   it("returns null when viewer.camera.positionWC is missing", () => {
     const viewer = makeViewer();
     viewer.camera.positionWC = undefined as never;
-    expect(readCameraTargetFrame(viewer as never)).toBeNull();
+    expect(readCameraTargetFrame(viewer as any)).toBeNull();
   });
 
   it("returns the orbit frame around the tracked entity when present", () => {
@@ -61,8 +61,8 @@ describe("readCameraTargetFrame", () => {
       5_000,
     );
     const target = Cesium.Cartesian3.fromDegrees(-74.17, 40.69, 15_000);
-    viewer.trackedEntity = { position: { getValue: () => target } };
-    const frame = readCameraTargetFrame(viewer as never);
+    (viewer as any).trackedEntity = { position: { getValue: () => target } };
+    const frame = readCameraTargetFrame(viewer as any);
     expect(frame).not.toBeNull();
     expect(frame!.range).toBeGreaterThan(9_000);
     expect(frame!.range).toBeLessThan(11_000);
@@ -76,8 +76,8 @@ describe("readCameraTargetFrame", () => {
   it("falls back to viewport center when no tracked entity", () => {
     const viewer = makeViewer();
     const target = Cesium.Cartesian3.fromDegrees(0, 0, 0);
-    viewer.camera.pickEllipsoid = vi.fn(() => target);
-    const frame = readCameraTargetFrame(viewer as never);
+    (viewer.camera as any).pickEllipsoid = vi.fn(() => target);
+    const frame = readCameraTargetFrame(viewer as any);
     expect(frame).not.toBeNull();
     expect(frame!.target).toEqual(target);
   });
@@ -86,7 +86,7 @@ describe("readCameraTargetFrame", () => {
 describe("setCameraTargetFrame", () => {
   it("returns false when frame.target is missing", () => {
     const viewer = makeViewer();
-    const result = setCameraTargetFrame(viewer as never, {
+    const result = setCameraTargetFrame(viewer as any, {
       target: undefined as never,
       range: 100,
       heading: 0,
@@ -98,8 +98,8 @@ describe("setCameraTargetFrame", () => {
   it("calls camera.lookAt then camera.lookAtTransform when tracked entity present", () => {
     const viewer = makeViewer();
     const target = Cesium.Cartesian3.fromDegrees(-74.17, 40.69, 10000);
-    viewer.trackedEntity = { position: { getValue: () => target } };
-    const result = setCameraTargetFrame(viewer as never, {
+    (viewer as any).trackedEntity = { position: { getValue: () => target } };
+    const result = setCameraTargetFrame(viewer as any, {
       target,
       range: 100,
       heading: 0,
@@ -113,7 +113,7 @@ describe("setCameraTargetFrame", () => {
   it("calls camera.lookAt then camera.setView when no tracked entity (free-flight)", () => {
     const viewer = makeViewer();
     const target = Cesium.Cartesian3.fromDegrees(0, 0, 0);
-    const result = setCameraTargetFrame(viewer as never, {
+    const result = setCameraTargetFrame(viewer as any, {
       target,
       range: 100,
       heading: 0,
@@ -128,7 +128,7 @@ describe("setCameraTargetFrame", () => {
 describe("createCameraOrientationAnimator", () => {
   it("returns an object with animate, cancel, and destination getter", () => {
     const viewer = makeViewer();
-    const animator = createCameraOrientationAnimator(viewer as never);
+    const animator = createCameraOrientationAnimator(viewer as any);
     expect(typeof animator.animate).toBe("function");
     expect(typeof animator.cancel).toBe("function");
     expect(animator.destination).toBeNull();
@@ -137,13 +137,13 @@ describe("createCameraOrientationAnimator", () => {
   it("animates heading from frame.heading to destination.heading over duration", () => {
     const viewer = makeViewer();
     let preUpdateListener: (() => void) | null = null;
-    viewer.scene.preUpdate.addEventListener = vi.fn((fn: () => void) => {
+    (viewer.scene.preUpdate as any).addEventListener = vi.fn((fn: () => void) => {
       preUpdateListener = fn;
       return () => {
         preUpdateListener = null;
       };
     });
-    const animator = createCameraOrientationAnimator(viewer as never, {
+    const animator = createCameraOrientationAnimator(viewer as any, {
       duration: 100,
     });
     const frame = {
@@ -167,8 +167,8 @@ describe("createCameraOrientationAnimator", () => {
     const removeListener = () => {
       detached = true;
     };
-    viewer.scene.preUpdate.addEventListener = vi.fn(() => removeListener);
-    const animator = createCameraOrientationAnimator(viewer as never);
+    (viewer.scene.preUpdate as any).addEventListener = vi.fn(() => removeListener);
+    const animator = createCameraOrientationAnimator(viewer as any);
     animator.animate(
       { target: Cesium.Cartesian3.fromDegrees(0, 0, 0), range: 100, heading: 0, pitch: -0.5 },
       { heading: 1, pitch: -0.5 },

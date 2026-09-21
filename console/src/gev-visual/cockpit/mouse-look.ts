@@ -37,10 +37,10 @@ import {
 
 // Cesium ScreenSpaceEventType values (inlined to avoid Cesium import surface).
 // Source: https://cesium.com/learn/cesiumjs/ref-doc/ScreenSpaceEventType.html
-const RIGHT_DOWN = 7 as const;
-const RIGHT_UP = 9 as const;
-const MOUSE_MOVE = 5 as const;
-const WHEEL = 14 as const;
+const RIGHT_DOWN: number = 7;
+const RIGHT_UP: number = 9;
+const MOUSE_MOVE: number = 5;
+const WHEEL: number = 14;
 
 const ZERO_OFFSET = Object.freeze({
   headingDeltaRad: 0,
@@ -113,6 +113,7 @@ export function mountCockpitMouseLook(
   const canvas = viewer.scene.canvas;
   let destroyed = false;
   let isDragging = false;
+  let wheelListener: ((event: WheelEvent) => void) | null = null;
   let lastDragX = 0;
   let lastDragY = 0;
   let headingDeltaRad = 0;
@@ -210,51 +211,48 @@ export function mountCockpitMouseLook(
       MOUSE_MOVE,
     );
 
-    handler.setInputAction(
-      (event: {
-        deltaY?: number;
-        deltaMode?: number;
-        ctrlKey?: boolean;
-      }) => {
-        if (destroyed) return;
-        const rawDeltaY = event.deltaY ?? 0;
-        if (rawDeltaY === 0) return; // spurious zero-delta events (trackpad inertia decay)
-        // Normalize deltaY by deltaMode:
-        //   0 = DOM_DELTA_PIXEL (Chrome/macOS default)
-        //   1 = DOM_DELTA_LINE   (Firefox/Linux)
-        //   2 = DOM_DELTA_PAGE   (rare)
-        let normalized = rawDeltaY;
-        if (event.deltaMode === 1) normalized = rawDeltaY * 3;
-        else if (event.deltaMode === 2) normalized = rawDeltaY * 50;
-        // Sign convention: wheel-up (deltaY < 0) → zoom IN → offset decreases.
-        // Pinch (ctrlKey=true) fires same wheel event with same sign.
-        rangeOffsetM += normalized * COCKPIT_MOUSE_WHEEL_RANGE_RATE_M_PER_DELTA;
-        const minOffset =
-          COCKPIT_MOUSE_WHEEL_RANGE_MIN_M - COCKPIT_FORWARD_OFFSET_M;
-        const maxOffset =
-          COCKPIT_MOUSE_WHEEL_RANGE_MAX_M - COCKPIT_FORWARD_OFFSET_M;
-        // Tolerance-based clamp (see MOUSE_MOVE handler): tolerance chosen
-        // to absorb a single-wheel delta (typically <RATE*1000 m) so ordinary
-        // zoom doesn't pull to the floor/ceiling. Only extreme saturation
-        // (millions of meters) hits the clamp. Pinned to 3000 m so the brief's
-        // wheel-up test (-100 * 25 = -2500) and clamp test (1M * 25 = 25M
-        // clamped to MAX-FORWARD=4993) both pass.
-        const WHEEL_TOLERANCE = 3000;
-        if (rangeOffsetM > maxOffset + WHEEL_TOLERANCE) {
-          rangeOffsetM = maxOffset;
-        } else if (rangeOffsetM < minOffset - WHEEL_TOLERANCE) {
-          rangeOffsetM = minOffset;
-        }
-        // ctrlKey is recorded but does NOT change sign — see spec §4.2 WHEEL handler.
-      },
-      WHEEL,
-    );
+    // Use a direct canvas wheel listener instead of Cesium's setInputAction for WHEEL:
+// Cesium normalizes wheel events into a single delta number, discarding deltaMode
+// and ctrlKey. We need both: deltaMode for normalization (PIXEL/LINE/PAGE) and
+// ctrlKey as a marker for trackpad pinch. The raw event is exposed via the canvas
+// listener. This is the same pattern the vendor gods-eye-view uses for cameraOrientationControls.
+    wheelListener = (event: WheelEvent) => {
+      if (destroyed) return;
+      const rawDeltaY = event.deltaY;
+      if (rawDeltaY === 0) return; // spurious zero-delta events
+      // Normalize deltaY by deltaMode:
+      //   0 = DOM_DELTA_PIXEL (Chrome/macOS default)
+      //   1 = DOM_DELTA_LINE   (Firefox/Linux)
+      //   2 = DOM_DELTA_PAGE   (rare)
+      let normalized = rawDeltaY;
+      if (event.deltaMode === 1) normalized = rawDeltaY * 3;
+      else if (event.deltaMode === 2) normalized = rawDeltaY * 50;
+      // Sign convention: wheel-up (deltaY < 0) → zoom IN → offset decreases.
+      // Pinch (ctrlKey=true) fires same wheel event with same sign.
+      rangeOffsetM += normalized * COCKPIT_MOUSE_WHEEL_RANGE_RATE_M_PER_DELTA;
+      const minOffset =
+        COCKPIT_MOUSE_WHEEL_RANGE_MIN_M - COCKPIT_FORWARD_OFFSET_M;
+      const maxOffset =
+        COCKPIT_MOUSE_WHEEL_RANGE_MAX_M - COCKPIT_FORWARD_OFFSET_M;
+      // Hard clamp at the envelope — no tolerance (Cesium delta is well-bounded).
+      if (rangeOffsetM > maxOffset) {
+        rangeOffsetM = maxOffset;
+      } else if (rangeOffsetM < minOffset) {
+        rangeOffsetM = minOffset;
+      }
+      // ctrlKey is recorded but does NOT change sign — see spec §4.2 WHEEL handler.
+    };
+    canvas.addEventListener("wheel", wheelListener, { passive: true });
   }
 
   function stopHandlers(): void {
     if (handler) {
       handler.destroy();
       handler = null;
+    }
+    if (wheelListener) {
+      canvas.removeEventListener("wheel", wheelListener);
+      wheelListener = null;
     }
     isDragging = false;
   }
