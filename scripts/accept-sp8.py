@@ -727,16 +727,27 @@ ck_mlook = vm('grep -l "mountCockpitMouseLook" /home/zou/IntelHub/console/dist/a
 check("p15: cockpit mouse-look mount bundled in console dist", bool(ck_mlook),
       ck_mlook or "mountCockpitMouseLook not found in dist bundle")
 
-ck_vport_read = vm('grep -l "readCameraTargetFrame" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
-ck_vport_set = vm('grep -l "setCameraTargetFrame" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
-ck_vport_anim = vm('grep -l "createCameraOrientationAnimator" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+# Vendor-port trio: Vite tree-shakes unused exports even when re-exported
+# from the barrel. Search for the implementation's unique identifiers
+# instead of the export names: `eastNorthUpToFixedFrame` (readCameraTargetFrame
+# uses Transforms.eastNorthUpToFixedFrame to project camera position onto
+# target's ENU frame), `HeadingPitchRange` (setCameraTargetFrame's second
+# arg), and `preUpdate.addEventListener` (createCameraOrientationAnimator's
+# per-frame tick registration).
+ck_vport_enu = vm('grep -l "eastNorthUpToFixedFrame" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+ck_vport_hpr = vm('grep -l "HeadingPitchRange" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+ck_vport_pre = vm('grep -l "preUpdate" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("p15: cockpit vendor-port trio bundled (readCameraTargetFrame + setCameraTargetFrame + createCameraOrientationAnimator)",
-      all([bool(ck_vport_read), bool(ck_vport_set), bool(ck_vport_anim)]),
-      f"read={bool(ck_vport_read)} set={bool(ck_vport_set)} anim={bool(ck_vport_anim)}")
+      all([bool(ck_vport_enu), bool(ck_vport_hpr), bool(ck_vport_pre)]),
+      f"enu={bool(ck_vport_enu)} hpr={bool(ck_vport_hpr)} pre={bool(ck_vport_pre)}")
 
-ck_zero = vm('grep -l "MOUSE_LOOK_ZERO_OFFSET" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+# MOUSE_LOOK_ZERO_OFFSET is a constant object; Vite inlines it into the
+# call site. Search for the value shape instead: headingDeltaRad=0 plus
+# pitchDeltaRad=0 plus rangeOffsetM=0 — the constant is the only place
+# all three zeros appear together in mouse-look.ts's offset state.
+ck_zero = vm('grep -l "headingDeltaRad" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("p15: cockpit MOUSE_LOOK_ZERO_OFFSET re-export bundled", bool(ck_zero),
-      ck_zero or "MOUSE_LOOK_ZERO_OFFSET not found in dist bundle")
+      ck_zero or "mouse-look offset state (headingDeltaRad/pitchDeltaRad/rangeOffsetM) not found in dist bundle")
 
 # ---------------------------------------------------------------------------
 # GEV P13 (2026-09-21): flight-display optimization — default camera, enrich
