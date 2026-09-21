@@ -31,6 +31,7 @@ import {
   COCKPIT_CAMERA_UPDATE_MS,
 } from "gev-engine/src/ui/cockpitPresentation.js";
 import type { CockpitStore } from "./cockpit-store";
+import { MOUSE_LOOK_ZERO_OFFSET as ZERO_OFFSET } from "./mouse-look";
 
 /** Subset of Cesium.Entity we touch. */
 interface ChaseEntity {
@@ -62,6 +63,22 @@ export interface ChaseCamDeps {
   transition: ChaseTransition;
   getTrackedEntity: () => ChaseEntity | null;
   getHeading: () => number | null;
+  /**
+   * GEV P15 T4 addition — optional mouse-look handle. When omitted,
+   * chase-cam uses MOUSE_LOOK_ZERO_OFFSET (backward-compat with P14):
+   * camera pose = anchor + forward*7 + up*2.6, exactly. When provided,
+   * chase-cam reads `getFrameOffset()` once per cadence tick and composes
+   * the offset onto heading (additive), pitch (additive), and range
+   * (additive). Drag rides ON TOP of track slew — it is not a
+   * replacement for the aircraft's nose direction.
+   */
+  mouseLook?: {
+    getFrameOffset(): {
+      headingDeltaRad: number;
+      pitchDeltaRad: number;
+      rangeOffsetM: number;
+    };
+  };
 }
 
 export interface ChaseCamHandle {
@@ -71,7 +88,6 @@ export interface ChaseCamHandle {
 }
 
 const PITCH_RAD = Cesium.Math.toRadians(COCKPIT_VIEW_PITCH_DEG);
-const FORWARD_OFFSET = COCKPIT_FORWARD_OFFSET_M;
 const UP_OFFSET = COCKPIT_UP_OFFSET_M;
 const CADENCE_MS = COCKPIT_CAMERA_UPDATE_MS;
 const SLEW_DPS = COCKPIT_HEADING_SLEW_DPS;
@@ -138,13 +154,31 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
     const target = entity.position.getValue(clockTime, scratchTarget);
     if (!target) return;
 
-    // 5. Slew heading toward target heading
+    // 5. Read mouse-look offset (atomic snapshot per tick) and compose
+    // heading/pitch/range. P15 T4: when mouseLook is omitted, this resolves
+    // to ZERO_OFFSET — drag rides on top of track slew additively.
     const dtSec = Math.min(0.1, Math.max(0, (nowMs - lastFrameMs) / 1000));
     lastFrameMs = nowMs;
     const targetHeading = deps.getHeading();
+    const offset = deps.mouseLook?.getFrameOffset() ?? ZERO_OFFSET;
+    // Compose: drag offset rides ON TOP of track slew (additive). Operator
+    // drag is an offset on top of the aircraft's nose direction, not a
+    // replacement. UNIT NOTE: getHeading() returns DEGREES (per P14 — see
+    // existing test 'destination is in chase envelope ... heading 90'), and
+    // slewHeading is fed degrees. mouseLook's headingDeltaRad is in RADIANS
+    // (per T3 contract). Convert rad → deg before adding.
+    const composedTargetHeading =
+      (Number.isFinite(targetHeading) ? (targetHeading as number) : 0) +
+      Cesium.Math.toDegrees(offset.headingDeltaRad);
     if (Number.isFinite(targetHeading)) {
-      heading = slewHeading(heading ?? targetHeading ?? 0, targetHeading as number, SLEW_DPS * dtSec);
+      heading = slewHeading(
+        heading ?? targetHeading ?? 0,
+        composedTargetHeading,
+        SLEW_DPS * dtSec,
+      );
     }
+    const composedPitchRad = PITCH_RAD + offset.pitchDeltaRad;
+    const composedRange = COCKPIT_FORWARD_OFFSET_M + offset.rangeOffsetM;
 
     // 6. Update cockpit anchor (smoothed inertial position)
     if (!cockpitAnchorValid) {
@@ -180,11 +214,12 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
     // 7. Build ENU frame at anchor
     Cesium.Transforms.eastNorthUpToFixedFrame(cockpitAnchor, undefined, scratchEnu);
 
-    // 8. Compute forward direction in local ENU
+    // 8. Compute forward direction in local ENU. P15 T4: composedPitchRad
+    // bakes in mouseLook's pitchDeltaRad (additive on top of COCKPIT_VIEW_PITCH_DEG).
     const hRad = Cesium.Math.toRadians(heading ?? 0);
-    scratchForward.x = Math.sin(hRad) * Math.cos(PITCH_RAD);
-    scratchForward.y = Math.cos(hRad) * Math.cos(PITCH_RAD);
-    scratchForward.z = Math.sin(PITCH_RAD);
+    scratchForward.x = Math.sin(hRad) * Math.cos(composedPitchRad);
+    scratchForward.y = Math.cos(hRad) * Math.cos(composedPitchRad);
+    scratchForward.z = Math.sin(composedPitchRad);
     Cesium.Matrix4.multiplyByPointAsVector(scratchEnu, scratchForward, scratchForward);
     Cesium.Cartesian3.normalize(scratchForward, scratchForward);
 
@@ -193,9 +228,10 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
     Cesium.Matrix4.multiplyByPointAsVector(scratchEnu, scratchUp, scratchUp);
     Cesium.Cartesian3.normalize(scratchUp, scratchUp);
 
-    // 10. Compose camera position
+    // 10. Compose camera position. P15 T4: composedRange bakes in
+    // mouseLook's rangeOffsetM (additive on top of COCKPIT_FORWARD_OFFSET_M).
     Cesium.Cartesian3.clone(cockpitAnchor, scratchCamera);
-    Cesium.Cartesian3.multiplyByScalar(scratchForward, FORWARD_OFFSET, scratchOffset);
+    Cesium.Cartesian3.multiplyByScalar(scratchForward, composedRange, scratchOffset);
     Cesium.Cartesian3.add(scratchCamera, scratchOffset, scratchCamera);
     Cesium.Cartesian3.multiplyByScalar(scratchUp, UP_OFFSET, scratchOffset);
     Cesium.Cartesian3.add(scratchCamera, scratchOffset, scratchCamera);
