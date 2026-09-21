@@ -6,7 +6,12 @@
 // at runtime. We use vi.fn() (no new HTTP mocking libs, per brief constraint)
 // and verify the adapter wires every required dep through to the constructor.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { mountPanelDrag, type PanelDragOptions } from "../panel-drag";
+import {
+  mountPanelDrag,
+  panelDragHandleCount,
+  setAllPanelDragDisabled,
+  type PanelDragOptions,
+} from "../panel-drag";
 import { PanelPositionControls } from "gev-engine/src/ui/panelPositionControls.js";
 
 function makeDeps(): PanelDragOptions {
@@ -219,6 +224,151 @@ describe("panel-drag adapter", () => {
     );
     expect(panel.classList.contains("panel-dragging")).toBe(false);
     expect(other.classList.contains("panel-dragging")).toBe(true);
+    drag.destroy();
+  });
+});
+
+// ── GEV P12 T7 — cockpit-active disabled parameter (spec §6.E4) ─────────
+describe("panel-drag disabled parameter (P12)", () => {
+  let ppToggle: HTMLElement;
+
+  /** A `.panel-draggable` HUD panel with a 360x240 rect at (100, 80). */
+  function makeDraggablePanel(id: string): HTMLElement {
+    const panel = document.createElement("div");
+    panel.id = id;
+    panel.className = "panel-draggable";
+    panel.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 80,
+        right: 460,
+        bottom: 320,
+        width: 360,
+        height: 240,
+        x: 100,
+        y: 80,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const handle = document.createElement("span");
+    handle.className = "hud-panel-drag-handle";
+    panel.appendChild(handle);
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function pointerDown(clientX: number, clientY: number): PointerEvent {
+    return new PointerEvent("pointerdown", {
+      bubbles: true,
+      clientX,
+      clientY,
+      button: 0,
+    });
+  }
+
+  function pointerMove(clientX: number, clientY: number): PointerEvent {
+    return new PointerEvent("pointermove", {
+      bubbles: true,
+      clientX,
+      clientY,
+    });
+  }
+
+  beforeEach(() => {
+    ppToggle = document.createElement("div");
+    ppToggle.id = "pp-toggles";
+    document.body.appendChild(ppToggle);
+  });
+
+  afterEach(() => {
+    setAllPanelDragDisabled(false);
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  test("disabled=true: pointerdown is ignored and the panel never moves", () => {
+    const panel = makeDraggablePanel("p12-disabled");
+    const drag = mountPanelDrag(ppToggle, { ...makeDeps(), disabled: true });
+
+    expect(drag.startDrag("p12-disabled", pointerDown(150, 100))).toBe(false);
+    expect(panel.classList.contains("panel-dragging")).toBe(false);
+
+    window.dispatchEvent(pointerMove(600, 400));
+    expect(panel.style.left).toBe("");
+    expect(panel.style.top).toBe("");
+    drag.destroy();
+  });
+
+  test("disabled=true mid-drag releases immediately (R7)", () => {
+    const panel = makeDraggablePanel("p12-middrag");
+    const drag = mountPanelDrag(ppToggle, makeDeps());
+
+    expect(drag.startDrag("p12-middrag", pointerDown(150, 100))).toBe(true);
+    expect(panel.classList.contains("panel-dragging")).toBe(true);
+
+    drag.setDisabled(true);
+    expect(drag.isDisabled()).toBe(true);
+    expect(panel.classList.contains("panel-dragging")).toBe(false);
+
+    // Window listeners are gone — the pointer no longer drags the panel.
+    const frozenLeft = panel.style.left;
+    window.dispatchEvent(pointerMove(700, 500));
+    expect(panel.style.left).toBe(frozenLeft);
+    drag.destroy();
+  });
+
+  test("setDisabled(false) restores dragging (and the registry flips too)", () => {
+    const panel = makeDraggablePanel("p12-thaw");
+    const drag = mountPanelDrag(ppToggle, { ...makeDeps(), disabled: true });
+    expect(drag.isDisabled()).toBe(true);
+
+    setAllPanelDragDisabled(false);
+    expect(drag.isDisabled()).toBe(false);
+    expect(drag.startDrag("p12-thaw", pointerDown(150, 100))).toBe(true);
+    expect(panel.classList.contains("panel-dragging")).toBe(true);
+
+    // …and the registry can freeze it again (cockpit enter path).
+    setAllPanelDragDisabled(true);
+    expect(drag.isDisabled()).toBe(true);
+    expect(panel.classList.contains("panel-dragging")).toBe(false);
+    drag.destroy();
+  });
+
+  test("destroy() clears listeners and de-registers the handle", () => {
+    const panel = makeDraggablePanel("p12-destroy");
+    const before = panelDragHandleCount();
+    const drag = mountPanelDrag(ppToggle, makeDeps());
+    expect(panelDragHandleCount()).toBe(before + 1);
+
+    expect(drag.startDrag("p12-destroy", pointerDown(150, 100))).toBe(true);
+    drag.destroy();
+    expect(panelDragHandleCount()).toBe(before);
+
+    const frozenLeft = panel.style.left;
+    window.dispatchEvent(pointerMove(900, 700));
+    expect(panel.style.left).toBe(frozenLeft);
+    expect(() =>
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })),
+    ).not.toThrow();
+  });
+
+  test("clamp keeps out-of-viewport drags inside the window", () => {
+    const panel = makeDraggablePanel("p12-clamp");
+    const drag = mountPanelDrag(ppToggle, makeDeps());
+    expect(drag.startDrag("p12-clamp", pointerDown(150, 100))).toBe(true);
+
+    window.dispatchEvent(pointerMove(-5000, -5000));
+    expect(panel.style.left).toBe("6px");
+    expect(panel.style.top).toBe("6px");
+
+    window.dispatchEvent(pointerMove(99999, 99999));
+    expect(panel.style.left).toBe(
+      `${Math.max(6, window.innerWidth - 360 - 6)}px`,
+    );
+    expect(panel.style.top).toBe(
+      `${Math.max(6, window.innerHeight - 240 - 6)}px`,
+    );
     drag.destroy();
   });
 });

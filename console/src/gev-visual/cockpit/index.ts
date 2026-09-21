@@ -24,6 +24,7 @@ export {
 export {
   mountCockpitVision,
   VISION_MODES,
+  VISION_MODE_STORAGE_KEY,
   isVisionMode,
   type VisionMode,
   type VisionMountHandle,
@@ -43,3 +44,22 @@ export {
   type StyleEffects,
   type GatedStyleControl,
 } from "./style-gate";
+
+export {
+  useCockpitShortcuts,
+  type CockpitShortcutsOptions,
+} from "./shortcuts";
+
+export {
+  mountCockpitCameraTransition,
+  type CockpitCameraTransition,
+  type CockpitCameraTransitionDeps,
+  type CockpitCameraTarget,
+  type CockpitCameraFlyOptions,
+} from "./camera-transition";
+
+export {
+  mountCockpitViewportLock,
+  type CockpitViewportLock,
+  type CockpitViewportLockViewer,
+} from "./viewport-lock";

@@ -54,6 +54,15 @@ export interface PanelDragHandle {
   startDrag(panelId: string, event: PointerEvent): boolean;
   /** Terminate any in-flight drag started by startDrag(). No-op if none. */
   endDrag(): void;
+  /**
+   * P12 T7: freeze (`true`) or thaw (`false`) dragging. While disabled,
+   * startDrag() is a no-op and any in-flight drag is released immediately
+   * (handlers removed + `.panel-dragging` cleared + position persisted) so a
+   * cockpit enter cannot strand a half-finished drag. No-op after destroy().
+   */
+  setDisabled(disabled: boolean): void;
+  /** P12 T7: current disabled flag. */
+  isDisabled(): boolean;
   /** Idempotent — second call is a no-op (matches vendor semantics). */
   destroy(): void;
 }
@@ -61,6 +70,26 @@ export interface PanelDragHandle {
 export interface PanelDragOptions extends PanelDragDeps {
   /** Lookup for `#<panelId>` resolution; default document.getElementById. */
   getPanelElement?: (id: string) => HTMLElement | null;
+  /** P12 T7: mount already frozen (e.g. HUD restored with cockpit active). */
+  disabled?: boolean;
+}
+
+// ── P12 T7 cockpit-active lock registry ─────────────────────────────────
+// The cockpit HUD (HudCockpitFrame) must freeze panel dragging while the
+// operator is flying, but it holds no reference to the adapter instance — that
+// lives in GlobeV2's ref. Every mounted adapter registers itself here so the
+// HUD flips the whole set with one call at cockpit enter/exit. Destroyed
+// handles de-register, so the registry tracks live instances only.
+const livePanelDragHandles = new Set<PanelDragHandle>();
+
+/** P12 T7: freeze/thaw EVERY mounted panel-drag adapter (cockpit lock). */
+export function setAllPanelDragDisabled(disabled: boolean): void {
+  for (const handle of livePanelDragHandles) handle.setDisabled(disabled);
+}
+
+/** P12 T7: live registry size — diagnostics / tests. */
+export function panelDragHandleCount(): number {
+  return livePanelDragHandles.size;
 }
 
 export function mountPanelDrag(
@@ -101,6 +130,8 @@ export function mountPanelDrag(
     onUp: () => void;
   };
   let active: DragState | null = null;
+  // P12 T7: frozen while the cockpit is active.
+  let disabled = opts.disabled === true;
 
   const storageKey = (panelId: string) =>
     `godsEyeView.v8.panelPos.${panelId}`;
@@ -141,6 +172,12 @@ export function mountPanelDrag(
 
   const start = (panelId: string, event: PointerEvent): boolean => {
     if (destroyed) return false;
+    // P12 T7: frozen — never begin, and defensively release a drag that was
+    // already in flight when the cockpit took over.
+    if (disabled) {
+      if (active) finish();
+      return false;
+    }
     // A second startDrag() before endDrag() cancels the in-flight one
     // (vendor semantics; preserves single-source-of-truth for pointermove).
     if (active) finish();
@@ -198,15 +235,27 @@ export function mountPanelDrag(
     return true;
   };
 
-  return {
+  const handle: PanelDragHandle = {
     controls,
     startDrag: start,
     endDrag: finish,
+    setDisabled(next: boolean) {
+      if (destroyed) return;
+      disabled = next;
+      // R7: a cockpit enter mid-drag must release pointer capture and the
+      // window listeners NOW — otherwise the panel would keep following the
+      // pointer under the cockpit HUD.
+      if (next && active) finish();
+    },
+    isDisabled: () => disabled,
     destroy() {
       if (destroyed) return;
       destroyed = true;
       finish();
       controls.destroy();
+      livePanelDragHandles.delete(handle);
     },
   };
+  livePanelDragHandles.add(handle);
+  return handle;
 }
