@@ -39,6 +39,7 @@ def check(name, cond, detail=""):
 
 
 shelved = 0
+deferred = 0
 
 
 def check_shelved(name, reason):
@@ -46,6 +47,17 @@ def check_shelved(name, reason):
     global shelved
     shelved += 1
     print(f"SHELVE {name}  | {reason}")
+
+
+def check_deferred(name, reason):
+    """Acceptance-deferred (spec P12 §7.2 NOTE / R10): the behavior is real but
+    only observable in a live browser. sp8 is urllib + ssh (no Playwright), so
+    the runtime half is asserted out-of-band by `console/probe-gev.mjs`'s
+    P12_PROBES segment. Does NOT count as pass or failure — the deferred count
+    is surfaced in the summary so it stays visible."""
+    global deferred
+    deferred += 1
+    print(f"DEFER {name}  | {reason}")
 
 
 def secret(name):
@@ -618,5 +630,64 @@ popout_id = "cctv-popout-panel" in popout_source
 check("p11: CctvPopoutPanel.tsx references cctv-popout-panel (source truth)",
       popout_id, "panel testid in source" if popout_id else "MISSING in CctvPopoutPanel.tsx")
 
-print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
+# ---------------------------------------------------------------------------
+# GEV P12 (2026-09-21): flight-layer parity — aircraft source adapter + cockpit
+# behavior contracts.
+#
+# Same source-vs-live split the P9/P10/P11 blocks use. checks 49/50 are
+# bundle-level (the shipped dist must carry T3's adapter, which is what makes
+# the vendor's flights track-backfill + adsbdb enrichment drip work). The
+# distinguishing marker is the `hub.intelhub` label + the two error strings
+# that exist ONLY in console/src/gev-adapters/aircraft-source.ts — the bare
+# `getTrack`/`/api/opensky-track` literals also live in the vendored
+# standalone.js, so grepping only for those would pass on a build that
+# predates T3 (P12 review finding).
+# ---------------------------------------------------------------------------
+
+# 49. T3 aircraft source: getTrack + /api/opensky-track shipped. The vendor
+#     tracking.js:480 calls `_source.getTrack` for every tracked flight's trail;
+#     without the IntelHub adapter the default snapshot source has no such
+#     method and trails silently never backfill.
+track_marker = vm('grep -l "hub.intelhub" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+track_method = vm('grep -l "getTrack" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+track_path = vm('grep -l "/api/opensky-track" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p12: aircraft adapter getTrack + /api/opensky-track shipped in dist",
+      bool(track_marker) and bool(track_method) and bool(track_path),
+      f"marker={bool(track_marker)} getTrack={bool(track_method)} path={bool(track_path)}")
+
+# 50. T3 aircraft source: getEnrichment + /api/adsbdb shipped. Vendor
+#     enrichment.js:60 calls `_source.getEnrichment`; the route/type string is
+#     unique to the adapter (the vendor builds its URL from query.kind).
+enrich_method = vm('grep -l "getEnrichment" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+enrich_path = vm('grep -l "/api/adsbdb" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+enrich_guard = vm('grep -l "route enrichment id must be 2-8 char callsign" '
+                  '/home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p12: aircraft adapter getEnrichment + /api/adsbdb shipped in dist",
+      bool(enrich_method) and bool(enrich_path) and bool(enrich_guard),
+      f"getEnrichment={bool(enrich_method)} path={bool(enrich_path)} guard={bool(enrich_guard)}")
+
+# 51-53. Cockpit behavior (T5 keyboard / T6 camera / T7 viewport lock). These
+# are LIVE-render contracts — sp8 has no browser (the P9/P10/P11 precedent
+# keeps sp8 on urllib + ssh and puts live behavior in console/probe-gev.mjs).
+# Per spec §7.2 NOTE + R10 they are acceptance-deferred here and asserted by
+# probe-gev.mjs's P12_PROBES segment (p12-cockpit-* probes). The underlying
+# adapters are unit-tested hub-side (shortcuts.test.ts / camera-transition
+# .test.ts / viewport-lock.test.ts); the bundle-level wiring is covered by
+# checks 49/50's marker and the P9 cockpit testid checks above.
+check_deferred(
+    "p12: cockpit keyboard shortcut (←/→/Esc/Tab live keydown)",
+    "live-render contract — asserted by console/probe-gev.mjs p12-cockpit-* "
+    "(probe exit 0); sp8 is urllib+ssh without Playwright (spec §7.2 NOTE/R10)")
+check_deferred(
+    "p12: cockpit camera flyTo transition on enter (duration 0.6-0.8s)",
+    "needs a tracked flight + a Cesium viewer handle; headless probe cannot "
+    "enter cockpit with trackedId — unit-tested in camera-transition.test.ts, "
+    "runtime handle deferred to P13 (spec R10)")
+check_deferred(
+    "p12: cockpit viewport lock (enableInputs=false + cursor hidden)",
+    "live-render contract — probe-gev.mjs p12-cockpit-viewport-lock asserts the "
+    "lock's observable effect (canvas cursor:none); enableInputs is unit-tested "
+    "in viewport-lock.test.ts (spec §7.2 NOTE/R10)")
+
+print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)

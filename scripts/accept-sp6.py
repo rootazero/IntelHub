@@ -656,5 +656,83 @@ check("gev: summary endpoint stub contract (P9)",
       and bool(body_s["next_refresh_after"]),
       f"http={st_s} body={str(body_s)[:160]}")
 
+# ---- GEV P12: flight-layer enrichment + track backfill proxies (2026-09-21) ----
+# T1/T2 backend parity for the console aircraft source. Both routes are
+# keyless-or-gated proxies mounted from api.rs:
+#   GET /api/adsbdb/route/{callsign}   (keyless, adsbdb.com CC0)
+#   GET /api/opensky-track?icao24=hex  (OAuth-gated; 503 without creds)
+# Unmatched routes on a stale build fall through to the SPA index.html
+# (200 + text/html), so both checks assert the JSON contract — a route
+# regression is caught as a shape failure, never as a false 200 pass.
+
+# T1: adsbdb route proxy. `{found:false}` for an unknown callsign is legal
+# (the upstream simply has no schedule); a missing route/shape is a failure.
+st_ab, raw_ab = req_text("/api/adsbdb/route/UAL123")
+try:
+    body_ab = json.loads(raw_ab) if raw_ab else None
+except Exception:
+    body_ab = None
+_ab_bad = []
+if not isinstance(body_ab, dict) or "found" not in body_ab:
+    _ab_bad.append("missing 'found' key (route not mounted or non-JSON body)")
+elif body_ab.get("found"):
+    for _k in ("airline", "origin", "destination"):
+        if _k not in body_ab:
+            _ab_bad.append(f"missing {_k}")
+    for _port_name in ("origin", "destination"):
+        _port = body_ab.get(_port_name) or {}
+        if not isinstance(_port, dict):
+            _ab_bad.append(f"{_port_name} not an object")
+            continue
+        for _k in ("code", "name", "lat", "lon"):
+            if _k not in _port:
+                _ab_bad.append(f"{_port_name}.{_k} missing")
+            elif _k in ("lat", "lon") and _port[_k] is not None \
+                    and not isinstance(_port[_k], (int, float)):
+                _ab_bad.append(f"{_port_name}.{_k} non-numeric")
+check("gev: adsbdb route proxy shape (found bool + port fields)",
+      st_ab == 200 and not _ab_bad,
+      f"http={st_ab} found={body_ab.get('found') if isinstance(body_ab, dict) else '?'} "
+      f"bad={_ab_bad or 'none'} body={raw_ab[:100]!r}")
+
+# T2: OpenSky track backfill proxy. Spec §7.1 wants 200 + `records[]`; without
+# OPENSKY_CLIENT_ID/SECRET the route is INTENTIONALLY 503 with a JSON error
+# (gev_tracks.rs step 3) — that is still proof the route is mounted, so both
+# branches pass. `4ca9b1` is a static hex used by earlier GEV tracks work.
+st_tr, raw_tr = req_text("/api/opensky-track?icao24=4ca9b1")
+try:
+    body_tr = json.loads(raw_tr) if raw_tr else None
+except Exception:
+    body_tr = None
+_tr_bad = []
+if st_tr == 200 and isinstance(body_tr, dict):
+    _recs = body_tr.get("records")
+    if not isinstance(_recs, list):
+        _tr_bad.append("'records' missing or not a list")
+    else:
+        for _rec in _recs[:3]:
+            if not isinstance(_rec, dict):
+                _tr_bad.append("record not an object")
+                continue
+            for _k in ("observedAtMs", "latitude", "longitude"):
+                if _k not in _rec:
+                    _tr_bad.append(f"record missing {_k}")
+            if isinstance(_rec.get("observedAtMs"), int) and _rec["observedAtMs"] <= 0:
+                _tr_bad.append("observedAtMs <= 0")
+            if isinstance(_rec.get("latitude"), (int, float)) \
+                    and not (-90 <= _rec["latitude"] <= 90):
+                _tr_bad.append("latitude out of [-90,90]")
+            if isinstance(_rec.get("longitude"), (int, float)) \
+                    and not (-180 <= _rec["longitude"] <= 180):
+                _tr_bad.append("longitude out of [-180,180]")
+elif st_tr == 503 and isinstance(body_tr, dict) and body_tr.get("error"):
+    # Shelved-by-design: OAuth creds absent. Route mounted + documented error.
+    pass
+else:
+    _tr_bad.append("unexpected status/shape (route not mounted or non-JSON body)")
+check("gev: opensky-track endpoint contract (200 records[] or 503 missing-creds)",
+      not _tr_bad,
+      f"http={st_tr} bad={_tr_bad or 'none'} body={raw_tr[:120]!r}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)
