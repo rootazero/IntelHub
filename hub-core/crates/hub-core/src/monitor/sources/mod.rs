@@ -68,6 +68,12 @@ pub mod celestrak;
 // Globe P1 (2026-09-17): adsb.lol live aircraft snapshot → Redis ring +
 // notable events → geo_events (spec §2.2: positions never touch PG).
 pub mod adsb;
+// GEV P13 T4 (2026-09-21): 3rd live-aircraft source — expanded-radius
+// adsb.lol point sweep around six US hubs → Redis
+// `hub:globe:aircraft:adsbx` (TTL 300s), snapshot-only (no geo Signals).
+// Fills the US coverage gap the hotspot-only rotation leaves. See the module
+// docstring for the rate-limit pacing (shared Ctx::limiter, 25s hub gap).
+pub mod adsbexchange;
 // GEV P3 (2026-09-17): AISStream.io live vessel positions → Redis
 // `hub:globe:vessels` + per-MMSI track ring. Env-gated: registered only
 // when AISSTREAM_API_KEY/HUB_AISSTREAM_API_KEY is set (opensky pattern);
