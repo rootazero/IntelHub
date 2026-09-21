@@ -20,3 +20,7 @@ Create a GitHub issue.
 ## When a skill says "fetch the relevant ticket"
 
 Run `gh issue view <number> --comments`.
+
+## Closed phases
+
+- **GEV P12 (flight layer parity)** — closed 2026-09-21, branch `feat/p12-flight-layer-parity` merged `--no-ff` to main. Deliverables: hub-core `gev_enrichment.rs` + `gev_tracks.rs` (4 routes), console `aircraft-source.ts` adapter, cockpit 5-module polish, acceptance sp6+2 / sp8+5 / probe P12_PROBES. 582 tests green, 410 acceptance all green. Ledger: `docs/superpowers/execution/2026-09-21-gev-p12-ledger.md`.
