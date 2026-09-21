@@ -63,7 +63,7 @@ git log -1 main   # 确认 BASE = cd07a7b
 | 验收 sp8 baseline | 48+2sh/0f → 53+2sh/0f (+5) | spec §7.2 |
 | 验收 probe | 8 P12 probes | spec §7.3 |
 | URL 路径 | vendor 直连 (`/api/opensky-track`, `/api/adsbdb/<kind>/<id>`) | spec §0 + §3 |
-| Cache 路径 | `/var/lib/intelhub/adsbdb-cache.json` | spec §4.A |
+| Cache 路径 | `/home/zou/IntelHub/data/adsbdb-cache.json`（HUB_ADSBDB_CACHE_PATH 可覆盖；spec §4.A 已修订） | T1 实施发现 |
 | OpenSky OAuth | `OPENSKY_CLIENT_ID` + `OPENSKY_CLIENT_SECRET` env (core/secrets.env) | spec §4.B |
 | 广告 cache TTL | 24h | spec §4.A |
 | Track proxy cache TTL | 60s in-memory LRU 200 entries | spec §4.B |
@@ -187,6 +187,8 @@ AGENTS.md                                        (~2 行) — sp6 +2 / sp8 +5 ba
 1. `hub-core/crates/hub-core/src/gev_enrichment.rs`（新）
 2. `hub-core/crates/hub-core/src/lib.rs`（改）—— 加 `pub mod gev_enrichment;`
 3. `hub-core/crates/hub-core/tests/gev_enrichment.rs`（新）
+4. `hub-core/crates/hub-core/src/state.rs`（改）—— 加 `AppState.enrichment: Arc<EnrichmentService>` 字段（**实施调整**：原 plan 未列出）
+5. `hub-core/crates/hub-core/src/server.rs`（改）—— boot 调 `gev_enrichment::start(state)`（同上）
 
 **Interfaces**：
 - Consumes: `AppState` (injected cache + http client)
@@ -600,6 +602,8 @@ git commit -m "feat(gev-p12-t1): hub-core gev_enrichment — adsbdb proxy + 24h 
 1. `hub-core/crates/hub-core/src/gev_tracks.rs`（新）
 2. `hub-core/crates/hub-core/src/lib.rs`（改）—— 加 `pub mod gev_tracks;`
 3. `hub-core/crates/hub-core/tests/gev_tracks.rs`（新）
+4. `hub-core/crates/hub-core/src/state.rs`（改）—— 加 `AppState.tracks: Arc<TracksService>` 字段（**实施调整**：原 plan 未列出）
+5. `hub-core/crates/hub-core/src/server.rs`（改）—— boot 调 `gev_tracks::start(state)`（同上）
 
 **Interfaces**：
 - Consumes: `AppState` (injected cache + http client + env)
