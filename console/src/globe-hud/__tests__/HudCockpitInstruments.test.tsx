@@ -89,4 +89,99 @@ describe("HudCockpitInstruments", () => {
     flush(600); // ≥250ms → another update
     expect(spy.mock.calls.length).toBe(initialCalls + 2);
   });
+
+  // GEV P16 T5: 5 new SVG groups consume pitch/bank/vsi from the frame.
+  // Baseline altitudes ≈1000m → 3281ft and speed 100 m/s → 194 kt.
+
+  test("renders altitude ladder with 9 ticks when a frame is present", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("altitude-ladder")).toBeInTheDocument();
+    expect(screen.getAllByTestId("altitude-tick")).toHaveLength(9);
+  });
+
+  test("renders speed tape with 9 ticks when a frame is present", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("speed-tape")).toBeInTheDocument();
+    expect(screen.getAllByTestId("speed-tick")).toHaveLength(9);
+  });
+
+  test("pitch ladder applies bankRad rotation", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+      chaseCam: {
+        getResolvedState: () => ({
+          pitch: 0,
+          bankRad: Math.PI / 4, // 45°
+          vsiMps: 0,
+        }),
+      },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    const ladder = screen.getByTestId("pitch-ladder");
+    const inner = ladder.querySelector("g");
+    expect(inner?.getAttribute("transform")).toContain("rotate(45");
+  });
+
+  test("bank indicator renders 9 division marks", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("bank-indicator")).toBeInTheDocument();
+  });
+
+  test("VSI chevron points up for positive vsiMps", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+      chaseCam: {
+        getResolvedState: () => ({
+          pitch: 0,
+          bankRad: 0,
+          vsiMps: 5.0,
+        }),
+      },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("vsi-chevron")).toBeInTheDocument();
+    expect(screen.getByTestId("vsi-up")).toBeInTheDocument();
+    expect(screen.queryByTestId("vsi-down")).not.toBeInTheDocument();
+  });
+
+  test("VSI chevron points down for negative vsiMps", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+      chaseCam: {
+        getResolvedState: () => ({
+          pitch: 0,
+          bankRad: 0,
+          vsiMps: -5.0,
+        }),
+      },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("vsi-down")).toBeInTheDocument();
+    expect(screen.queryByTestId("vsi-up")).not.toBeInTheDocument();
+  });
+
+  test("neutral (vsi=0) VSI shows neither chevron", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.queryByTestId("vsi-up")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("vsi-down")).not.toBeInTheDocument();
+  });
 });
