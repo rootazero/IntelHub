@@ -741,14 +741,17 @@ check("gev: opensky-track endpoint contract (200 records[] or 503 missing-creds)
 # the T4 piece is a native-monitor check and belongs in this suite.
 
 # T1 default camera: mountDefaultCamera (console/src/gev-boot/default-camera.ts)
-# forces the globe's initial framing to a global top-down view (alt 12,000 km).
+# forces the globe's initial framing to a global top-down view. The current
+# value is 20,000 km (raised from 12,000 km in the globe-default-camera-shrink
+# PR so the disc reads as a centered sphere rather than filling the screen).
 # Its contract-gate TypeError string is the only source of that literal — a
 # unique marker that survives minification and proves the module shipped in
 # dist (application.ts imports + calls it at the controls phase, so shipping ==
-# wiring). Source truth pins DEFAULT_VIEW's alt (anything lower stays regional).
+# wiring). Source truth pins DEFAULT_VIEW's alt (anything lower than ~14M km
+# makes Earth cover >60% of viewport height; we keep ~47%).
 cam_bundle = vm('grep -lF "viewer.camera.setView is missing" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
-cam_src = vm('grep -c "alt: 12_000_000" /home/zou/IntelHub/console/src/gev-boot/default-camera.ts 2>/dev/null | head -1')
-check("gev: default camera shipped (bundle marker + DEFAULT_VIEW alt=12000km)",
+cam_src = vm('grep -c "alt: 20_000_000" /home/zou/IntelHub/console/src/gev-boot/default-camera.ts 2>/dev/null | head -1')
+check("gev: default camera shipped (bundle marker + DEFAULT_VIEW alt=20000km)",
       bool(cam_bundle) and cam_src.strip() == "1",
       f"bundle={bool(cam_bundle)} src_alt={cam_src.strip()}")
 
