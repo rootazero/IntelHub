@@ -50,9 +50,10 @@ describe("HudCockpitInstruments", () => {
   });
 
   test("renders the compass/altimeter/speed gauges with live data", () => {
-    const handle = mountCockpitInstruments(fakeViewer() as any, {
-      getTrackedInfo: () => tracked,
-    });
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
     render(<HudCockpitInstruments instruments={handle} />);
     expect(screen.getByTestId("hud-cockpit-instruments")).toBeInTheDocument();
     expect(screen.getByTestId("hud-cockpit-compass")).toBeInTheDocument();
@@ -65,9 +66,10 @@ describe("HudCockpitInstruments", () => {
   });
 
   test("neutral dashed gauges when nothing is tracked", () => {
-    const handle = mountCockpitInstruments(fakeViewer() as any, {
-      getTrackedInfo: () => null,
-    });
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => null },
+    } as any);
     render(<HudCockpitInstruments instruments={handle} />);
     expect(screen.getByText("000")).toBeInTheDocument(); // heading
     expect(screen.getByText("----- FT")).toBeInTheDocument(); // altitude
@@ -75,9 +77,10 @@ describe("HudCockpitInstruments", () => {
   });
 
   test("RAF loop re-reads the adapter at 4 Hz", () => {
-    const handle = mountCockpitInstruments(fakeViewer() as any, {
-      getTrackedInfo: () => tracked,
-    });
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
     const spy = vi.spyOn(handle, "update");
     render(<HudCockpitInstruments instruments={handle} />);
     const initialCalls = spy.mock.calls.length; // immediate first read

@@ -475,10 +475,10 @@ export default function GlobeV2() {
         flightsRef.current = getTrackedInfo;
         if (viewer && getTrackedInfo) {
           try {
-            const ins = mountCockpitInstruments(
-              viewer as { scene: { canvas?: unknown } },
-              { getTrackedInfo },
-            );
+            const ins = mountCockpitInstruments({
+              viewer: viewer as { scene: { canvas?: unknown } },
+              flights: { getTrackedInfo },
+            });
             cockpitInstrumentsRef.current = ins;
             setCockpitInstruments(ins);
           } catch (e) {
