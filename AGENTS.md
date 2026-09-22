@@ -387,3 +387,34 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - **SVS** (Synthetic Vision System) — needs Cesium terrain API; deferred to next major cockpit PR.
   - **TCAS** (Traffic Collision Avoidance) — needs hub-core `/flights?near=`; deferred.
   - Replay loop + bookmarks (currently A+B = play/pause/scrubber).
+
+## GEV P19 — Cockpit Synthetic Vision System (2026-09-23)
+
+- **Branch**: `feat/gev-p19-svs` (merged + pushed to main @ `main + P19 commits`).
+- **Behavior**: Operator clicks `◇ SVS` in cockpit chrome → popover opens with on/off checkbox. When enabled, a 9×5 wireframe terrain mesh renders inside the pitch ladder, projecting elevation onto the existing attitude display. Terrain data comes from the runtime globe's terrain provider (whatever Cesium ion supplies via the engine's globe setup).
+- **Picked per user direction**: user provided a Cesium ion access token at session start, enabling real terrain data for the wireframe overlay.
+- **Architecture**:
+  - `cesium-init.ts` — sets `Cesium.Ion.defaultAccessToken` at module load (idempotent, no-op + warn when key missing)
+  - `basemap.ts` — surfaces `VITE_CESIUM_ION_KEY` as `CESIUM_ION_KEY` export (mirrors STADIA_KEY/CARTO_KEY pattern)
+  - `svs-terrain-sampler.ts` — reads from `viewer.scene.globe.terrainProvider`, samples a 9×5 grid (45 points) in agent heading frame (50m forward × 40m lateral steps)
+  - `svs-tick.ts` — 1Hz periodic sampler (first sample fires immediately so toggle-on has no 1s blank flash)
+  - `svs-storage.ts` — localStorage round-trip (`intelhub.cockpit.svsEnabled`)
+  - `cockpit-store.ts` — `svsEnabled` field + `setSvsEnabled` action (persists across enter/exit like visionMode)
+  - `HudCockpitSvsSwitch.tsx` — popover toggle mirroring P17's pattern
+  - `HudCockpitSvsOverlay.tsx` — SVG wireframe group inside the pitch ladder's banked `<g>`
+  - `HudCockpitFrame.tsx` — mounts sampler + tick on `state.active`; starts tick on `svsEnabled=true`, stops on false
+- **Tests**: 30 new (9 sampler + 8 switch + 5 overlay + 8 source contracts c16-c20). Full console suite: 762/770 pass (8 pre-existing P15 mouse-look failures).
+- **Acceptance**: 315 sp8 88/0 + 410 sp8 91/0 (3-check baseline delta). sp6 51/5/1 (txdot flake). sp7 16/11/0. sp3 19/0/0. **All P19 failures = 0**.
+- **Bundle checks**: 6 new sp8 (#70-75). #72 falls back to `intelhub.cockpit.svsEnabled` literal when `mountCockpitTerrainSampler` export is Vite-tree-shaken (mirrors P15/P16 lesson).
+- **Security**: Cesium ion token stored in `core/console-build.env` (0600, gitignored). Never echoed in chat. Only inlined into Vite bundle at build time.
+- **Notable rulings**:
+  - **Wireframe inside banked group**: HudCockpitSvsOverlay is rendered INSIDE the pitch ladder's `<g transform="translate(100, 150) rotate(bankDeg)">` AFTER the pitch lines. The bank transform applies to the overlay so it rolls with the horizon — same UX as a real glass cockpit.
+  - **Elevation shift**: agent altitude AGL is the reference; samples with elevation > agent show as downward shift (obstacle ahead). 0.5 px/m forward + 0.25 px/m elevation scales.
+  - **Tree-shake fallback for sp8 #72**: mirror P15/P16 lesson — fall back to the `intelhub.cockpit.svsEnabled` localStorage key literal which is unique to SVS and survives minification.
+  - **Stub providers in tests**: Cesium's `TerrainProvider` is a strict interface; tests use `as never` for stub providers (documented Vitest pattern for ESM module mocking when `vi.spyOn` fails on frozen namespace imports).
+  - **Engine globe terrain is ellipsoid by default**: SVS sampler gracefully returns `[]` on missing provider. Overlay shows flat grid; fidelity limited to whatever terrain the engine provides.
+- **Roadmap** (still §6.3 deferred):
+  - **TCAS** (Traffic Collision Avoidance System) — needs hub-core `/flights?near=` endpoint
+  - Solid terrain polygon overlay (D-SVS-4 B/C)
+  - NVG/FLIR default-on coupling (D-SVS-3 sub-option D)
+  - Per-cell elevation coloring
