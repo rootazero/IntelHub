@@ -315,3 +315,28 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - T8 deviation: probe can't expose `__gevInstrumentsFrame` (no `instruments` in scope); exposure moved to GlobeV2.tsx where `ins` is local.
   - T6 deviation: type-only exports (`HudTickHandle`, `ChaseCamResolvedState`) can't be runtime-checked; tests adapted to `"X" in m` checks.
 - **Roadmap** (per spec §8): HUD customization (P17); SVS / TCAS / replay (separate sub-project).
+
+## GEV P17 — Cockpit HUD Element Visibility (2026-09-23)
+
+- **Branch**: `feat/gev-p17-element-visibility` (merged + pushed to main @ `f018902`).
+- **Behavior**: User can show/hide each of the 8 cockpit HUD elements independently via a single `◇ ELEMENTS` toggle button (bottom-left of cockpit chrome) that opens a popover with 8 labeled checkboxes. State persists across page reloads via `localStorage["intelhub.cockpit.elementVisibility"]`.
+- **Element inventory**: 8 keys (`compass` / `altimeter` / `speedRuler` / `altitudeLadder` / `speedTape` / `pitchLadder` / `bankIndicator` / `vsiChevron`) — 3 from P9 + 5 from P16. Each key maps 1:1 to a `data-testid` so tests can assert element presence/absence.
+- **Architecture**:
+  - New `console/src/gev-visual/cockpit/element-visibility.ts` — types + storage helpers (`readPersistedElementVisibility` / `persistElementVisibility`), mirrors `vision-mount.ts` shape.
+  - `cockpit-store.ts` gains `elementVisibility: ElementVisibility` field + `toggleElement(key)` + `setElementVisibility(partial)` actions. Reducer-only — no async, no side effects. enter/exit preserve the field (user preference, like `visionMode`).
+  - New `console/src/globe-hud/HudCockpitElementSwitch.tsx` — popover UI mirroring `HudStyleSwitcher` click-outside pattern (`pointerdown` listener mounted only while popover is open). Subscribes to the store so external state changes (keyboard shortcuts, cross-tab sync) update the checkboxes in real time.
+  - `HudCockpitInstruments.tsx` gains optional `visibility` prop; omitted prop defaults to all-visible (backwards compatible — 16 pre-P17 tests unchanged).
+  - `HudCockpitFrame.tsx` passes `visibility={state.elementVisibility}` and mounts the new switch.
+- **Tests**: ~32 new tests across 5 files (`element-visibility.test.ts` 12, `cockpit-store.test.ts` +7, `HudCockpitInstruments.test.tsx` +5, `HudCockpitElementSwitch.test.tsx` 12, `source-contracts.test.ts` +3, `HudCockpitFrame.test.tsx` +2). Full console suite: 683 pass (8 pre-existing mouse-look failures from P15 — not P17 regressions).
+- **Acceptance**: sp8 74 passed on 315 / 77 on 410 (70/73 baseline + 4 P17 bundle checks). sp6 51/5/1 (1 pre-existing txdot flake). sp7 16/11/0. sp3 19/0/0. **All P17 failures = 0**.
+- **Bundle checks**: 4 new sp8 checks — `hud-cockpit-element-switch` testid in dist, `intelhub.cockpit.elementVisibility` literal in dist, `HudCockpitElementSwitch` mounted in `HudCockpitFrame`, `elementVisibility` field in `cockpit-store.ts`.
+- **Source contracts**: c7 pins `CockpitStoreState.elementVisibility` shape (8-key boolean record); c8 pins `ELEMENT_VISIBILITY_STORAGE_KEY` literal (rename would silently invalidate every user's preferences); c9 pins `HudCockpitElementSwitch` as a runtime function export.
+- **Notable rulings**:
+  - **Backwards compat**: `visibility` prop optional on `HudCockpitInstruments` — defaults to `DEFAULT_ELEMENT_VISIBILITY` (all-visible), so the 11 pre-P17 P9/P16 tests + GlobeV2 wiring work unchanged. P17's contribution is purely additive at the component level.
+  - **Persistence pattern mirrors visionMode**: visibility survives enter/exit; only session-state fields (active, trackedId, briefingPaused, hidden) reset on enter.
+  - **Popover anchored bottom-left** (`bottom: 70px; left: 16px`) so it doesn't fight the vision switch (bottom-center) for real estate.
+  - **All React state-changing operations wrapped in `act()`** in tests per React 18+/19 convention (synchronous state updates outside batched handlers).
+  - **Default = all visible** so first-ever load is invisible to users — no migration needed.
+- **Roadmap** (still deferred per P15 spec §6.3 + P16 spec §8):
+  - §6.3 SVS / TCAS / replay — separate sub-project, product decision required.
+  - CSS positioning polish for SVG groups (originally deferred from P16) — visual-design call, deserves its own spec.
