@@ -7,6 +7,7 @@ import {
   DEFAULT_SAMPLE_INTERVAL_MS,
   MAX_SEGMENT_DURATION_MS,
   type ReplayFrame,
+  type ReplayFrameSnapshot,
   type ReplaySegment,
 } from "./replay-types";
 
@@ -15,8 +16,10 @@ const STORE = "segments";
 const DB_VERSION = 1;
 
 export interface ReplayFrameSource {
-  /** Returns the current cockpit instrument frame (or null). */
-  getFrame(): Omit<ReplayFrame, "tMs"> | null;
+  /** Returns the current cockpit instrument frame snapshot
+   *  (or null to skip this sample). The recorder stamps the
+   *  elapsed time internally. */
+  getFrame(): ReplayFrameSnapshot | null;
 }
 
 export interface ReplayRecorderHandle {
@@ -108,7 +111,7 @@ async function idbDelete(id: string): Promise<void> {
 }
 
 export interface MountCockpitReplayRecorderDeps {
-  getFrame: () => Omit<ReplayFrame, "tMs"> | null;
+  getFrame: () => ReplayFrameSnapshot | null;
   /** Override sample interval (default 50ms → 20 Hz). */
   sampleIntervalMs?: number;
 }
