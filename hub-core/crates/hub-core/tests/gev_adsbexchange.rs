@@ -277,7 +277,7 @@ fn redis_writes_cached_snapshot() {
     assert_eq!(ADSBX_AIRCRAFT_KEY, "hub:globe:aircraft:adsbx", "own key — never clobbers hub:globe:aircraft");
     assert_eq!(ADSBX_TTL_SECS, 300);
     assert_eq!(ADSBX_RADIUS_NM, 50);
-    assert_eq!(ADSBX_HUBS.len(), 6);
+    assert_eq!(ADSBX_HUBS.len(), 8);
 
     // Point URL shape (readsb `point` query, radius in nautical miles).
     assert_eq!(
