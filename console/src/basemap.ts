@@ -26,6 +26,7 @@ export type TilesMode = TileProvider | "offline";
 
 export const STADIA_KEY = (import.meta.env.VITE_STADIA_KEY as string | undefined) ?? "";
 export const CARTO_KEY = (import.meta.env.VITE_CARTO_KEY as string | undefined) ?? "";
+export const CESIUM_ION_KEY = (import.meta.env.VITE_CESIUM_ION_KEY as string | undefined) ?? "";
 
 const ATTRIBUTION = {
   osm: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> ',
