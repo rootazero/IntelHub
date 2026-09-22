@@ -902,18 +902,43 @@ button.hud-detail-link {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── instrument cluster (center) ── */
+/* ── instrument cluster (center, GEV P18 grid) ── */
 .hud-cockpit-instruments {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  gap: 18px;
+  display: grid;
+  grid-template-areas:
+    "altitudeLadder  pitchBank       speedTape"
+    "compass         compass         vsiChevron";
+  grid-template-columns: 100px 1fr 100px;
+  grid-template-rows: 200px 140px;
+  gap: 12px;
   pointer-events: none;
 }
 
+/* Responsive scaling on short viewports — uniform shrink, preserves
+ * the grid math. */
+@media (max-height: 800px) {
+  .hud-cockpit-instruments {
+    grid-template-rows: 160px 110px;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+}
+
+/* Grid-area placement — multiple elements sharing 'pitchBank' stack
+ * via grid-area overlap. z-index then orders the layering. */
+.hud-cockpit-altitude-ladder { grid-area: altitudeLadder; }
+.hud-cockpit-speed-tape      { grid-area: speedTape; }
+.hud-cockpit-vsi-chevron     { grid-area: vsiChevron; position: relative; left: 20px; }
+.hud-cockpit-compass         { grid-area: compass; }
+.hud-cockpit-pitch-ladder    { grid-area: pitchBank; z-index: 0; }
+.hud-cockpit-bank-indicator  { grid-area: pitchBank; z-index: 1; align-self: start; }
+.hud-cockpit-altimeter       { grid-area: pitchBank; z-index: 2; align-self: end; justify-self: start; margin: 8px; }
+.hud-cockpit-speed           { grid-area: pitchBank; z-index: 2; align-self: end; justify-self: end; margin: 8px; }
+
+/* P9 gauges: bordered, background — primary gauges. */
 .hud-cockpit-gauge {
   position: relative;
   display: flex;
@@ -925,6 +950,20 @@ button.hud-detail-link {
   backdrop-filter: blur(4px);
   border: 1px solid rgba(154, 164, 178, 0.25);
   border-radius: 10px;
+}
+
+/* P16 gauges (GEV P18): lighter — half-opacity background, no border.
+ * Subtle visual hierarchy: P9 = canonical, P16 = auxiliary additions. */
+.hud-cockpit-gauge-light {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  background: rgba(3, 5, 9, 0.35);
+  backdrop-filter: blur(3px);
+  border-radius: 8px;
 }
 
 .hud-cockpit-compass-ring {

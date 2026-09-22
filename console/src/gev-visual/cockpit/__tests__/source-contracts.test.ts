@@ -210,3 +210,70 @@ describe("c9: HudCockpitElementSwitch is a runtime component export", () => {
     expect(src).toContain('"hud-cockpit-element-switch"');
   });
 });
+
+// ── c10: cockpit instruments cluster uses CSS grid (GEV P18) ───────────
+//
+// P18 replaces the P16/P17 flex layout with a CSS grid. The cluster has
+// 3 columns × 2 rows; side columns hold altitude/speed/VSI, center column
+// stacks pitch-ladder + bank-indicator + altimeter + speed (grid-area
+// overlap), bottom row holds compass + VSI chevron. This guard pins the
+// grid declaration in CSS so a future refactor that reverts to flex
+// breaks at compile/test time, not in production.
+
+describe("c10: cockpit instruments cluster uses CSS grid (GEV P18)", () => {
+  test("hud.css declares grid-template-areas for the instruments cluster", () => {
+    const path = join(here, "..", "..", "..", "globe-hud", "hud.css");
+    const src = readFileSync(path, "utf8");
+    // The grid-template-areas declaration must be present (verbatim grid
+    // layout, not the P16/P17 flex layout).
+    expect(src).toMatch(/grid-template-areas\s*:/);
+  });
+
+  test("hud.css declares the pitchBank grid area", () => {
+    const path = join(here, "..", "..", "..", "globe-hud", "hud.css");
+    const src = readFileSync(path, "utf8");
+    // Multiple elements (pitch-ladder, bank-indicator, altimeter, speed) share
+    // 'pitchBank' as their grid-area, which is the P18 overlap technique.
+    // grid-area uses unquoted names; grid-template-areas uses quoted names.
+    // Both forms together prove the layout is wired.
+    expect(src).toMatch(/\bpitchBank\b/);
+  });
+});
+
+// ── c11: pitch-ladder + bank-indicator share pitchBank grid area ─────────────
+//
+// P18 layout relies on grid-area overlap: pitch-ladder (z=0), bank-
+// indicator (z=1), altimeter (z=2), speed (z=2) all map to the same
+// 'pitchBank' grid area. Without this, the spec sketch (3-col grid with
+// overlapping center stack) breaks. This guard pins the grid-area
+// assignments in CSS at compile time.
+
+describe("c11: pitch-ladder + bank-indicator share pitchBank grid area (GEV P18)", () => {
+  test("hud.css assigns pitch-ladder, bank-indicator, altimeter, speed to pitchBank", () => {
+    const path = join(here, "..", "..", "..", "globe-hud", "hud.css");
+    const src = readFileSync(path, "utf8");
+    // Four selectors must each map to 'pitchBank' grid-area.
+    const matches = src.match(/grid-area\s*:\s*pitchBank/g) ?? [];
+    expect(matches.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+// ── c12: P16 elements use hud-cockpit-gauge-light wrapper ────────────────
+//
+// P18 introduces a lighter visual treatment for the 5 P16 HUD elements
+// (AltitudeLadder, SpeedTape, PitchLadder, BankIndicator, VsiChevron):
+// .hud-cockpit-gauge-light has half-opacity background + no border,
+// harmonizing with P9's .hud-cockpit-gauge (border + padding) while
+// keeping a subtle visual hierarchy. The wrapper class must appear on
+// all 5 elements (5 matches = 1 per P16 component's open div).
+
+describe("c12: P16 elements use hud-cockpit-gauge-light wrapper (GEV P18)", () => {
+  test("HudCockpitInstruments wraps each P16 SVG in hud-cockpit-gauge-light", () => {
+    const path = join(here, "..", "..", "..", "globe-hud", "HudCockpitInstruments.tsx");
+    const src = readFileSync(path, "utf8");
+    // 5 P16 components (AltitudeLadder, SpeedTape, PitchLadder,
+    // BankIndicator, VsiChevron) each wrap their SVG in this class.
+    const matches = src.match(/className="hud-cockpit-gauge-light"/g) ?? [];
+    expect(matches.length).toBe(5);
+  });
+});
