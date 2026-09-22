@@ -360,3 +360,30 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - §6.3 SVS / TCAS / replay — separate sub-project, product decision still required (see companion spec `2026-09-23-gev-section-6-3-svs-tcas-replay-design.md`).
   - Per-element resize / drag — UX feature.
   - Per-element theme customization — out of scope.
+
+## GEV §6.3 Replay — Cockpit Frame Recording + Playback (2026-09-23)
+
+- **Branch**: `feat/gev-section-6-3-replay` (merged + pushed to main @ `b9a96fe`).
+- **Behavior**: Operator can record their cockpit frame over time and replay it later. `◇ REPLAY` button (bottom-left of cockpit chrome, beside `◇ ELEMENTS`) opens a popover with Record/Stop, Play/Pause, 4× speed selector (0.5×/1×/2×/4×), and a scrollable segment list with delete buttons. Recordings persist in browser IndexedDB (`intelhub-cockpit-replay`).
+- **Picked first per user direction**: highest cohesion (one bounded context — "cockpit frame lifecycle"), lowest coupling (console-only, IndexedDB-native, only touches the existing cockpit-store seam). TCAS and SVS deferred to future §6.3 PRs.
+- **Architecture**:
+  - `replay-types.ts` — types + defaults + REPLAY_SPEED_OPTIONS
+  - `replay-recorder.ts` — IndexedDB sampling adapter (20 Hz, auto-stop at 2h cap, `withDb()` closes connections so test teardown doesn't block)
+  - `replay-player.ts` — load + linear interpolation between adjacent frames (including heading-wrap shortest-path) + play/pause/speed
+  - `HudCockpitReplay.tsx` — popover UI mirroring P17's `HudCockpitElementSwitch` (click-outside via pointerdown, subscribe to store)
+  - `cockpit-store.ts` — 6 new actions + `replayState` field (preserves across enter/exit like visionMode + elementVisibility)
+  - `HudCockpitFrame.tsx` — mounts recorder + player inside an effect that fires only when `state.active`
+- **Tests**: 44 new tests (9 store + 11 recorder + 11 player + 10 popover + 3 source contracts). Full console suite: 732/740 pass (8 pre-existing P15 mouse-look failures).
+- **Acceptance**: sp8 82/315 → 85/410 (78 baseline + 4 §6.3 bundle checks). sp6 51/5/1 (txdot flake). sp7 16/11/0. sp3 19/0/0. **All §6.3 failures = 0**.
+- **Bundle checks**: 4 new sp8 checks (#66-69). #66 falls back to the DB-name literal when the `mountCockpitReplayRecorder` export name is Vite-tree-shaken (mirrors P15/P16 lesson).
+- **Source contracts**: c13 pins `ReplayState`/`ReplaySegment`/`ReplayFrame` in the cockpit barrel; c14 pins recorder exports + DB-name literal; c15 pins player exports.
+- **Notable rulings**:
+  - **API design**: `getFrame` returns a flat `ReplayFrameSnapshot`, not `Omit<ReplayFrame, "tMs">` — callers naturally return a snapshot, not a wrapped one. Originally I had the wrapped form; user-facing callers tripped TypeScript.
+  - **withDb() helper**: each IDB operation opens + closes its own DB connection. Otherwise test teardown's `deleteDatabase` blocks waiting for open connections.
+  - **Heading wrap**: `lerpFrame` applies `((b-a+540)%360)-180` for shortest angular path, then `((result + 360) % 360)` to ensure non-negative. Test pins the 350°→10° at t=0.5 yields 0°, not 360°.
+  - **Best-effort IDB**: all IDB errors swallowed with `console.warn` — matches P17's `persistElementVisibility` convention (quota errors don't break the cockpit).
+  - **Auto-cap**: recorder auto-stops at `MAX_SEGMENT_DURATION_MS` (2 hours) so recordings don't grow unbounded if user forgets to stop.
+- **Roadmap** (still deferred per the §6.3 spec):
+  - **SVS** (Synthetic Vision System) — needs Cesium terrain API; deferred to next major cockpit PR.
+  - **TCAS** (Traffic Collision Avoidance) — needs hub-core `/flights?near=`; deferred.
+  - Replay loop + bookmarks (currently A+B = play/pause/scrubber).
