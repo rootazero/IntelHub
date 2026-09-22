@@ -38,6 +38,15 @@ import {
 } from "./HudCockpitBriefingPanel";
 import { HudCockpitVisionSwitch } from "./HudCockpitVisionSwitch";
 import { HudCockpitElementSwitch } from "./HudCockpitElementSwitch";
+import { HudCockpitReplay } from "./HudCockpitReplay";
+import {
+  mountCockpitReplayRecorder,
+  type ReplayRecorderHandle,
+} from "../gev-visual/cockpit/replay-recorder";
+import {
+  mountCockpitReplayPlayer,
+  type ReplayPlayerHandle,
+} from "../gev-visual/cockpit/replay-player";
 
 /** Subscribe a component to the cockpit store (shared by GlobeV2 + the frame). */
 export function useCockpitStore(store: CockpitStore): CockpitStoreState {
@@ -85,6 +94,39 @@ export function HudCockpitFrame({
     () => setBriefingTab((tab) => (tab === "summary" ? "weather" : "summary")),
     [],
   );
+
+  // GEV §6.3: mount recorder + player inside the cockpit overlay.
+  // Only active while cockpit is up; cleanup destroys both adapters
+  // (interval + state release) on exit.
+  const [recorder, setRecorder] = useState<ReplayRecorderHandle | null>(null);
+  const [player, setPlayer] = useState<ReplayPlayerHandle | null>(null);
+  useEffect(() => {
+    if (!state.active) return;
+    const rec = mountCockpitReplayRecorder({
+      getFrame: () => {
+        const info = getTrackedInfo?.();
+        if (!info) return null;
+        return {
+          heading: info.track ?? 0,
+          pitchRad: 0,
+          bankRad: 0,
+          altitudeFt: info.altitudeM != null ? info.altitudeM * 3.28084 : null,
+          speedKt: info.velocityMps != null ? info.velocityMps * 1.94384 : null,
+          vsiMps: 0,
+          callsign: info.callsign ?? "",
+        };
+      },
+    });
+    const ply = mountCockpitReplayPlayer({});
+    setRecorder(rec);
+    setPlayer(ply);
+    return () => {
+      rec.destroy();
+      ply.destroy();
+      setRecorder(null);
+      setPlayer(null);
+    };
+  }, [state.active, getTrackedInfo]);
 
   useCockpitShortcuts({
     store,
@@ -197,6 +239,7 @@ export function HudCockpitFrame({
             onTabChange={setBriefingTab}
           />
           <HudCockpitElementSwitch store={store} />
+          <HudCockpitReplay store={store} recorder={recorder} player={player} />
           <HudCockpitVisionSwitch
             vision={vision}
             mode={state.visionMode}

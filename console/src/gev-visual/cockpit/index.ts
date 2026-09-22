@@ -109,3 +109,30 @@ export {
   type CockpitElementKey,
   type ElementVisibility,
 } from "./element-visibility";
+
+// GEV §6.3 — cockpit frame replay (recording + playback)
+export {
+  DEFAULT_REPLAY_STATE,
+  DEFAULT_SAMPLE_INTERVAL_MS,
+  MAX_SEGMENT_DURATION_MS,
+  REPLAY_SPEED_OPTIONS,
+  isReplaySpeed,
+  type ReplayFrame,
+  type ReplayFrameSnapshot,
+  type ReplaySegment,
+  type ReplaySpeed,
+  type ReplayState,
+} from "./replay-types";
+
+export {
+  mountCockpitReplayRecorder,
+  type ReplayRecorderHandle,
+  type ReplayFrameSource,
+  type MountCockpitReplayRecorderDeps,
+} from "./replay-recorder";
+
+export {
+  mountCockpitReplayPlayer,
+  type ReplayPlayerHandle,
+  type MountCockpitReplayPlayerDeps,
+} from "./replay-player";
