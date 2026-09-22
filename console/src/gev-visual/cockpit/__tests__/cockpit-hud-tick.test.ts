@@ -4,7 +4,7 @@ import { mountCockpitHudTick } from "../cockpit-hud-tick";
 describe("cockpit-hud-tick", () => {
   test("start() triggers tick on cadence", () => {
     vi.useFakeTimers();
-    const instruments = { update: vi.fn(), destroy: vi.fn() };
+    const instruments = { update: vi.fn(), destroy: vi.fn() } as any;
     const chaseCam = { getResolvedState: () => null };
     const flights = { getTrackedInfo: () => null };
     const tick = mountCockpitHudTick(instruments, chaseCam as any, flights, { intervalMs: 100 });
@@ -19,7 +19,7 @@ describe("cockpit-hud-tick", () => {
 
   test("stop() cancels interval", () => {
     vi.useFakeTimers();
-    const instruments = { update: vi.fn() };
+    const instruments = { update: vi.fn() } as any;
     const chaseCam = { getResolvedState: () => null };
     const flights = { getTrackedInfo: () => null };
     const tick = mountCockpitHudTick(instruments, chaseCam as any, flights);
@@ -32,7 +32,7 @@ describe("cockpit-hud-tick", () => {
 
   test("isRunning() reflects interval state", () => {
     vi.useFakeTimers();
-    const instruments = { update: vi.fn() };
+    const instruments = { update: vi.fn() } as any;
     const chaseCam = { getResolvedState: () => null };
     const flights = { getTrackedInfo: () => null };
     const tick = mountCockpitHudTick(instruments, chaseCam as any, flights);
@@ -45,7 +45,7 @@ describe("cockpit-hud-tick", () => {
 
   test("viewer.isDestroyed() stops the tick", () => {
     vi.useFakeTimers();
-    const instruments = { update: vi.fn() };
+    const instruments = { update: vi.fn() } as any;
     const chaseCam = { getResolvedState: () => null };
     const flights = { getTrackedInfo: () => null };
     let destroyed = false;
