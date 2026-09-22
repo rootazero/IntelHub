@@ -18,6 +18,8 @@ import {
   DEFAULT_ELEMENT_VISIBILITY,
   type ElementVisibility,
 } from "../gev-visual/cockpit/element-visibility";
+import type { SvsSamplePoint } from "../gev-visual/cockpit/svs-terrain-sampler";
+import { HudCockpitSvsOverlay } from "./HudCockpitSvsOverlay";
 
 const POLL_MS = 250; // 4 Hz
 
@@ -27,6 +29,13 @@ export interface HudCockpitInstrumentsProps {
    *  DEFAULT_ELEMENT_VISIBILITY (all visible) so existing P16 tests
    *  and callers don't break. */
   visibility?: ElementVisibility;
+  /** GEV P19 SVS: terrain samples drawn inside the pitch ladder.
+   *  Optional — when undefined or empty, no overlay renders. */
+  svsSamples?: SvsSamplePoint[];
+  /** GEV P19 SVS: agent altitude in metres AGL. Used to compute
+   *  elevation delta vs sample elevation. Required when svsSamples
+   *  is provided. */
+  svsAgentAltitudeM?: number | null;
 }
 
 /** Compass: a ring of 7 divisions centered on the heading + center readout. */
@@ -257,9 +266,13 @@ function SpeedTape({ ticks }: { ticks: RulerTick[] }) {
 function PitchLadder({
   pitchRad,
   bankRad,
+  svsSamples,
+  svsAgentAltitudeM,
 }: {
   pitchRad: number;
   bankRad: number;
+  svsSamples?: SvsSamplePoint[];
+  svsAgentAltitudeM?: number | null;
 }) {
   const PITCH_RANGE_DEG = [-30, -20, -10, 0, 10, 20, 30];
   const bankDeg = (bankRad * 180) / Math.PI;
@@ -304,6 +317,14 @@ function PitchLadder({
             </g>
           );
         })}
+        {/* GEV P19 SVS: wireframe terrain overlay on the pitch ladder.
+            Sits inside the banked group so it rolls with the horizon. */}
+        {svsSamples && svsSamples.length > 0 && svsAgentAltitudeM !== null && svsAgentAltitudeM !== undefined ? (
+          <HudCockpitSvsOverlay
+            samples={svsSamples}
+            agentAltitudeM={svsAgentAltitudeM}
+          />
+        ) : null}
       </g>
     </svg>
     </div>
@@ -391,6 +412,8 @@ function VsiChevron({ vsiMps }: { vsiMps: number }) {
 export function HudCockpitInstruments({
   instruments,
   visibility,
+  svsSamples,
+  svsAgentAltitudeM,
 }: HudCockpitInstrumentsProps) {
   const [frame, setFrame] = useState<CockpitInstrumentFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -440,7 +463,12 @@ export function HudCockpitInstruments({
         <SpeedTape ticks={frame.speedTicks} />
       ) : null}
       {frame && show("pitchLadder") ? (
-        <PitchLadder pitchRad={frame.pitchRad} bankRad={frame.bankRad} />
+        <PitchLadder
+          pitchRad={frame.pitchRad}
+          bankRad={frame.bankRad}
+          svsSamples={svsSamples}
+          svsAgentAltitudeM={svsAgentAltitudeM}
+        />
       ) : null}
       {frame && show("bankIndicator") ? (
         <BankIndicator bankRad={frame.bankRad} />

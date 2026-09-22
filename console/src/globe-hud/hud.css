@@ -1327,6 +1327,74 @@ button.hud-detail-link {
   text-align: center;
 }
 
+/* ── svs switch (GEV P19, bottom-left, beside REPLAY) ── */
+.hud-cockpit-svs {
+  position: absolute;
+  bottom: 70px;
+  left: 196px; /* right of REPLAY toggle (which sits at left: 116px, ~80px wide) */
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.hud-cockpit-svs-toggle {
+  padding: 6px 12px;
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 6px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-svs-toggle:hover {
+  color: #e6edf3;
+  border-color: rgba(154, 164, 178, 0.6);
+}
+
+.hud-cockpit-svs-toggle.hot {
+  color: #7fd0ff;
+  border-color: rgba(127, 208, 255, 0.55);
+}
+
+.hud-cockpit-svs-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  padding: 10px;
+  background: rgba(3, 5, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 6;
+}
+
+.hud-cockpit-svs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hud-cockpit-svs-row input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.hud-cockpit-svs-hint {
+  margin: 0;
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 /* ── vision switch (bottom-center) ── */
 .hud-cockpit-vision {
   position: absolute;
