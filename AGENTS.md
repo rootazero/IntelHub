@@ -418,3 +418,44 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - Solid terrain polygon overlay (D-SVS-4 B/C)
   - NVG/FLIR default-on coupling (D-SVS-3 sub-option D)
   - Per-cell elevation coloring
+
+## GEV P20 — Cockpit TCAS (Traffic Collision Avoidance) (2026-09-23)
+
+- **Branch**: `feat/gev-p20-tcas` (merged + pushed to main @ `2e78a6d + P20 commits`).
+- **Behavior**: Operator clicks `◇ TCAS` in cockpit chrome → popover opens with on/off checkbox. When enabled, a 300×300 SVG overlay appears in the top-right of the cockpit showing nearby aircraft as color-coded diamonds (white=monitor, amber=caution, red=warning) at their bearing + distance from the agent, with altitude bars showing ±Xk ft deviation.
+- **Picked last** to round out §6.3 (after replay, SVS, TCAS). Per §6.3 locked decisions:
+  - D-TCAS-1=A — Hub-core `/flights?near=` query
+  - D-TCAS-2=A — 5 nm search radius
+  - D-TCAS-3=C — Both diamonds + altitude bars
+  - D-TCAS-4=A — No audio (visual-only v1)
+  - D-TCAS-5=B — Distance + closure rate classification
+- **Architecture**:
+  - **Hub-core**: `GET /api/v1/flights/near?lat=&lng=&radius_nm=` reads same Redis snapshots as `/globe/aircraft` (hub:globe:aircraft + hub:globe:aircraft:adsbx + hub:globe:aircraft:opensky), filters by haversine, computes bearing + closure rate (target track projected onto target→agent line, shortest angular path), classifies threat.
+  - **Console**: `mountCockpitTcas` (1Hz REST polling adapter), `HudCockpitTcasOverlay` (SVG diamonds + altitude bars + threat tags + summary), `HudCockpitTcasSwitch` (popover toggle, mirrors P17/P19), `tcas-storage` (localStorage round-trip).
+  - **Store**: `tcasEnabled` field + `setTcasEnabled` action (persists across enter/exit like visionMode/elementVisibility/svsEnabled).
+- **Threat classification**:
+  - warning: ≤1 nm AND closure ≥250 kt
+  - caution: ≤2 nm AND closure ≥100 kt
+  - monitor: ≤5 nm
+  - none: > 5 nm
+- **Tests**: 47 new (15 hub-core + 9 client + 10 overlay + 8 switch + 5 source contracts). Full console suite: 781/789 pass (8 pre-existing P15 mouse-look failures). Hub-core: 15 new tests covering haversine accuracy (SF→LA, Doha→Dubai), threat ladder (all 4 thresholds + edges), closure math (direct, perpendicular, receding, shortest-angle).
+- **Acceptance**:
+  - **315**: sp8 94/0, sp6 51/5/1 (txdot flake + transient overpass 504), sp7 16/11/0, sp3 19/0/0
+  - **410**: sp8 97/0, sp6 52/5/0 (no flakes this run), sp7 16/11/0, sp3 19/0/0
+  - **All P20 failures**: 0
+- **Bundle checks**: 6 new sp8 (#76-81). #77 falls back to `/api/v1/flights/near` URL literal when `mountCockpitTcas` export is Vite-tree-shaken (mirrors P15/P16/P19 lesson).
+- **Notable rulings**:
+  - **Same Redis snapshots as /globe/aircraft**: TCAS doesn't add a new data layer — re-reads the merged envelope from existing rotating snapshots.
+  - **Pure helpers re-implemented in tests**: production `haversine_nm`/`closure_rate_kts`/`classify_threat` in `src/api.rs` are `pub(crate)`. Tests re-implement in their own module to stay self-contained.
+  - **Closure via target track projected onto target→agent line**: dot product with shortest angular path. Stationary targets → closure = 0 (no advisory).
+  - **getTrackedInfo → lat/lng mapping**: `CockpitTrackedInfo` uses `latitude`/`longitude` (not `lat`/`lng`). TCAS client wrapper converts; null agent → tick skipped.
+  - **No audio (D-TCAS-4=A)**: Web Audio API beeps deferred. Visual-only v1.
+- **§6.3 status (final)**:
+  - Replay: ✅ shipped (main @ 56140b8)
+  - SVS: ✅ shipped (main @ 2e78a6d)
+  - TCAS: ✅ this PR
+- **Roadmap** (still deferred):
+  - Web Audio beeps (D-TCAS-4 B/C)
+  - 40 nm range toggle (D-TCAS-2 C)
+  - Closure-rate readout on the threat tag
+  - Cursor target prediction (P19 wireframe + P20 TCAS overlay)
