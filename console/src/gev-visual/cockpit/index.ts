@@ -84,3 +84,24 @@ export {
   type MouseLookFrameOffset,
   type MouseLookStoreShape,
 } from "./mouse-look";
+
+// GEV P16 — cockpit HUD avionics (10Hz update timer + chase-cam attitude)
+export {
+  mountCockpitHudTick,
+  type HudTickHandle,
+  type HudTickOptions,
+} from "./cockpit-hud-tick";
+
+// GEV P16 — chase-cam attitude state (bank from Quaternion→roll; VSI from altitude window)
+export type { ChaseCamResolvedState } from "./chase-cam";
+
+// GEV P16 — instruments-mount deps bag + frame extension (pitch/bank/vsi)
+export {
+  mountCockpitInstruments,
+  type CockpitInstrumentDeps,
+  type CockpitInstrumentFrame,
+  type CockpitTrackedInfo,
+  type CompassDivision,
+  type RulerTick,
+  type InstrumentsHandle,
+} from "./instruments-mount";
