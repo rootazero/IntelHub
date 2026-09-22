@@ -493,6 +493,13 @@ export default function GlobeV2() {
             });
             cockpitInstrumentsRef.current = ins;
             setCockpitInstruments(ins);
+            // GEV P16 T8: expose the latest HUD instruments frame on window
+            // so probe-gev.mjs can assert shape fields (headingLabel,
+            // altitudeLabel, speedLabel, pitchRad, bankRad, vsiMps) without
+            // reaching into React state. The window is a dev-only probe
+            // surface — same pattern as the P15 mouse-look handle global.
+            (window as unknown as Record<string, unknown>).__gevInstrumentsFrame =
+              ins.getFrame();
           } catch (e) {
             console.warn("[GlobeV2] cockpit instruments disabled:", e);
           }

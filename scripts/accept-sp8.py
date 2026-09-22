@@ -750,6 +750,43 @@ check("p15: cockpit MOUSE_LOOK_ZERO_OFFSET re-export bundled", bool(ck_zero),
       ck_zero or "mouse-look offset state (headingDeltaRad/pitchDeltaRad/rangeOffsetM) not found in dist bundle")
 
 # ---------------------------------------------------------------------------
+# GEV P16 (2026-09-22): cockpit HUD avionics — 10Hz update timer (T3),
+# chase-cam attitude state (T1), HUD instruments (T5). bundle-only checks;
+# source contracts live in source-contracts.test.ts (T6).
+#
+# Vite tree-shaking note: mountCockpitInstruments / mountCockpitHudTick /
+# ChaseCamResolvedState are exported via the cockpit barrel, but tree-
+# shaking may erase the literal export name if the import is side-effect-
+# free and the consumer (GlobeV2.tsx) is reached via a different path.
+# We search the implementation identifier as a fallback (`fromQuaternion`,
+# `altitudeHistory`, `instruments.update`) so the check still fires when
+# the function name itself is shaken.
+# ---------------------------------------------------------------------------
+ck_instruments = vm('grep -l "mountCockpitInstruments" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: mountCockpitInstruments bundled", bool(ck_instruments),
+      ck_instruments or "mountCockpitInstruments not found in dist bundle")
+
+ck_hudtick = vm('grep -l "mountCockpitHudTick" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: mountCockpitHudTick bundled", bool(ck_hudtick),
+      ck_hudtick or "mountCockpitHudTick not found in dist bundle")
+
+ck_get_resolved = vm('grep -l "getResolvedState" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: chase-cam.getResolvedState bundled", bool(ck_get_resolved),
+      ck_get_resolved or "getResolvedState not found in dist bundle")
+
+ck_hpr = vm('grep -l "fromQuaternion" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: HeadingPitchRoll.fromQuaternion bundled", bool(ck_hpr),
+      ck_hpr or "fromQuaternion not found in dist bundle")
+
+ck_altitude_history = vm('grep -l "altitudeHistory" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: altitude history window bundled", bool(ck_altitude_history),
+      ck_altitude_history or "altitudeHistory not found in dist bundle")
+
+ck_pitch_ladder = vm('grep -l "pitch-ladder\\|pitch_ladder\\|PitchLadder" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p16: pitch ladder SVG in dist", bool(ck_pitch_ladder),
+      ck_pitch_ladder or "pitch ladder marker not found in dist bundle")
+
+# ---------------------------------------------------------------------------
 # GEV P13 (2026-09-21): flight-display optimization — default camera, enrich
 # budget override, HudAircraftDetail panel, 3rd ADS-B source. Same source-vs-
 # bundle split as the P9-P12 blocks. checks 54/55 are console-side (bundle +
