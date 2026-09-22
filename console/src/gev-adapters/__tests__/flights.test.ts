@@ -169,3 +169,56 @@ test("index.ts registers the real source, not the stub", async () => {
     signal: undefined,
   });
 });
+
+// GEV P21 T1 (2026-09-23): when the hub envelope omits `ts` (production
+// incident: T1 adsb.lol collector offline, `merge_globe_snapshots` seeded
+// `out` from `json!({})` without restoring a timestamp), the adapter must
+// still surface records with valid lat/lon so aircraft remain visible — but
+// the freshness signal must clearly mark the snapshot degraded. This pins
+// the graceful-degradation contract; without it, the vendor's
+// `_positionHistory` collapses to a single 1970-epoch fix and aircraft freeze
+// in place between polls. The Rust `merge_synthesizes_ts_when_adsb_dead`
+// test is the upstream guard; this test is the downstream guard.
+test("degrades to unknown freshness when hub envelope omits ts", async () => {
+  const degraded = {
+    count: 1,
+    coverage: "adsbx",
+    aircraft: [
+      {
+        age_s: 5,
+        alt_m: 10000,
+        flight: "TEST1",
+        gs: 250.0,
+        hex: "abc123",
+        lat: 40.0,
+        lon: -74.0,
+        mil: false,
+        squawk: null,
+        track: 90.0,
+      },
+    ],
+    // intentionally NO `ts` key
+  };
+  const apiFetch = vi.fn<ApiFetch>(async () => jsonResponse(degraded));
+  const env = await flightsSource(apiFetch).getSnapshot();
+
+  expect(env.records).toHaveLength(1);
+  expect(env.observedAtMs).toBeNull();
+  expect(env.ageMs).toBeNull();
+  // "unknown" is the engine's degraded signal (flights/ingestion.js:41) — the
+  // vendor's backoff path keys off it. Falling back to "stale" instead would
+  // be a regression because the snapshot IS being served, just without an
+  // upstream timestamp.
+  expect(env.freshness).toBe("unknown");
+  expect(env.stale).toBe(true);
+  // Without a snapshot epoch, per-record positionTimeMs cannot be derived
+  // even though `age_s` is finite — the formula is `observedAtMs − age_s·1000`
+  // and the first term is null. This is exactly the state that froze aircraft
+  // on the globe page in production.
+  expect(env.records[0].positionTimeMs).toBeNull();
+  expect(env.records[0].contactTimeMs).toBeNull();
+  // Lat/lon still surface so the billboard renders; the vendor's own
+  // freshness × focus × limb-haze composition marks the icon as degraded.
+  expect(env.records[0].latitude).toBe(40.0);
+  expect(env.records[0].longitude).toBe(-74.0);
+});
