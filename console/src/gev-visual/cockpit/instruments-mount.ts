@@ -25,6 +25,7 @@ import {
   altitudeRulerCurveInset,
   speedRulerTicks,
 } from "gev-engine/src/cockpitMath.js";
+import type { ChaseCamResolvedState } from "./chase-cam";
 
 /** Tracked-aircraft info as reported by flights.getTrackedInfo(). */
 export interface CockpitTrackedInfo {
@@ -72,12 +73,40 @@ export interface CockpitInstrumentFrame {
   compass: CompassDivision[];
   altitudeTicks: RulerTick[];
   speedTicks: RulerTick[];
+  /** P16 T2: pitch in radians, forward from ChaseCamResolvedState.pitch
+   *  (resolved.pitch ?? 0). Used by the attitude indicator (T5). */
+  pitchRad: number;
+  /** P16 T2: bank (roll) in radians, forward from ChaseCamResolvedState.bankRad
+   *  (resolved.bankRad ?? 0). Used by the attitude indicator (T5). */
+  bankRad: number;
+  /** P16 T2: vertical speed in meters per second, forward from
+   *  ChaseCamResolvedState.vsiMps (resolved.vsiMps ?? 0). Used by the
+   *  VSI needle (T5). */
+  vsiMps: number;
+}
+
+export interface CockpitInstrumentDeps {
+  /** Cesium viewer whose scene.canvas is the render seam the cockpit consumes.
+   *  Required — the constructor asserts scene.canvas exists (P3 lesson). */
+  viewer: { scene: { canvas?: unknown } };
+  /** Optional flights layer that supplies the tracked aircraft info. When
+   *  omitted, `update()` reads neutral frames (AIRCRAFT / dashed). */
+  flights?: { getTrackedInfo(): CockpitTrackedInfo | null };
+  /** Optional chase-cam controller that supplies pitch/bank/vsi. When
+   *  omitted or unresolved, the new frame fields default to 0. */
+  chaseCam?: { getResolvedState(): ChaseCamResolvedState | null };
 }
 
 export interface InstrumentsHandle {
-  /** Compute the instrument frame. `info` defaults to `flights.getTrackedInfo()`
-   *  when omitted (null → a neutral "AIRCRAFT" / dashed frame). */
-  update(info?: CockpitTrackedInfo | null): CockpitInstrumentFrame;
+  /** Compute the instrument frame. `info` defaults to `deps.flights.getTrackedInfo()`
+   *  when omitted (null → a neutral "AIRCRAFT" / dashed frame).
+   *  `resolved` defaults to `deps.chaseCam.getResolvedState()` when omitted
+   *  (caller may pass it explicitly to avoid a second getResolvedState() call
+   *  per tick). */
+  update(
+    info?: CockpitTrackedInfo | null,
+    resolved?: ChaseCamResolvedState | null,
+  ): CockpitInstrumentFrame;
   getFrame(): CockpitInstrumentFrame | null;
   destroy(): void;
 }
@@ -88,9 +117,9 @@ const MPS_TO_KTS = 1.94384;
 const RULER_TICK_COUNT = 9;
 
 export function mountCockpitInstruments(
-  viewer: { scene: { canvas?: unknown } },
-  flights?: { getTrackedInfo(): CockpitTrackedInfo | null },
+  deps: CockpitInstrumentDeps,
 ): InstrumentsHandle {
+  const { viewer, flights, chaseCam } = deps;
   // Constructor contract (P3 lesson): the HUD hands the adapter a Cesium
   // viewer, whose scene.canvas is the render seam the cockpit consumes. Assert
   // the shape so a lenient mock can't hide a wrong object handed in later.
@@ -103,7 +132,10 @@ export function mountCockpitInstruments(
   let lastFrame: CockpitInstrumentFrame | null = null;
   let destroyed = false;
 
-  function compute(info: CockpitTrackedInfo | null): CockpitInstrumentFrame {
+  function compute(
+    info: CockpitTrackedInfo | null,
+    resolved: ChaseCamResolvedState | null,
+  ): CockpitInstrumentFrame {
     const heading = normalizeHeading(info?.track ?? 0);
     const altitudeFt = info
       ? cockpitAltitudeDisplayFt(info?.altitudeM, info?.onGround)
@@ -168,14 +200,28 @@ export function mountCockpitInstruments(
       compass,
       altitudeTicks,
       speedTicks,
+      pitchRad: resolved?.pitch ?? 0,
+      bankRad: resolved?.bankRad ?? 0,
+      vsiMps: resolved?.vsiMps ?? 0,
     };
   }
 
   return {
-    update(info?: CockpitTrackedInfo | null) {
-      const resolved =
+    update(
+      info?: CockpitTrackedInfo | null,
+      resolved?: ChaseCamResolvedState | null,
+    ) {
+      const resolvedInfo =
         info !== undefined ? info : (flights?.getTrackedInfo() ?? null);
-      lastFrame = compute(resolved);
+      // If the caller did NOT pass resolved, fetch it from deps.chaseCam.
+      // If the caller DID pass resolved, use that directly (no double fetch).
+      // The `resolved !== undefined ? resolved : (chaseCam?.getResolvedState() ?? null)`
+      // ternary handles both cases.
+      const resolvedState =
+        resolved !== undefined
+          ? resolved
+          : (chaseCam?.getResolvedState() ?? null);
+      lastFrame = compute(resolvedInfo, resolvedState);
       return lastFrame;
     },
     getFrame: () => (destroyed ? null : lastFrame),

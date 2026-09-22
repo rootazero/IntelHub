@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   CockpitInstrumentFrame,
   InstrumentsHandle,
+  RulerTick,
 } from "../gev-visual/cockpit/instruments-mount";
 
 const POLL_MS = 250; // 4 Hz
@@ -168,6 +169,207 @@ function SpeedRuler({ frame }: { frame: CockpitInstrumentFrame | null }) {
   );
 }
 
+/** GEV P16 T5: vertical altitude ladder — slot-spaced ticks centered on slot 0. */
+function AltitudeLadder({ ticks }: { ticks: RulerTick[] }) {
+  return (
+    <svg
+      data-testid="altitude-ladder"
+      className="hud-cockpit-altitude-ladder"
+      width="80"
+      height="200"
+      viewBox="0 0 80 200"
+      aria-hidden
+    >
+      {ticks.map((tick) => (
+        <g
+          key={tick.slot}
+          data-testid="altitude-tick"
+          transform={`translate(0, ${100 + tick.slot * 20})`}
+        >
+          <line
+            x1={tick.major ? 0 : 10}
+            x2={tick.major ? 30 : 25}
+            y1="0"
+            y2="0"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
+          {tick.major && (
+            <text x="40" y="4" fontSize="10" fill="currentColor">
+              {tick.label}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** GEV P16 T5: vertical speed tape — slot-spaced ticks, mirrored to right side. */
+function SpeedTape({ ticks }: { ticks: RulerTick[] }) {
+  return (
+    <svg
+      data-testid="speed-tape"
+      className="hud-cockpit-speed-tape"
+      width="80"
+      height="200"
+      viewBox="0 0 80 200"
+      aria-hidden
+    >
+      {ticks.map((tick) => (
+        <g
+          key={tick.slot}
+          data-testid="speed-tick"
+          transform={`translate(50, ${100 + tick.slot * 20})`}
+        >
+          <line
+            x1={tick.major ? 50 : 35}
+            x2={tick.major ? 20 : 30}
+            y1="0"
+            y2="0"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
+          {tick.major && (
+            <text x="0" y="4" fontSize="10" fill="currentColor" textAnchor="start">
+              {tick.label}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/** GEV P16 T5: pitch ladder — horizon lines rotated by bank, shifted by pitch. */
+function PitchLadder({
+  pitchRad,
+  bankRad,
+}: {
+  pitchRad: number;
+  bankRad: number;
+}) {
+  const PITCH_RANGE_DEG = [-30, -20, -10, 0, 10, 20, 30];
+  const bankDeg = (bankRad * 180) / Math.PI;
+  const pitchDeg = (pitchRad * 180) / Math.PI;
+  return (
+    <svg
+      data-testid="pitch-ladder"
+      className="hud-cockpit-pitch-ladder"
+      width="200"
+      height="300"
+      viewBox="0 0 200 300"
+      aria-hidden
+    >
+      <g transform={`translate(100, 150) rotate(${bankDeg})`}>
+        {PITCH_RANGE_DEG.map((pitchLineDeg) => {
+          const yOffset = (pitchLineDeg - pitchDeg) * 5;
+          return (
+            <g key={pitchLineDeg} transform={`translate(0, ${yOffset})`}>
+              <line
+                x1="-30"
+                x2="30"
+                y1="0"
+                y2="0"
+                stroke={
+                  pitchLineDeg === 0 ? "currentColor" : "rgba(255,255,255,0.6)"
+                }
+                strokeWidth={pitchLineDeg === 0 ? "2" : "1"}
+              />
+              <text
+                x="-35"
+                y="4"
+                fontSize="10"
+                fill="currentColor"
+                textAnchor="end"
+              >
+                {Math.abs(pitchLineDeg)}
+              </text>
+              <text x="35" y="4" fontSize="10" fill="currentColor">
+                {Math.abs(pitchLineDeg)}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
+
+/** GEV P16 T5: bank indicator — arc of |deg| ticks with cyan current-bank marker. */
+function BankIndicator({ bankRad }: { bankRad: number }) {
+  const BANK_RANGE_DEG = [-60, -45, -30, -15, 0, 15, 30, 45, 60];
+  const bankDeg = (bankRad * 180) / Math.PI;
+  const markerX = 100 + bankDeg * 1.5;
+  return (
+    <svg
+      data-testid="bank-indicator"
+      className="hud-cockpit-bank-indicator"
+      width="200"
+      height="60"
+      viewBox="0 0 200 60"
+      aria-hidden
+    >
+      {BANK_RANGE_DEG.map((deg) => (
+        <g key={deg} transform={`translate(${100 + deg * 1.5}, 30)`}>
+          {deg === 0 ? (
+            <polygon points="0,-5 -4,5 4,5" fill="currentColor" />
+          ) : (
+            <text
+              fontSize="10"
+              fill="currentColor"
+              textAnchor="middle"
+              dominantBaseline="middle"
+            >
+              {Math.abs(deg)}
+            </text>
+          )}
+        </g>
+      ))}
+      <polygon
+        points={`${markerX},50 ${markerX - 5},60 ${markerX + 5},60`}
+        fill="cyan"
+      />
+    </svg>
+  );
+}
+
+/** GEV P16 T5: VSI chevron — lime up / amber down + ft/min readout. */
+function VsiChevron({ vsiMps }: { vsiMps: number }) {
+  const MPS_TO_FTPM = 196.85;
+  const ftpm = Math.abs(vsiMps * MPS_TO_FTPM);
+  const isUp = vsiMps > 0;
+  const isDown = vsiMps < 0;
+  return (
+    <svg
+      data-testid="vsi-chevron"
+      className="hud-cockpit-vsi-chevron"
+      width="40"
+      height="200"
+      viewBox="0 0 40 200"
+      aria-hidden
+    >
+      {isUp && (
+        <polygon
+          points="20,90 10,100 30,100"
+          fill="lime"
+          data-testid="vsi-up"
+        />
+      )}
+      {isDown && (
+        <polygon
+          points="20,110 10,100 30,100"
+          fill="amber"
+          data-testid="vsi-down"
+        />
+      )}
+      <text x="20" y="160" fontSize="10" fill="currentColor" textAnchor="middle">
+        {vsiMps !== 0 ? ftpm.toFixed(0) : "0"}
+      </text>
+    </svg>
+  );
+}
+
 export function HudCockpitInstruments({
   instruments,
 }: HudCockpitInstrumentsProps) {
@@ -207,6 +409,15 @@ export function HudCockpitInstruments({
       <Compass frame={frame} />
       <Altimeter frame={frame} />
       <SpeedRuler frame={frame} />
+      {frame && (
+        <>
+          <AltitudeLadder ticks={frame.altitudeTicks} />
+          <SpeedTape ticks={frame.speedTicks} />
+          <PitchLadder pitchRad={frame.pitchRad} bankRad={frame.bankRad} />
+          <BankIndicator bankRad={frame.bankRad} />
+          <VsiChevron vsiMps={frame.vsiMps} />
+        </>
+      )}
     </div>
   );
 }

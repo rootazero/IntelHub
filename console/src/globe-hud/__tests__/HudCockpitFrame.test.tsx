@@ -18,10 +18,10 @@ afterEach(() => {
 });
 
 function fakeInstruments() {
-  return mountCockpitInstruments(
-    { scene: { canvas: {} } } as never,
-    { getTrackedInfo: () => null },
-  );
+  return mountCockpitInstruments({
+    viewer: { scene: { canvas: {} } },
+    flights: { getTrackedInfo: () => null },
+  } as never);
 }
 
 describe("HudCockpitFrame", () => {
