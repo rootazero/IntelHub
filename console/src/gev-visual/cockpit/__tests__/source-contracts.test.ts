@@ -277,3 +277,43 @@ describe("c12: P16 elements use hud-cockpit-gauge-light wrapper (GEV P18)", () =
     expect(matches.length).toBe(5);
   });
 });
+
+// ── c13: replay types are exported from the cockpit barrel (GEV §6.3) ───────────
+
+describe("c13: replay types exported from cockpit barrel (GEV §6.3)", () => {
+  test("barrel surfaces ReplayState, ReplaySegment, ReplayFrame", () => {
+    // Type-only imports; compile-time check via `import()` type syntax.
+    type _S = import("../index").ReplayState;
+    type _G = import("../index").ReplaySegment;
+    type _F = import("../index").ReplayFrame;
+    const _a: _S | undefined = undefined;
+    const _b: _G | undefined = undefined;
+    const _c: _F | undefined = undefined;
+    expect(_a).toBeUndefined();
+    expect(_b).toBeUndefined();
+    expect(_c).toBeUndefined();
+  });
+});
+
+// ── c14: recorder module exports + IndexedDB name pinned (GEV §6.3) ───────────
+
+describe("c14: replay-recorder is a runtime export with pinned DB name", () => {
+  test("replay-recorder.ts exports mountCockpitReplayRecorder as a function", async () => {
+    const m = await import("../replay-recorder");
+    expect(typeof m.mountCockpitReplayRecorder).toBe("function");
+  });
+
+  test("replay-recorder pins DB name 'intelhub-cockpit-replay'", () => {
+    const src = readCockpitSource("replay-recorder.ts");
+    expect(src).toContain('"intelhub-cockpit-replay"');
+  });
+});
+
+// ── c15: player module exports (GEV §6.3) ───────────
+
+describe("c15: replay-player exports mountCockpitReplayPlayer", () => {
+  test("replay-player.ts exports mountCockpitReplayPlayer as a function", async () => {
+    const m = await import("../replay-player");
+    expect(typeof m.mountCockpitReplayPlayer).toBe("function");
+  });
+});

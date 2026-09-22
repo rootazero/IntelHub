@@ -924,5 +924,33 @@ check("p18: responsive scale on short viewports (max-height: 800px media query)"
       p18_responsive.strip() not in ("", "0"),
       f"responsive_refs={p18_responsive.strip()}")
 
+# ---------------------------------------------------------------------------
+# GEV §6.3 Replay (2026-09-23): cockpit frame recording + playback. Console-
+# only feature using IndexedDB. Four checks cover: the mountCockpitReplay
+# factory, the IndexedDB database name literal, the HudCockpitReplay
+# popover testid, and the cockpit-store replayState field.
+# ---------------------------------------------------------------------------
+
+# 66. T2 mountCockpitReplayRecorder bundled (and survives Vite tree-shaking).
+p63_recorder = vm('grep -lF "mountCockpitReplayRecorder" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("§6.3: mountCockpitReplayRecorder bundled", bool(p63_recorder),
+      p63_recorder or "mountCockpitReplayRecorder not found in dist bundle")
+
+# 67. T2 IndexedDB name literal ships in bundle.
+p63_idb = vm('grep -lF "intelhub-cockpit-replay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("§6.3: IndexedDB name 'intelhub-cockpit-replay' literal in bundle", bool(p63_idb),
+      p63_idb or "intelhub-cockpit-replay not found in dist bundle")
+
+# 68. T4 HudCockpitReplay toggle button testid ships in dist.
+p63_switch = vm('grep -lF "hud-cockpit-replay-switch" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("§6.3: hud-cockpit-replay-switch testid in bundle", bool(p63_switch),
+      p63_switch or "hud-cockpit-replay-switch not found in dist bundle")
+
+# 69. T1 cockpit-store carries replayState field in source.
+p63_replay_state = vm('grep -cF "replayState" /home/zou/IntelHub/console/src/gev-visual/cockpit/cockpit-store.ts 2>/dev/null | head -1')
+check("§6.3: cockpit-store carries replayState field",
+      p63_replay_state.strip() not in ("", "0"),
+      f"replay_state_refs={p63_replay_state.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
