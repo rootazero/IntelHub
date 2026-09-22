@@ -1195,6 +1195,138 @@ button.hud-detail-link {
   color: #ff9500;
 }
 
+/* ── replay switch (GEV §6.3, bottom-left, beside ELEMENTS) ── */
+.hud-cockpit-replay {
+  position: absolute;
+  bottom: 70px;
+  left: 116px; /* right of ELEMENTS toggle (which sits at left: 16px, ~100px wide) */
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.hud-cockpit-replay-toggle {
+  padding: 6px 12px;
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 6px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-replay-toggle:hover {
+  color: #e6edf3;
+  border-color: rgba(154, 164, 178, 0.6);
+}
+
+.hud-cockpit-replay-toggle.hot {
+  color: #ff9500;
+  border-color: rgba(255, 149, 0, 0.55);
+}
+
+.hud-cockpit-replay-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  padding: 10px;
+  background: rgba(3, 5, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 6;
+}
+
+.hud-cockpit-replay-button {
+  padding: 8px 12px;
+  border: 1px solid rgba(154, 164, 178, 0.4);
+  border-radius: 4px;
+  background: transparent;
+  color: #e6edf3;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-replay-button:hover:not(:disabled) {
+  background: rgba(154, 164, 178, 0.12);
+}
+
+.hud-cockpit-replay-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.hud-cockpit-replay-speeds {
+  display: flex;
+  gap: 4px;
+}
+
+.hud-cockpit-replay-speed {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid rgba(154, 164, 178, 0.3);
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa4b2;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-replay-speed.active {
+  background: rgba(127, 208, 255, 0.16);
+  border-color: rgba(127, 208, 255, 0.4);
+  color: #7fd0ff;
+}
+
+.hud-cockpit-replay-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.hud-cockpit-replay-segment {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(154, 164, 178, 0.08);
+  font-size: 11px;
+  color: #e6edf3;
+}
+
+.hud-cockpit-replay-segment button {
+  background: transparent;
+  border: none;
+  color: #9aa4b2;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+}
+
+.hud-cockpit-replay-segment button:hover {
+  color: #ff6b6b;
+}
+
+.hud-cockpit-replay-empty {
+  padding: 8px;
+  color: #6b7280;
+  font-size: 11px;
+  text-align: center;
+}
+
 /* ── vision switch (bottom-center) ── */
 .hud-cockpit-vision {
   position: absolute;
