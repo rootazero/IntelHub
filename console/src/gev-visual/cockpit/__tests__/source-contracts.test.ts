@@ -317,3 +317,90 @@ describe("c15: replay-player exports mountCockpitReplayPlayer", () => {
     expect(typeof m.mountCockpitReplayPlayer).toBe("function");
   });
 });
+
+// ── c16: SVS terrain sampler exports (GEV P19) ───────────
+
+describe("c16: SVS terrain sampler exports (GEV P19)", () => {
+  test("svs-terrain-sampler.ts exports mountCockpitTerrainSampler as a function", async () => {
+    const m = await import("../svs-terrain-sampler");
+    expect(typeof m.mountCockpitTerrainSampler).toBe("function");
+  });
+
+  test("svs-terrain-sampler.ts pins SVS_SAMPLE_GRID = 9×5 (default rows/cols constants)", () => {
+    const src = readCockpitSource("svs-terrain-sampler.ts");
+    // The 9×5 grid is expressed via the defaults inside
+    // mountCockpitTerrainSampler: rows=9, cols=5. Source contracts pin
+    // both as a one-line check.
+    expect(src).toMatch(/rows\s*=\s*deps\.rows\s*\?\?\s*9/);
+    expect(src).toMatch(/cols\s*=\s*deps\.cols\s*\?\?\s*5/);
+  });
+});
+
+// ── c17: SVS tick exports (GEV P19) ───────────
+
+describe("c17: SVS tick exports (GEV P19)", () => {
+  test("svs-tick.ts exports mountCockpitSvsTick as a function", async () => {
+    const m = await import("../svs-tick");
+    expect(typeof m.mountCockpitSvsTick).toBe("function");
+  });
+
+  test("svs-tick.ts pins 1000 ms sample interval as default", () => {
+    const src = readCockpitSource("svs-tick.ts");
+    expect(src).toMatch(/DEFAULT_SAMPLE_INTERVAL_MS\s*=\s*1000/);
+  });
+});
+
+// ── c18: Cesium ion initialization is module-scoped (GEV P19) ───────────
+
+describe("c18: Cesium ion token init module (GEV P19)", () => {
+  test("cesium-init.ts sets Cesium.Ion.defaultAccessToken from VITE_CESIUM_ION_KEY", async () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "cesium-init.ts"),
+      "utf8",
+    );
+    expect(src).toContain("Cesium.Ion.defaultAccessToken");
+    expect(src).toContain("CESIUM_ION_KEY");
+  });
+
+  test("main.tsx calls initCesiumIon() at module load", () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "main.tsx"),
+      "utf8",
+    );
+    expect(src).toContain("initCesiumIon()");
+  });
+});
+
+// ── c19: HudCockpitSvsSwitch testid pins (GEV P19) ───────────
+
+describe("c19: HudCockpitSvsSwitch ships the testids (GEV P19)", () => {
+  test("HudCockpitSvsSwitch.tsx renders data-testid='hud-cockpit-svs-switch'", () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "globe-hud", "HudCockpitSvsSwitch.tsx"),
+      "utf8",
+    );
+    expect(src).toContain('data-testid="hud-cockpit-svs-switch"');
+    expect(src).toContain('data-testid="hud-cockpit-svs-checkbox"');
+  });
+});
+
+// ── c20: SVS overlay polylines rendered inside the pitch ladder group ───────────
+
+describe("c20: HudCockpitSvsOverlay renders inside pitch ladder banked group (GEV P19)", () => {
+  test("HudCockpitInstruments.tsx wraps HudCockpitSvsOverlay inside the banked <g> after the pitch lines", () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "globe-hud", "HudCockpitInstruments.tsx"),
+      "utf8",
+    );
+    // SvsOverlay invocation must come AFTER `PITCH_RANGE_DEG.map(...)` and
+    // INSIDE the banked `<g>` group. We find the JSX usage
+    // (`<HudCockpitSvsOverlay`), then verify it sits between the map
+    // invocation and the outer closing `</svg>` of the pitch ladder.
+    const mapIdx = src.indexOf("PITCH_RANGE_DEG.map");
+    const svsIdx = src.indexOf("<HudCockpitSvsOverlay");
+    const closeSvg = src.indexOf("</svg>", svsIdx);
+    expect(mapIdx).toBeGreaterThan(-1);
+    expect(svsIdx).toBeGreaterThan(mapIdx);
+    expect(svsIdx).toBeLessThan(closeSvg);
+  });
+});
