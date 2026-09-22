@@ -40,6 +40,7 @@ import { createIntelHubGlobe } from "../gev-boot/application";
 import { useGlobeSelection } from "../gev-boot/context-bridge";
 import { HudBottomBar } from "../globe-hud/HudBottomBar";
 import { HudFrame } from "../globe-hud/HudFrame";
+import { HudGlobeLoadingOverlay } from "../globe-hud/HudGlobeLoadingOverlay";
 import { HudDetailPanel } from "../globe-hud/HudDetailPanel";
 import { HudLayerRail } from "../globe-hud/HudLayerRail";
 import type { RailManager } from "../globe-hud/HudLayerRail";
@@ -1356,6 +1357,13 @@ export default function GlobeV2() {
       <HudShortcutCheatsheet
         visible={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}
+      />
+      <HudGlobeLoadingOverlay
+        flightsLayerEnabled={
+          railManager
+            ? railManager.isEffectivelyEnabled("flights")
+            : true
+        }
       />
     </HudFrame>
   );
