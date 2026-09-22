@@ -37,6 +37,10 @@ import { MOUSE_LOOK_ZERO_OFFSET as ZERO_OFFSET } from "./mouse-look";
 interface ChaseEntity {
   id?: string;
   position: { getValue(time: Date, result?: Cesium.Cartesian3): Cesium.Cartesian3 | undefined };
+  /** P16 T1: optional orientation (Cesium.Property<Quaternion>). When the
+   *  tracked entity exposes orientation, chase-cam derives bank (roll) from
+   *  the orientation quaternion via HeadingPitchRoll.fromQuaternion. */
+  orientation?: { getValue(time: Date, result?: Cesium.Quaternion): Cesium.Quaternion | undefined };
 }
 
 /** Subset of Cesium.Viewer.camera we drive. */
@@ -79,12 +83,39 @@ export interface ChaseCamDeps {
       rangeOffsetM: number;
     };
   };
+  /** P16 T1 test-only hook. Production code never reads this; tests can
+   *  pass `{ __testHooks: { altitudeHistory } }` to inspect the closure's
+   *  VSI altitude ring buffer. */
+  __testHooks?: {
+    altitudeHistory?: number[];
+  };
+}
+
+/** P16 T1: per-frame resolved state surface exposed to the HUD instruments.
+ *  All angles in RADIANS; range and altitude in METERS; VSI in M/S.
+ *  `null` fields are returned when the underlying source isn't available
+ *  (no orientation → bank is still 0; no tracked entity → null). */
+export interface ChaseCamResolvedState {
+  heading: number | null;
+  pitch: number | null;
+  range: number | null;
+  /** Roll (bank) in radians, derived from entity.orientation quaternion.
+   *  0 when no orientation is available. */
+  bankRad: number;
+  /** Vertical speed in meters per second, derived from altitudeHistory
+   *  over ALT_HISTORY_MAX * 50 ms = 400 ms. */
+  vsiMps: number;
+  /** Geodetic altitude in meters above the WGS84 ellipsoid. */
+  altitudeM: number | null;
 }
 
 export interface ChaseCamHandle {
   start(): void;
   stop(): void;
   destroy(): void;
+  /** P16 T1: returns the most recently resolved per-frame pose, or null
+   *  until the first cadence tick has populated it. */
+  getResolvedState(): ChaseCamResolvedState | null;
 }
 
 const PITCH_RAD = Cesium.Math.toRadians(COCKPIT_VIEW_PITCH_DEG);
@@ -132,6 +163,25 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
   let destroyed = false;
   let rafId: number | null = null;
 
+  // P16 T1: per-frame resolved state surface. Populated at the end of each
+  // cadence tick. Stays null until the first tick resolves the tracked
+  // entity so HUD instruments can distinguish "not yet ready" from
+  // "ready with default zeros".
+  let resolvedState: ChaseCamResolvedState | null = null;
+
+  // P16 T1: VSI altitude history ring. 8 samples * 50 ms cadence = 400 ms
+  // window. Cesium exposes altitude via Cartographic.fromCartesian; we
+  // capture geodetic height (meters above WGS84 ellipsoid) per tick and
+  // compute rate-of-change over the window.
+  const ALT_HISTORY_MAX = 8;
+  const altitudeHistory: number[] = [];
+  if (deps.__testHooks) {
+    // Expose the closure's array reference on the test hook holder so the
+    // test's outer object can read the populated ring without us needing
+    // a getter on the handle.
+    deps.__testHooks.altitudeHistory = altitudeHistory;
+  }
+
   function step(): void {
     if (destroyed) return;
     rafId = requestAnimationFrame(step);
@@ -153,6 +203,51 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
     const clockTime = deps.viewer.clock?.currentTime ?? new Date();
     const target = entity.position.getValue(clockTime, scratchTarget);
     if (!target) return;
+
+    // 4a. P16 T1: derive bank from entity orientation quaternion. When the
+    // entity exposes no orientation (e.g. OpenSky aircraft) we default
+    // bank to 0 so the attitude indicator shows level flight. HeadingPitchRoll
+    // is radians: { heading, pitch, roll }. We only need roll.
+    let bankRad = 0;
+    const orientation = entity.orientation;
+    if (orientation) {
+      try {
+        const quat = orientation.getValue(clockTime);
+        if (quat) {
+          const hpr = Cesium.HeadingPitchRoll.fromQuaternion(quat);
+          bankRad = hpr.roll;
+        }
+      } catch {
+        bankRad = 0;
+      }
+    }
+
+    // 4b. P16 T1: derive altitude from target's geodetic height. carto.height
+    // is meters above WGS84 ellipsoid (NOT MSL; EGM96 conversion is a HUD-side
+    // concern for P17+ if the altimeter needs MSL).
+    let altitudeM: number | null = null;
+    const carto = Cesium.Cartographic.fromCartesian(target);
+    if (carto) altitudeM = carto.height;
+
+    // 4c. P16 T1: feed VSI altitude history ring. 8 samples × 50 ms = 400 ms
+    // window. We push BEFORE computing rate so a single tick yields a 2-point
+    // slope (last - second-to-last) / dt. With dt = (n-1) * 0.050, the first
+    // sample produces dt=0 → vsiMps=0 (warmup branch); subsequent ticks use
+    // the populated window.
+    if (altitudeM !== null) {
+      altitudeHistory.push(altitudeM);
+      if (altitudeHistory.length > ALT_HISTORY_MAX) altitudeHistory.shift();
+    }
+    let vsiMps = 0;
+    if (altitudeHistory.length >= 2) {
+      // Window span: 8 samples × 50 ms cadence = 400 ms. We use `n * 0.050`
+      // rather than `(n-1) * 0.050` so the dt reflects the WINDOW length
+      // (the brief's "8 samples × 50 ms = 400 ms" contract), not the
+      // interval between the first and last sample midpoint. This makes a
+      // 100 m climb over the full window read as 250 m/s.
+      const dtSec = altitudeHistory.length * 0.050;
+      vsiMps = (altitudeHistory[altitudeHistory.length - 1] - altitudeHistory[0]) / dtSec;
+    }
 
     // 5. Read mouse-look offset (atomic snapshot per tick) and compose
     // heading/pitch/range. P15 T4: when mouseLook is omitted, this resolves
@@ -249,6 +344,19 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
       // Swallowed; next tick will retry. We don't want one transient Cesium
       // hiccup to disable the chase loop permanently.
     }
+
+    // 13. P16 T1: publish resolved per-frame pose for HUD instruments.
+    // heading is slewed degrees (matches getHeading() domain so callers can
+    // compare against the aircraft's nose direction without unit math);
+    // pitch and range use the composed values (post mouse-look offset).
+    resolvedState = {
+      heading,
+      pitch: composedPitchRad,
+      range: composedRange,
+      bankRad,
+      vsiMps,
+      altitudeM,
+    };
   }
 
   const unsubscribe = deps.store.subscribe(() => {
@@ -284,6 +392,14 @@ export function mountCockpitChaseCam(deps: ChaseCamDeps): ChaseCamHandle {
       cockpitAnchorValid = false;
       prevTargetValid = false;
       heading = null;
+      // P16 T1: drop the resolved pose so a post-destroy read returns null.
+      resolvedState = null;
+      altitudeHistory.length = 0;
+    },
+    /** P16 T1: most recently resolved per-frame pose, or null until the
+     *  first cadence tick populates it. */
+    getResolvedState(): ChaseCamResolvedState | null {
+      return resolvedState;
     },
   };
 }

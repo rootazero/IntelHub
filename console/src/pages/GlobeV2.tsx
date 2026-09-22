@@ -81,6 +81,7 @@ import type { AnnotationSpec } from "../gev-visual/annotations/draw-tool";
 import {
   createCockpitStore,
   mountCockpitInstruments,
+  mountCockpitHudTick,
   mountCockpitBriefing,
   mountCockpitVision,
   mountCockpitCameraTransition,
@@ -252,6 +253,17 @@ export default function GlobeV2() {
   // first cadence tick can read getFrameOffset(); destroyed AFTER chase-cam
   // so any in-flight offsets aren't read by a destroyed chase-cam.
   const mouseLookRef = useRef<MouseLookHandle | null>(null);
+  // GEV P16 T7: 10Hz HUD tick — drains chase-cam + flights into the
+  // cockpit instruments adapter. Started after chase-cam is mounted so
+  // getResolvedState() returns live data on every tick; stopped before
+  // instruments destroy() so no late tick writes into a torn-down adapter.
+  const hudTickRef = useRef<
+    | {
+        start(): void;
+        stop(): void;
+      }
+    | null
+  >(null);
   const [cockpitVision, setCockpitVision] =
     useState<VisionMountHandle | null>(null);
   const flightsRef = useRef<(() => CockpitTrackedInfo | null) | undefined>(
@@ -475,12 +487,19 @@ export default function GlobeV2() {
         flightsRef.current = getTrackedInfo;
         if (viewer && getTrackedInfo) {
           try {
-            const ins = mountCockpitInstruments(
-              viewer as { scene: { canvas?: unknown } },
-              { getTrackedInfo },
-            );
+            const ins = mountCockpitInstruments({
+              viewer: viewer as { scene: { canvas?: unknown } },
+              flights: { getTrackedInfo },
+            });
             cockpitInstrumentsRef.current = ins;
             setCockpitInstruments(ins);
+            // GEV P16 T8: expose the latest HUD instruments frame on window
+            // so probe-gev.mjs can assert shape fields (headingLabel,
+            // altitudeLabel, speedLabel, pitchRad, bankRad, vsiMps) without
+            // reaching into React state. The window is a dev-only probe
+            // surface — same pattern as the P15 mouse-look handle global.
+            (window as unknown as Record<string, unknown>).__gevInstrumentsFrame =
+              ins.getFrame();
           } catch (e) {
             console.warn("[GlobeV2] cockpit instruments disabled:", e);
           }
@@ -564,6 +583,26 @@ export default function GlobeV2() {
               });
               chaseCamRef.current = cc;
               cc.start();
+              // GEV P16 T7: mount the 10Hz HUD tick once chase-cam is
+              // live. The tick reads chaseCam.getResolvedState() +
+              // flights.getTrackedInfo() and feeds instruments.update().
+              // Skipped when flights ref isn't bound (no layer wired) —
+              // a missing trackedInfo would make every frame null and
+              // defeat the purpose of running a tick.
+              if (cockpitInstrumentsRef.current && flightsRef.current) {
+                try {
+                  const tick = mountCockpitHudTick(
+                    cockpitInstrumentsRef.current,
+                    cc,
+                    { getTrackedInfo: flightsRef.current },
+                    { viewer: viewer as { isDestroyed(): boolean } },
+                  );
+                  tick.start();
+                  hudTickRef.current = tick;
+                } catch (e) {
+                  console.warn("[GlobeV2] cockpit hud tick disabled:", e);
+                }
+              }
             } catch (e) {
               console.warn("[GlobeV2] cockpit chase cam disabled:", e);
             }
@@ -962,6 +1001,12 @@ export default function GlobeV2() {
       cockpitInstrumentsRef.current?.destroy();
       cockpitInstrumentsRef.current = null;
       setCockpitInstruments(null);
+      // GEV P16 T7: stop the HUD tick BEFORE instruments.destroy() so no
+      // late tick fires into a torn-down adapter. The tick self-clears on
+      // viewer.isDestroyed() but the cleanup runs at component teardown,
+      // not in the same effect — explicit stop is the contract.
+      hudTickRef.current?.stop();
+      hudTickRef.current = null;
       flightsRef.current = undefined;
       // 3. annotation (P8; clears its board + renderer while viewer alive).
       annotationEngineRef.current?.destroy();

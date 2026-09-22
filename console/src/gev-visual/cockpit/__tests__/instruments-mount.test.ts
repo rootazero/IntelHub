@@ -35,14 +35,17 @@ function fakeFlights(info: CockpitTrackedInfo | null = trackedInfo) {
 describe("mountCockpitInstruments", () => {
   test("constructor contract: rejects a viewer without scene.canvas", () => {
     expect(() =>
-      mountCockpitInstruments({ scene: {} } as any),
+      mountCockpitInstruments({ viewer: { scene: {} } } as any),
     ).toThrow(TypeError);
     expect(() => mountCockpitInstruments({} as any)).toThrow(TypeError);
   });
 
   test("update() with no argument pulls flights.getTrackedInfo()", () => {
     const flights = fakeFlights();
-    const h = mountCockpitInstruments(fakeViewer() as any, flights as any);
+    const h = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights,
+    } as any);
     const frame = h.update();
     expect(flights.getTrackedInfo).toHaveBeenCalled();
     expect(frame.callsign).toBe("UAL123");
@@ -50,7 +53,7 @@ describe("mountCockpitInstruments", () => {
   });
 
   test("update(info) converts track→heading, m/s→knots, altitudeM→feet", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     const frame = h.update(trackedInfo);
     expect(frame.heading).toBe(90);
     expect(frame.headingLabel).toBe("090");
@@ -62,7 +65,7 @@ describe("mountCockpitInstruments", () => {
   });
 
   test("compass divisions center on the heading with the active slot at index 3", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     const frame = h.update(trackedInfo);
     expect(frame.compass).toHaveLength(7);
     expect(frame.compass[3].active).toBe(true);
@@ -74,7 +77,7 @@ describe("mountCockpitInstruments", () => {
   });
 
   test("altitude + speed ruler ticks have 9 slots with major/label/curve", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     const frame = h.update(trackedInfo);
     expect(frame.altitudeTicks).toHaveLength(9);
     expect(frame.speedTicks).toHaveLength(9);
@@ -92,14 +95,14 @@ describe("mountCockpitInstruments", () => {
   });
 
   test("onGround=true reads zero feet (vendor cockpitAltitudeDisplayFt)", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     const frame = h.update({ ...trackedInfo, onGround: true, altitudeM: 1200 });
     expect(frame.altitudeFt).toBe(0);
     expect(frame.altitudeLabel).toBe("0");
   });
 
   test("null info yields a neutral dashed frame, never throws", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     const frame = h.update(null);
     expect(frame.callsign).toBe("AIRCRAFT");
     expect(frame.altitudeFt).toBeNull();
@@ -112,11 +115,54 @@ describe("mountCockpitInstruments", () => {
   });
 
   test("destroy clears the frame and is idempotent", () => {
-    const h = mountCockpitInstruments(fakeViewer() as any);
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
     h.update(trackedInfo);
     expect(h.getFrame()).not.toBeNull();
     h.destroy();
     expect(h.getFrame()).toBeNull();
     expect(() => h.destroy()).not.toThrow();
+  });
+
+  // ----- P16 T2: pitch/bank/vsi forward from chase-cam deps -----
+
+  test("frame includes pitchRad/bankRad/vsiMps from chaseCam deps", () => {
+    const chaseCam = {
+      getResolvedState: () => ({
+        heading: 1.0,
+        pitch: 0.2,
+        range: 100,
+        bankRad: 0.1,
+        vsiMps: 5.0,
+        altitudeM: 1000,
+      }),
+    };
+    const h = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      chaseCam,
+    } as any);
+    const frame = h.update(trackedInfo);
+    expect(frame.pitchRad).toBe(0.2);
+    expect(frame.bankRad).toBe(0.1);
+    expect(frame.vsiMps).toBe(5.0);
+  });
+
+  test("frame defaults pitchRad/bankRad/vsiMps to 0 when chaseCam is null", () => {
+    const h = mountCockpitInstruments({ viewer: fakeViewer() } as any);
+    const frame = h.update(trackedInfo);
+    expect(frame.pitchRad).toBe(0);
+    expect(frame.bankRad).toBe(0);
+    expect(frame.vsiMps).toBe(0);
+  });
+
+  test("frame defaults pitchRad/bankRad/vsiMps to 0 when getResolvedState() returns null", () => {
+    const chaseCam = { getResolvedState: () => null };
+    const h = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      chaseCam,
+    } as any);
+    const frame = h.update(trackedInfo);
+    expect(frame.pitchRad).toBe(0);
+    expect(frame.bankRad).toBe(0);
+    expect(frame.vsiMps).toBe(0);
   });
 });

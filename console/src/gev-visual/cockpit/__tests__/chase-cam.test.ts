@@ -521,4 +521,176 @@ describe("mountCockpitChaseCam", () => {
     expect(localDir.y).toBeLessThan(-0.5);
     handle.destroy();
   });
+
+  // GEV P16 T1 — chase-cam exposed state surface (bank, altitude, VSI).
+  //
+  // These tests pin the contract that chase-cam's resolved per-frame pose
+  // (heading, pitch, range, bank, altitude, VSI) is exposed via
+  // `handle.getResolvedState()` so the cockpit HUD instruments (heading
+  // tape, altimeter, VSI needle, attitude indicator) can read it without
+  // re-deriving from Cesium globals. Returns null until the first cadence
+  // tick resolves the tracked entity.
+
+  it("getResolvedState returns null before any tick", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+    });
+    expect(handle.getResolvedState()).toBeNull();
+    handle.destroy();
+  });
+
+  it("bankRad defaults to 0 when entity has no orientation", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    // makeEntity() returns an entity with NO orientation → bank should be 0
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    tickAdvance(60);
+    flushRafs(1);
+    const state = handle.getResolvedState();
+    expect(state).not.toBeNull();
+    expect(state?.bankRad).toBe(0);
+    handle.destroy();
+  });
+
+  it("vsiMps is 0 during warmup (< 2 samples)", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    // Two ticks (each 60 ms apart > 50 ms cadence gate)
+    tickAdvance(60);
+    flushRafs(1);
+    tickAdvance(60);
+    flushRafs(1);
+    // With 2 samples, dt > 0; vsiMps SHOULD now be 0 because the altitude
+    // didn't change between samples (entity is static). The warmup branch
+    // is guarded by `length >= 2` so a single-sample tick yields 0; after
+    // 2 ticks at the same altitude, rate = 0 / dt = 0. Both branches land
+    // on 0 here; we assert the surface doesn't blow up.
+    expect(handle.getResolvedState()?.vsiMps).toBe(0);
+    handle.destroy();
+  });
+
+  it("altitudeHistory saturates at 8 samples", () => {
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    // The chase-cam mount assigns its internal altitudeHistory array onto
+    // __testHooks.altitudeHistory; tests read the length off the holder.
+    const testHooks: { altitudeHistory?: number[] } = {};
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => makeEntity() as never,
+      getHeading: () => 90,
+      __testHooks: testHooks,
+    });
+    handle.start();
+    // 20 ticks at 60 ms cadence → way past the 8-sample ring buffer cap
+    for (let i = 0; i < 20; i++) {
+      tickAdvance(60);
+      flushRafs(1);
+    }
+    expect(testHooks.altitudeHistory?.length).toBe(8);
+    handle.destroy();
+  });
+
+  it("vsiMps derives linear rate over 400ms window", () => {
+    // Climbing entity: each getValue() returns altitude + 100/7 m more than
+    // the previous call. After 8 samples the cumulative climb is 7 * (100/7)
+    // = 100 m. With dt = 8 * 0.050 = 0.4 s, vsiMps = 100 / 0.4 = 250 m/s.
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-climb" });
+    const transition = makeTransition();
+    let climbCount = 0;
+    const climbingEntity = {
+      id: "icao-climb",
+      position: {
+        getValue: (_time: unknown, result?: Cesium.Cartesian3) =>
+          Cesium.Cartesian3.fromDegrees(
+            NYC_LON, NYC_LAT, NYC_ALT + climbCount++ * (100 / 7),
+            undefined, result,
+          ),
+      },
+    };
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => climbingEntity as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    for (let i = 0; i < 8; i++) {
+      tickAdvance(60);
+      flushRafs(1);
+    }
+    expect(handle.getResolvedState()?.vsiMps).toBeCloseTo(250, 0);
+    handle.destroy();
+  });
+
+  it("bankRad defaults to 0 when HeadingPitchRoll.fromQuaternion throws", () => {
+    // P16 T1: pins the try/catch guard at chase-cam.ts:211-223 — even if
+    // Cesium.HeadingPitchRoll.fromQuaternion() throws on a quaternion that
+    // happens to be malformed (e.g. NaN components from a glitched sensor),
+    // the tick must not crash and bank must default to 0.
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    // Entity WITH orientation that returns a quaternion
+    const entity = {
+      id: "icao-1",
+      position: {
+        getValue: (_t: unknown, r?: Cesium.Cartesian3) =>
+          Cesium.Cartesian3.fromDegrees(NYC_LON, NYC_LAT, NYC_ALT, undefined, r),
+      },
+      orientation: {
+        getValue: (_t: unknown) => new Cesium.Quaternion(0, 0, 0, 1), // identity
+      },
+    };
+    // Force fromQuaternion to throw on this test
+    const spy = vi
+      .spyOn(Cesium.HeadingPitchRoll, "fromQuaternion")
+      .mockImplementation(() => {
+        throw new Error("simulated Cesium throw");
+      });
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => entity as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    tickAdvance(60);
+    flushRafs(1);
+    const state = handle.getResolvedState();
+    expect(state).not.toBeNull();
+    expect(state?.bankRad).toBe(0);
+    handle.destroy();
+    spy.mockRestore();
+  });
 });

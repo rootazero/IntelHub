@@ -1344,6 +1344,43 @@ try {
       warnings.push(`P15 mouse-look segment threw: ${e.message}`);
     }
 
+    // ---- GEV P16: instruments frame probe ----
+    // Reads window.__gevInstrumentsFrame (set by GlobeV2 when cockpit
+    // instruments mount). The 250 ms wait gives the 10Hz HUD tick time to
+    // fire at least once so altitudeHistory has a 2-sample baseline and
+    // VSI can derive (chase-cam.ts:VSI window needs >1 sample). Asserts
+    // the 5 spec fields per P16 T6 contract; speedLabel is logged but
+    // not gated (matches formatSpeedRulerTick shape, no easy regex).
+    try {
+      await page.waitForTimeout(250);
+      const frame = await page.evaluate(
+        () => window.__gevInstrumentsFrame ?? null,
+      );
+      if (!frame) {
+        console.log("p16-hud-frame=FAIL (no frame exposed)");
+        warnings.push(
+          "P16: __gevInstrumentsFrame not exposed (cockpit instruments never mounted?)",
+        );
+      } else {
+        const headingOk = /^\d{3}$/.test(String(frame.headingLabel ?? ""));
+        const altitudeOk = /^[0-9,]+$/.test(String(frame.altitudeLabel ?? ""));
+        const pitchOk = Number.isFinite(frame.pitchRad);
+        const bankOk = Number.isFinite(frame.bankRad);
+        const vsiOk = Number.isFinite(frame.vsiMps);
+        const ok = headingOk && altitudeOk && pitchOk && bankOk && vsiOk;
+        const fmt = (n) => (Number.isFinite(n) ? n.toFixed(2) : "NaN");
+        console.log(
+          `p16-hud-frame=${ok ? "PASS" : "FAIL"} (heading=${frame.headingLabel} alt=${frame.altitudeLabel} speed=${frame.speedLabel} pitch=${fmt(frame.pitchRad)} bank=${fmt(frame.bankRad)} vsi=${fmt(frame.vsiMps)})`,
+        );
+        if (!ok)
+          warnings.push(
+            `P16: HUD frame fields invalid (heading=${headingOk} altitude=${altitudeOk} pitch=${pitchOk} bank=${bankOk} vsi=${vsiOk})`,
+          );
+      }
+    } catch (e) {
+      warnings.push(`P16 hud-frame probe threw: ${e.message}`);
+    }
+
     await page.keyboard.press("Escape").catch(() => {});
     await page.waitForTimeout(200);
   } catch (e) {
