@@ -95,13 +95,5 @@ export {
 // GEV P16 — chase-cam attitude state (bank from Quaternion→roll; VSI from altitude window)
 export type { ChaseCamResolvedState } from "./chase-cam";
 
-// GEV P16 — instruments-mount deps bag + frame extension (pitch/bank/vsi)
-export {
-  mountCockpitInstruments,
-  type CockpitInstrumentDeps,
-  type CockpitInstrumentFrame,
-  type CockpitTrackedInfo,
-  type CompassDivision,
-  type RulerTick,
-  type InstrumentsHandle,
-} from "./instruments-mount";
+// GEV P16 — instruments-mount deps bag (already re-exported above)
+export type { CockpitInstrumentDeps } from "./instruments-mount";
