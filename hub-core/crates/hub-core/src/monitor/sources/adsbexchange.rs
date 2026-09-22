@@ -65,8 +65,19 @@ pub const ADSBX_HUB_GAP: Duration = Duration::from_secs(25);
 /// `point`-query radius in nautical miles (readsb contract, max 250).
 pub const ADSBX_RADIUS_NM: u32 = 50;
 
-/// (label, lat, lon) — six US hubs chosen to fill the coverage the
-/// hotspot-only rotation leaves on the table (plan §Task 4 verbatim list).
+/// (label, lat, lon) — eight US hubs chosen to fill the coverage the
+/// hotspot-only rotation leaves on the table (plan §Task 4 verbatim list),
+/// extended with West Coast hubs (LAX, SFO) so California's two largest
+/// metros (LA basin + SF Bay, ~18M population, top-10 US pax airports) sit
+/// inside a 50 nm capture radius. The previous six-hub set stopped at PHX
+/// (lon -112) — 50 nm east of LA — so every LAX/SFO/SAN/SJC transponder
+/// was invisible to the snapshot.
+///
+/// Rate impact: 8 hubs × 25 s gap = 200 s sweep, still under the 300 s
+/// interval cap; combined with the rotation's ~4 req/min the measured
+/// adsb.lol quota is ~5.6 req/min (was 5.2). The shared per-host limiter
+/// (`Ctx::limiter`) absorbs the extra two slots without 429 risk — the
+/// 25 s gap was calibrated for the worst-case burst, not the average.
 pub const ADSBX_HUBS: &[(&str, f64, f64)] = &[
     ("ATL", 33.6407, -84.4277),
     ("JFK", 40.6413, -73.7781),
@@ -74,6 +85,8 @@ pub const ADSBX_HUBS: &[(&str, f64, f64)] = &[
     ("DFW", 32.8998, -97.0403),
     ("DEN", 39.8561, -104.6737),
     ("PHX", 33.4342, -112.0080),
+    ("LAX", 33.9425, -118.4081),
+    ("SFO", 37.6189, -122.3750),
 ];
 
 /// adsb.lol API base. `HUB_ADSBX_BASE_URL` lets tests point at a wiremock
