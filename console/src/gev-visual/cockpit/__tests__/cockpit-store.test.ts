@@ -24,6 +24,15 @@ describe("cockpitReducer (pure)", () => {
         bankIndicator: true,
         vsiChevron: true,
       },
+      replayState: {
+        isRecording: false,
+        recordingSegmentId: null,
+        lastSavedSegmentId: null,
+        isPlaying: false,
+        playbackSegmentId: null,
+        playbackTimeMs: 0,
+        playbackSpeed: 1,
+      },
     });
   });
 
@@ -235,5 +244,89 @@ describe("cockpit-store element visibility (GEV P17)", () => {
     store.toggleElement("compass");
     store.setElementVisibility({ altimeter: false });
     expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── GEV §6.3: replayState field + actions ───────────────────────
+
+describe("cockpit-store replay state (GEV §6.3)", () => {
+  test("initial state has replayState default", () => {
+    const store = createCockpitStore();
+    expect(store.getState().replayState).toEqual({
+      isRecording: false,
+      recordingSegmentId: null,
+      lastSavedSegmentId: null,
+      isPlaying: false,
+      playbackSegmentId: null,
+      playbackTimeMs: 0,
+      playbackSpeed: 1,
+    });
+  });
+
+  test("startRecording dispatches and exposes segment id", () => {
+    const store = createCockpitStore();
+    store.startRecording("seg-1");
+    const r = store.getState().replayState;
+    expect(r.recordingSegmentId).toBe("seg-1");
+    expect(r.isRecording).toBe(true);
+    expect(r.isPlaying).toBe(false);
+  });
+
+  test("stopRecording clears recording state, keeps segment id as lastSaved", () => {
+    const store = createCockpitStore();
+    store.startRecording("seg-1");
+    store.stopRecording("seg-1");
+    const r = store.getState().replayState;
+    expect(r.isRecording).toBe(false);
+    expect(r.recordingSegmentId).toBeNull();
+    expect(r.lastSavedSegmentId).toBe("seg-1");
+  });
+
+  test("startPlayback transitions to playing", () => {
+    const store = createCockpitStore();
+    store.startPlayback("seg-1", 0);
+    const r = store.getState().replayState;
+    expect(r.isPlaying).toBe(true);
+    expect(r.playbackSegmentId).toBe("seg-1");
+    expect(r.playbackTimeMs).toBe(0);
+  });
+
+  test("seekPlayback updates time without leaving playback", () => {
+    const store = createCockpitStore();
+    store.startPlayback("seg-1", 0);
+    store.seekPlayback(5000);
+    expect(store.getState().replayState.playbackTimeMs).toBe(5000);
+    expect(store.getState().replayState.isPlaying).toBe(true);
+  });
+
+  test("stopPlayback clears all playback state", () => {
+    const store = createCockpitStore();
+    store.startPlayback("seg-1", 0);
+    store.seekPlayback(2000);
+    store.stopPlayback();
+    const r = store.getState().replayState;
+    expect(r.isPlaying).toBe(false);
+    expect(r.playbackSegmentId).toBeNull();
+    expect(r.playbackTimeMs).toBe(0);
+  });
+
+  test("setPlaybackSpeed updates playbackSpeed", () => {
+    const store = createCockpitStore();
+    store.setPlaybackSpeed(2);
+    expect(store.getState().replayState.playbackSpeed).toBe(2);
+  });
+
+  test("enter() preserves replayState (user preference)", () => {
+    const store = createCockpitStore();
+    store.startRecording("seg-1");
+    store.enter("abc");
+    expect(store.getState().replayState.isRecording).toBe(true);
+  });
+
+  test("exit() preserves replayState (user preference)", () => {
+    const store = createCockpitStore();
+    store.startPlayback("seg-1", 0);
+    store.exit();
+    expect(store.getState().replayState.isPlaying).toBe(true);
   });
 });
