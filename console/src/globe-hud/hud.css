@@ -1395,6 +1395,137 @@ button.hud-detail-link {
   line-height: 1.4;
 }
 
+/* ── tcas overlay (GEV P20, top-right of cockpit) ── */
+.hud-cockpit-tcas {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.hud-cockpit-tcas-summary {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  justify-content: center;
+}
+
+.hud-cockpit-tcas-warning {
+  color: #ff4757;
+}
+
+.hud-cockpit-tcas-caution {
+  color: #ffa502;
+}
+
+.hud-cockpit-tcas-monitor {
+  color: #9aa4b2;
+}
+
+.hud-cockpit-tcas-label {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-align: center;
+  font-family: monospace;
+}
+
+.hud-cockpit-tcas-threat-tag {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(255, 71, 87, 0.25);
+  border: 1px solid #ff4757;
+  border-radius: 4px;
+  color: #ff4757;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+  letter-spacing: 0.1em;
+}
+
+.hud-cockpit-tcas-threat-tag.caution {
+  background: rgba(255, 165, 2, 0.25);
+  border-color: #ffa502;
+  color: #ffa502;
+}
+
+/* ── tcas switch (GEV P20, bottom-left, beside SVS) ── */
+.hud-cockpit-tcas-switch {
+  position: absolute;
+  bottom: 70px;
+  left: 270px;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.hud-cockpit-tcas-toggle {
+  padding: 6px 12px;
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 6px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-tcas-toggle:hover {
+  color: #e6edf3;
+  border-color: rgba(154, 164, 178, 0.6);
+}
+
+.hud-cockpit-tcas-toggle.hot {
+  color: #ffa502;
+  border-color: rgba(255, 165, 2, 0.55);
+}
+
+.hud-cockpit-tcas-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  padding: 10px;
+  background: rgba(3, 5, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 6;
+}
+
+.hud-cockpit-tcas-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e6edf3;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hud-cockpit-tcas-hint {
+  margin: 0;
+  color: #6b7280;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.hud-cockpit-tcas-hint code {
+  font-size: 9px;
+  background: rgba(154, 164, 178, 0.1);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
 /* ── vision switch (bottom-center) ── */
 .hud-cockpit-vision {
   position: absolute;
