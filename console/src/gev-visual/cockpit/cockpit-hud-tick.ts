@@ -14,6 +14,7 @@
 import type { InstrumentsHandle } from "./instruments-mount";
 import type { ChaseCamResolvedState } from "./chase-cam";
 import type { CockpitTrackedInfo } from "./instruments-mount";
+import { COCKPIT_HUD_UPDATE_MS } from "gev-engine/src/ui/cockpitPresentation.js";
 
 export interface HudTickOptions {
   /** Cadence in ms. Default 100 → 10Hz. */
@@ -46,7 +47,7 @@ export function mountCockpitHudTick(
   flights: CockpitTickFlights,
   options: HudTickOptions = {},
 ): HudTickHandle {
-  const intervalMs = options.intervalMs ?? 100;
+  const intervalMs = options.intervalMs ?? COCKPIT_HUD_UPDATE_MS;
   let handle: ReturnType<typeof setInterval> | null = null;
 
   function tick() {
