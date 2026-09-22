@@ -16,7 +16,7 @@ use axum::{
     Router,
 };
 use futures::stream::Stream;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -64,6 +64,9 @@ pub fn router() -> Router<Arc<AppState>> {
         // Globe P1 (read-only, auth middleware inherited)
         .route("/api/v1/globe/aircraft", get(console_globe_aircraft))
         .route("/api/v1/globe/satellites", get(console_globe_satellites))
+        // GEV P20 TCAS: nearby aircraft for cockpit proximity warnings.
+        // Query: ?lat=&lng=&radius_nm= (defaults: lat=0, lng=0, radius_nm=5).
+        .route("/api/v1/flights/near", get(console_flights_near))
         // GEV P2: earthquake layer source (geo_events kind='quake')
         .route("/api/v1/gev/earthquakes", get(gev_earthquakes))
         // GEV P2: satellites layer source (PG TLE catalog + starlink proxy)
@@ -929,6 +932,240 @@ async fn console_globe_aircraft(
         adsbx.as_ref(),
         opensky.as_ref(),
     )))
+}
+
+// ---------- GEV P20 TCAS: nearby aircraft for cockpit proximity warnings ----------
+//
+// §6.3 D-TCAS-1=A: hub-core PG/Redis-backed `?near=` query. We read the same
+// merged-snapshot envelope as `/globe/aircraft` (hub:globe:aircraft +
+// hub:globe:aircraft:adsbx + hub:globe:aircraft:opensky), then filter by
+// haversine distance from the requested lat/lng.
+//
+// Threat classification (per spec §4.2 D-TCAS-5=B, distance + closure rate):
+//   - monitor (white): in radius, no closure
+//   - caution (amber): closure > 100 kts AND distance <= 2 nm
+//   - warning (red):   closure > 250 kts AND distance <= 1 nm
+//
+// All math is constant-time O(N) over the snapshot (~thousands of entries).
+
+#[derive(Debug, Deserialize)]
+struct FlightsNearParams {
+    lat: Option<f64>,
+    lng: Option<f64>,
+    /// Search radius in nautical miles (default 5 nm, max 40 nm).
+    radius_nm: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+struct TcasTarget {
+    hex: String,
+    flight: Option<String>,
+    lat: f64,
+    lon: f64,
+    alt_m: i64,
+    /// Ground speed in knots (may be missing for parked aircraft).
+    gs: Option<f64>,
+    /// True track in degrees clockwise from north (0..360).
+    track: Option<f64>,
+    /// Squawk code if available.
+    squawk: Option<String>,
+    /// Military flag.
+    mil: Option<bool>,
+    /// Distance from the queried position in nautical miles.
+    distance_nm: f64,
+    /// Bearing from the queried position to the target (degrees from north).
+    bearing_deg: f64,
+    /// Closure rate in knots (positive = approaching). Uses target track
+    /// projected onto the line between agent and target; falls back to 0
+    /// when track is missing.
+    closure_kts: f64,
+    /// Relative altitude in feet (target - agent); agent_alt is not passed
+    /// in this query so we leave it to the cockpit to compute.
+    /// `threat` is one of "monitor" | "caution" | "warning" | "none".
+    threat: &'static str,
+    /// Freshness of the snapshot row in seconds.
+    age_s: f64,
+}
+
+const EARTH_RADIUS_NM: f64 = 3440.065;
+
+fn haversine_nm(
+    lat1: f64,
+    lon1: f64,
+    lat2: f64,
+    lon2: f64,
+) -> f64 {
+    let to_rad = std::f64::consts::PI / 180.0;
+    let phi1 = lat1 * to_rad;
+    let phi2 = lat2 * to_rad;
+    let dphi = (lat2 - lat1) * to_rad;
+    let dlambda = (lon2 - lon1) * to_rad;
+    let a = (dphi / 2.0).sin().powi(2)
+        + phi1.cos() * phi2.cos() * (dlambda / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().asin();
+    EARTH_RADIUS_NM * c
+}
+
+fn bearing_deg(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let to_rad = std::f64::consts::PI / 180.0;
+    let to_deg = 180.0 / std::f64::consts::PI;
+    let phi1 = lat1 * to_rad;
+    let phi2 = lat2 * to_rad;
+    let dlambda = (lon2 - lon1) * to_rad;
+    let y = dlambda.sin() * phi2.cos();
+    let x = phi1.cos() * phi2.sin() - phi1.sin() * phi2.cos() * dlambda.cos();
+    let mut theta = y.atan2(x) * to_deg;
+    if theta < 0.0 {
+        theta += 360.0;
+    }
+    theta
+}
+
+/// Closure rate in knots. Positive when the target is moving toward the
+/// agent. Returns 0 when the target has no track or speed.
+fn closure_rate_kts(
+    target_track_deg: f64,
+    target_gs_kts: f64,
+    bearing_to_target_deg: f64,
+) -> f64 {
+    if target_gs_kts <= 0.0 {
+        return 0.0;
+    }
+    // Angle difference: how much the target's motion is aligned with the
+    // line from target to agent (bearing_from_target = bearing_to_agent =
+    // bearing_to_target - 180).
+    let bearing_from_target = (bearing_to_target_deg + 180.0) % 360.0;
+    let mut diff = (target_track_deg - bearing_from_target).abs();
+    if diff > 180.0 {
+        diff = 360.0 - diff;
+    }
+    let cos_component = diff.to_radians().cos();
+    // cos > 0 means moving toward the agent; < 0 means moving away.
+    target_gs_kts * cos_component
+}
+
+fn classify_threat(distance_nm: f64, closure_kts: f64) -> &'static str {
+    if distance_nm <= 1.0 && closure_kts >= 250.0 {
+        return "warning";
+    }
+    if distance_nm <= 2.0 && closure_kts >= 100.0 {
+        return "caution";
+    }
+    if distance_nm <= 5.0 {
+        return "monitor";
+    }
+    "none"
+}
+
+async fn console_flights_near(
+    State(state): State<Arc<AppState>>,
+    Query(p): Query<FlightsNearParams>,
+) -> Result<Json<Value>, Response> {
+    let lat = p.lat.unwrap_or(0.0);
+    let lng = p.lng.unwrap_or(0.0);
+    let radius_nm = p.radius_nm.unwrap_or(5.0).clamp(0.5, 40.0);
+
+    // Pull the three source snapshots (same keys as /globe/aircraft).
+    async fn get_blob(
+        state: &Arc<AppState>,
+        key: &str,
+    ) -> Option<serde_json::Value> {
+        state
+            .redis_timed(
+                redis::cmd("GET").arg(key).clone(),
+                2000,
+            )
+            .await
+            .and_then(|s: String| serde_json::from_str(&s).ok())
+    }
+    let adsb = get_blob(
+        &state,
+        crate::monitor::sources::adsb::AIRCRAFT_KEY,
+    )
+    .await;
+    let adsbx = get_blob(
+        &state,
+        crate::monitor::sources::adsbexchange::ADSBX_AIRCRAFT_KEY,
+    )
+    .await;
+    let opensky = get_blob(
+        &state,
+        crate::monitor::sources::opensky::OPENSKY_AIRCRAFT_KEY,
+    )
+    .await;
+
+    let merged = crate::monitor::sources::adsb::merge_globe_snapshots(
+        adsb.as_ref(),
+        adsbx.as_ref(),
+        opensky.as_ref(),
+    );
+    let rows = merged
+        .get("aircraft")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let now = chrono::Utc::now();
+    let mut targets: Vec<TcasTarget> = Vec::with_capacity(rows.len());
+    for r in rows {
+        let hex = match r.get("hex").and_then(|h| h.as_str()) {
+            Some(h) if !h.is_empty() => h.to_string(),
+            _ => continue,
+        };
+        let t_lat = r.get("lat").and_then(|l| l.as_f64()).unwrap_or(0.0);
+        let t_lon = r.get("lon").and_then(|l| l.as_f64()).unwrap_or(0.0);
+        let distance = haversine_nm(lat, lng, t_lat, t_lon);
+        if distance > radius_nm {
+            continue;
+        }
+        let bearing = bearing_deg(lat, lng, t_lat, t_lon);
+        let track = r.get("track").and_then(|t| t.as_f64()).unwrap_or(0.0);
+        let gs = r.get("gs").and_then(|g| g.as_f64()).unwrap_or(0.0);
+        let closure = closure_rate_kts(track, gs, bearing);
+        let age_s = r
+            .get("age_s")
+            .and_then(|a| a.as_f64())
+            .unwrap_or(999.0);
+        let threat = classify_threat(distance, closure);
+        targets.push(TcasTarget {
+            hex,
+            flight: r
+                .get("flight")
+                .and_then(|f| f.as_str())
+                .map(str::to_string),
+            lat: t_lat,
+            lon: t_lon,
+            alt_m: r
+                .get("alt_m")
+                .and_then(|a| a.as_i64())
+                .unwrap_or(0),
+            gs: r.get("gs").and_then(|g| g.as_f64()),
+            track: r.get("track").and_then(|t| t.as_f64()),
+            squawk: r
+                .get("squawk")
+                .and_then(|s| s.as_str())
+                .map(str::to_string),
+            mil: r.get("mil").and_then(|m| m.as_bool()),
+            distance_nm: (distance * 100.0).round() / 100.0,
+            bearing_deg: (bearing * 10.0).round() / 10.0,
+            closure_kts: (closure * 10.0).round() / 10.0,
+            threat,
+            age_s,
+        });
+    }
+    // Closest first.
+    targets.sort_by(|a, b| {
+        a.distance_nm
+            .partial_cmp(&b.distance_nm)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let count = targets.len();
+    Ok(Json(json!({
+        "ts": now.to_rfc3339(),
+        "query": { "lat": lat, "lng": lng, "radius_nm": radius_nm },
+        "count": count,
+        "aircraft": targets,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
