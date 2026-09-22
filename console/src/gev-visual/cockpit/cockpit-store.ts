@@ -9,12 +9,18 @@
 // 8 cockpit HUD elements) + toggleElement / setElementVisibility actions.
 // Visibility persists across enter/exit like visionMode — user preference,
 // not session state.
+//
+// GEV §6.3 extension: replayState (recording/playback lifecycle) +
+// 6 actions (start/stopRecording, start/seek/stopPlayback, setPlaybackSpeed).
+// Persists across enter/exit (user preference).
 import type { VisionMode } from "./vision-mount";
 import type { ElementVisibility } from "./element-visibility";
 import {
   DEFAULT_ELEMENT_VISIBILITY,
   type CockpitElementKey,
 } from "./element-visibility";
+import type { ReplaySpeed, ReplayState } from "./replay-types";
+import { DEFAULT_REPLAY_STATE } from "./replay-types";
 
 export interface CockpitStoreState {
   active: boolean;
@@ -27,6 +33,8 @@ export interface CockpitStoreState {
   /** GEV P17: per-element show/hide map for the 8 cockpit HUD elements.
    *  Persists across enter/exit like visionMode (user preference). */
   elementVisibility: ElementVisibility;
+  /** GEV §6.3: replay recording/playback state. */
+  replayState: ReplayState;
 }
 
 export type CockpitAction =
@@ -37,7 +45,13 @@ export type CockpitAction =
   | { type: "resumeBriefing" }
   | { type: "toggleHidden" }
   | { type: "toggleElement"; key: CockpitElementKey }
-  | { type: "setElementVisibility"; visibility: Partial<ElementVisibility> };
+  | { type: "setElementVisibility"; visibility: Partial<ElementVisibility> }
+  | { type: "startRecording"; segmentId: string }
+  | { type: "stopRecording"; segmentId: string }
+  | { type: "startPlayback"; segmentId: string; startMs: number }
+  | { type: "seekPlayback"; timeMs: number }
+  | { type: "stopPlayback" }
+  | { type: "setPlaybackSpeed"; speed: ReplaySpeed };
 
 export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   active: false,
@@ -46,6 +60,7 @@ export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   briefingPaused: false,
   hidden: false,
   elementVisibility: { ...DEFAULT_ELEMENT_VISIBILITY },
+  replayState: { ...DEFAULT_REPLAY_STATE },
 };
 
 export function cockpitReducer(
@@ -94,6 +109,62 @@ export function cockpitReducer(
         ...state,
         elementVisibility: { ...state.elementVisibility, ...action.visibility },
       };
+    // GEV §6.3: replay recording/playback lifecycle.
+    case "startRecording":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          isRecording: true,
+          recordingSegmentId: action.segmentId,
+        },
+      };
+    case "stopRecording":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          isRecording: false,
+          recordingSegmentId: null,
+          lastSavedSegmentId: action.segmentId,
+        },
+      };
+    case "startPlayback":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          isPlaying: true,
+          playbackSegmentId: action.segmentId,
+          playbackTimeMs: action.startMs,
+        },
+      };
+    case "seekPlayback":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          playbackTimeMs: action.timeMs,
+        },
+      };
+    case "stopPlayback":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          isPlaying: false,
+          playbackSegmentId: null,
+          playbackTimeMs: 0,
+        },
+      };
+    case "setPlaybackSpeed":
+      return {
+        ...state,
+        replayState: {
+          ...state.replayState,
+          playbackSpeed: action.speed,
+        },
+      };
   }
 }
 
@@ -107,6 +178,13 @@ export interface CockpitStore {
   toggleHidden(): void;
   toggleElement(key: CockpitElementKey): void;
   setElementVisibility(visibility: Partial<ElementVisibility>): void;
+  // GEV §6.3: replay lifecycle.
+  startRecording(segmentId: string): void;
+  stopRecording(segmentId: string): void;
+  startPlayback(segmentId: string, startMs: number): void;
+  seekPlayback(timeMs: number): void;
+  stopPlayback(): void;
+  setPlaybackSpeed(speed: ReplaySpeed): void;
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
@@ -152,6 +230,17 @@ export function createCockpitStore(
     toggleElement: (key) => dispatch({ type: "toggleElement", key }),
     setElementVisibility: (visibility) =>
       dispatch({ type: "setElementVisibility", visibility }),
+    // GEV §6.3: replay lifecycle methods.
+    startRecording: (segmentId) =>
+      dispatch({ type: "startRecording", segmentId }),
+    stopRecording: (segmentId) =>
+      dispatch({ type: "stopRecording", segmentId }),
+    startPlayback: (segmentId, startMs) =>
+      dispatch({ type: "startPlayback", segmentId, startMs }),
+    seekPlayback: (timeMs) => dispatch({ type: "seekPlayback", timeMs }),
+    stopPlayback: () => dispatch({ type: "stopPlayback" }),
+    setPlaybackSpeed: (speed) =>
+      dispatch({ type: "setPlaybackSpeed", speed }),
     subscribe(fn) {
       listeners.add(fn);
       return () => {
