@@ -298,3 +298,20 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 - **Roadmap** (per spec §6, deferred):
   - §6.2 HUD avionics upgrade (heading/altitude/speed tapes + pitch ladder + bank indicator + vertical speed chevron) — ~300 LoC, locked behind this PR so the chase-cam API stabilizes first.
   - §6.3 SVS / TCAS / replay — product decision required.
+
+## GEV P16 — Cockpit HUD Avionics (2026-09-22)
+
+- **Branch**: `feat/gev-p16-cockpit-hud-avionics` (merged + pushed to main @ `78b7863`).
+- **Behavior**: All 6 HUD avionics elements render: heading tape / altitude ladder / speed tape / pitch ladder / bank indicator / VSI chevron. Driven by chase-cam's `getResolvedState()` at 10 Hz (matches vendor `COCKPIT_HUD_UPDATE_MS = 100`).
+- **Architecture**: chase-cam extends with bank (`Cesium.HeadingPitchRoll.fromQuaternion(quat).roll`) + altitude (`Cartographic.fromCartesian(target).height`) + VSI (8-sample sliding window, 400 ms = `0.050 × 8`). instruments-mount adds 3 frame fields. NEW `mountCockpitHudTick` owns the 10 Hz `setInterval`. `HudCockpitInstruments.tsx` extends in place to render 5 new SVG groups (heading compass preserved).
+- **Single-camera-writer invariant**: chase-cam owns camera + attitude state; HUD reads it but never calls `viewer.camera.setView` directly. Tests pin this in `source-contracts.test.ts`.
+- **Tests**: 6 new tests in chase-cam (incl. try/catch guard for `HeadingPitchRoll.fromQuaternion` throw); 3 new in instruments-mount; 4 new in cockpit-hud-tick; 7 new in HudCockpitInstruments; 4 new in source-contracts. Full console ~641/649 (8 pre-existing mouse-look P15 wheel-zoom failures — not P16 regressions).
+- **Acceptance**: sp8 = 73 passed on 410 (67 P14+P15 + 6 P16), 0 failed. sp6 = 49/5/3 (3 pre-existing flakes: USGS network, txdot image bytes, keyless collector count). sp7 = 16/11/0. sp3 = 19/0/0. **All P16 failures = 0**.
+- **Bundle checks**: 6 P16 sp8 checks added; `mountCockpitHudTick` falls back to `getTrackedInfo` (tree-shaken literal replaced with implementation identifier — P15 lesson repeated).
+- **Notable rulings**:
+  - Spec self-review caught VSI window was originally 4 samples (200 ms) but jittery; corrected to 8 samples (400 ms).
+  - chase-cam owns attitude derivation (Approach 1) over a new cockpit-attitude module — single source of truth.
+  - Component extends in place (option a) over split — keeps wiring simple.
+  - T8 deviation: probe can't expose `__gevInstrumentsFrame` (no `instruments` in scope); exposure moved to GlobeV2.tsx where `ins` is local.
+  - T6 deviation: type-only exports (`HudTickHandle`, `ChaseCamResolvedState`) can't be runtime-checked; tests adapted to `"X" in m` checks.
+- **Roadmap** (per spec §8): HUD customization (P17); SVS / TCAS / replay (separate sub-project).
