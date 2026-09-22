@@ -14,6 +14,16 @@ describe("cockpitReducer (pure)", () => {
       visionMode: "optical",
       briefingPaused: false,
       hidden: false,
+      elementVisibility: {
+        compass: true,
+        altimeter: true,
+        speedRuler: true,
+        altitudeLadder: true,
+        speedTape: true,
+        pitchLadder: true,
+        bankIndicator: true,
+        vsiChevron: true,
+      },
     });
   });
 
@@ -156,5 +166,74 @@ describe("createCockpitStore", () => {
     );
     store.enter("flight-1");
     expect(vision.setMode).not.toHaveBeenCalled();
+  });
+});
+
+// ── GEV P17: elementVisibility field + actions ────────────────────────
+
+describe("cockpit-store element visibility (GEV P17)", () => {
+  test("createCockpitStore initializes elementVisibility to all-true", () => {
+    const store = createCockpitStore();
+    const v = store.getState().elementVisibility;
+    expect(v.compass).toBe(true);
+    expect(v.altimeter).toBe(true);
+    expect(v.speedRuler).toBe(true);
+    expect(v.altitudeLadder).toBe(true);
+    expect(v.speedTape).toBe(true);
+    expect(v.pitchLadder).toBe(true);
+    expect(v.bankIndicator).toBe(true);
+    expect(v.vsiChevron).toBe(true);
+  });
+
+  test("toggleElement flips one key", () => {
+    const store = createCockpitStore();
+    store.toggleElement("speedTape");
+    expect(store.getState().elementVisibility.speedTape).toBe(false);
+    store.toggleElement("speedTape");
+    expect(store.getState().elementVisibility.speedTape).toBe(true);
+  });
+
+  test("toggleElement does not flip other keys", () => {
+    const store = createCockpitStore();
+    store.toggleElement("pitchLadder");
+    const after = store.getState().elementVisibility;
+    expect(after.pitchLadder).toBe(false);
+    expect(after.compass).toBe(true);
+    expect(after.bankIndicator).toBe(true);
+    expect(after.vsiChevron).toBe(true);
+  });
+
+  test("setElementVisibility merges partial (sparse update)", () => {
+    const store = createCockpitStore();
+    store.setElementVisibility({ speedTape: false, pitchLadder: false });
+    const after = store.getState().elementVisibility;
+    expect(after.speedTape).toBe(false);
+    expect(after.pitchLadder).toBe(false);
+    expect(after.compass).toBe(true);
+    expect(after.altimeter).toBe(true);
+  });
+
+  test("enter() preserves elementVisibility (user preference, not reset)", () => {
+    const store = createCockpitStore();
+    store.setElementVisibility({ speedTape: false });
+    store.enter("abc");
+    expect(store.getState().elementVisibility.speedTape).toBe(false);
+  });
+
+  test("exit() preserves elementVisibility (user preference, not reset)", () => {
+    const store = createCockpitStore();
+    store.enter("abc");
+    store.setElementVisibility({ speedTape: false });
+    store.exit();
+    expect(store.getState().elementVisibility.speedTape).toBe(false);
+  });
+
+  test("subscribe fires on toggleElement", () => {
+    const store = createCockpitStore();
+    const fn = vi.fn();
+    store.subscribe(fn);
+    store.toggleElement("compass");
+    store.setElementVisibility({ altimeter: false });
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });

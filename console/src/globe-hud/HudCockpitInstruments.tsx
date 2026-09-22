@@ -14,11 +14,19 @@ import type {
   InstrumentsHandle,
   RulerTick,
 } from "../gev-visual/cockpit/instruments-mount";
+import {
+  DEFAULT_ELEMENT_VISIBILITY,
+  type ElementVisibility,
+} from "../gev-visual/cockpit/element-visibility";
 
 const POLL_MS = 250; // 4 Hz
 
 export interface HudCockpitInstrumentsProps {
   instruments: InstrumentsHandle | null;
+  /** GEV P17: per-element visibility map. Optional — defaults to
+   *  DEFAULT_ELEMENT_VISIBILITY (all visible) so existing P16 tests
+   *  and callers don't break. */
+  visibility?: ElementVisibility;
 }
 
 /** Compass: a ring of 7 divisions centered on the heading + center readout. */
@@ -372,6 +380,7 @@ function VsiChevron({ vsiMps }: { vsiMps: number }) {
 
 export function HudCockpitInstruments({
   instruments,
+  visibility,
 }: HudCockpitInstrumentsProps) {
   const [frame, setFrame] = useState<CockpitInstrumentFrame | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -404,20 +413,31 @@ export function HudCockpitInstruments({
 
   if (!instruments) return null;
 
+  // GEV P17: resolve visibility — undefined prop defaults to all-visible so
+  // pre-P17 callers (16 P16 tests, GlobeV2 wiring) keep working unchanged.
+  const v = visibility ?? DEFAULT_ELEMENT_VISIBILITY;
+  const show = (key: keyof ElementVisibility) => v[key];
+
   return (
     <div className="hud-cockpit-instruments" data-testid="hud-cockpit-instruments">
-      <Compass frame={frame} />
-      <Altimeter frame={frame} />
-      <SpeedRuler frame={frame} />
-      {frame && (
-        <>
-          <AltitudeLadder ticks={frame.altitudeTicks} />
-          <SpeedTape ticks={frame.speedTicks} />
-          <PitchLadder pitchRad={frame.pitchRad} bankRad={frame.bankRad} />
-          <BankIndicator bankRad={frame.bankRad} />
-          <VsiChevron vsiMps={frame.vsiMps} />
-        </>
-      )}
+      {show("compass") ? <Compass frame={frame} /> : null}
+      {show("altimeter") ? <Altimeter frame={frame} /> : null}
+      {show("speedRuler") ? <SpeedRuler frame={frame} /> : null}
+      {frame && show("altitudeLadder") ? (
+        <AltitudeLadder ticks={frame.altitudeTicks} />
+      ) : null}
+      {frame && show("speedTape") ? (
+        <SpeedTape ticks={frame.speedTicks} />
+      ) : null}
+      {frame && show("pitchLadder") ? (
+        <PitchLadder pitchRad={frame.pitchRad} bankRad={frame.bankRad} />
+      ) : null}
+      {frame && show("bankIndicator") ? (
+        <BankIndicator bankRad={frame.bankRad} />
+      ) : null}
+      {frame && show("vsiChevron") ? (
+        <VsiChevron vsiMps={frame.vsiMps} />
+      ) : null}
     </div>
   );
 }

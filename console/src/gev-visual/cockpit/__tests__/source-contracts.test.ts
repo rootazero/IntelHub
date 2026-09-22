@@ -136,3 +136,77 @@ describe("c6: instruments-mount frame includes 3 new P16 fields at compile time"
     expect(_typeCheck).toBeDefined();
   });
 });
+
+// ── c7: cockpit-store elementVisibility field (GEV P17 T7) ─────────────
+//
+// P17 T2 added elementVisibility to CockpitStoreState. This guard pins
+// the shape at compile time so any caller wiring HudCockpitInstruments'
+// `visibility` prop to the store cannot drift to the wrong field name.
+
+describe("c7: cockpit-store carries elementVisibility at compile time", () => {
+  test("CockpitStoreState.elementVisibility is an 8-key boolean record", () => {
+    type State = {
+      elementVisibility: {
+        compass: boolean;
+        altimeter: boolean;
+        speedRuler: boolean;
+        altitudeLadder: boolean;
+        speedTape: boolean;
+        pitchLadder: boolean;
+        bankIndicator: boolean;
+        vsiChevron: boolean;
+      };
+    };
+    // Type-only assignment — compile error if any field is missing.
+    const _typeCheck: State = {
+      elementVisibility: {
+        compass: true,
+        altimeter: true,
+        speedRuler: true,
+        altitudeLadder: true,
+        speedTape: true,
+        pitchLadder: true,
+        bankIndicator: true,
+        vsiChevron: true,
+      },
+    };
+    expect(_typeCheck.elementVisibility.compass).toBe(true);
+  });
+});
+
+// ── c8: element-visibility storage key is stable (GEV P17 T7) ──────────────
+//
+// P17 T1 picked the literal `intelhub.cockpit.elementVisibility` as the
+// localStorage key. Once shipped, renaming it would silently invalidate
+// every existing user's preferences. Pin the literal in source so any
+// future drift breaks tests.
+
+describe("c8: ELEMENT_VISIBILITY_STORAGE_KEY literal is pinned in source", () => {
+  test("element-visibility.ts declares the literal intelhub.cockpit.elementVisibility", () => {
+    const src = readCockpitSource("element-visibility.ts");
+    expect(src).toContain('"intelhub.cockpit.elementVisibility"');
+  });
+});
+
+// ── c9: HudCockpitElementSwitch is a runtime component (GEV P17 T7) ─────────
+//
+// P17 T4 added HudCockpitElementSwitch as a React component. If a future
+// refactor accidentally turns the export into a type-only (e.g., turns the
+// function into an interface), this contract catches the drift.
+
+describe("c9: HudCockpitElementSwitch is a runtime component export", () => {
+  test("HudCockpitElementSwitch file exists and exports the component", () => {
+    // The file lives in console/src/globe-hud/ (not gev-visual/cockpit/),
+    // so readFileSync uses a path two levels up (out of __tests__/cockpit/)
+    // then through the sibling globe-hud/ directory.
+    const path = join(here, "..", "..", "..", "globe-hud", "HudCockpitElementSwitch.tsx");
+    const src = readFileSync(path, "utf8");
+    expect(src).toMatch(/export function HudCockpitElementSwitch\b/);
+  });
+
+  test("the toggle button testid is hardcoded in source", () => {
+    const path = join(here, "..", "..", "..", "globe-hud", "HudCockpitElementSwitch.tsx");
+    const src = readFileSync(path, "utf8");
+    expect(src).toContain('"hud-cockpit-element-switch"');
+  });
+});

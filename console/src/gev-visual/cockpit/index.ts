@@ -97,3 +97,15 @@ export type { ChaseCamResolvedState } from "./chase-cam";
 
 // GEV P16 — instruments-mount deps bag (already re-exported above)
 export type { CockpitInstrumentDeps } from "./instruments-mount";
+
+// GEV P17 — cockpit HUD element visibility (per-element show/hide)
+export {
+  COCKPIT_ELEMENT_KEYS,
+  ELEMENT_VISIBILITY_STORAGE_KEY,
+  DEFAULT_ELEMENT_VISIBILITY,
+  isCockpitElementKey,
+  readPersistedElementVisibility,
+  persistElementVisibility,
+  type CockpitElementKey,
+  type ElementVisibility,
+} from "./element-visibility";
