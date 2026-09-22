@@ -999,5 +999,47 @@ check("P19: HudCockpitFrame mounts terrain sampler",
       p19_wire.strip() not in ("", "0"),
       f"frame_wire_refs={p19_wire.strip()}")
 
+# ---------------------------------------------------------------------------
+# GEV P20 TCAS (2026-09-23): Traffic Collision Avoidance System. Six checks.
+# ---------------------------------------------------------------------------
+
+# 76. T1 hub-core /api/v1/flights/near route registered.
+p20_route = vm('grep -cF "/api/v1/flights/near" /home/zou/IntelHub/hub-core/crates/hub-core/src/api.rs 2>/dev/null | head -1')
+check("P20: /api/v1/flights/near route registered in hub-core api.rs",
+      p20_route.strip() not in ("", "0"),
+      f"route_refs={p20_route.strip()}")
+
+# 77. T2 mountCockpitTcas bundled (with tree-shake fallback to URL literal).
+p20_client = vm('grep -lF "mountCockpitTcas" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+if not p20_client:
+    p20_client = vm('grep -lF "/api/v1/flights/near" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P20: mountCockpitTcas bundled (or URL-path fallback)",
+      bool(p20_client),
+      p20_client or "mountCockpitTcas (and URL path) not found in dist bundle")
+
+# 78. T4 HudCockpitTcasSwitch button testid in bundle.
+p20_switch = vm('grep -lF "hud-cockpit-tcas-switch" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P20: hud-cockpit-tcas-switch testid in bundle",
+      bool(p20_switch),
+      p20_switch or "hud-cockpit-tcas-switch not found in dist bundle")
+
+# 79. T3 HudCockpitTcasOverlay testid in bundle.
+p20_overlay = vm('grep -cF "hud-cockpit-tcas-overlay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P20: hud-cockpit-tcas-overlay testid in bundle",
+      p20_overlay.strip() not in ("", "0"),
+      f"overlay_refs={p20_overlay.strip()}")
+
+# 80. T4 cockpit-store carries tcasEnabled field.
+p20_store = vm('grep -cF "tcasEnabled" /home/zou/IntelHub/console/src/gev-visual/cockpit/cockpit-store.ts 2>/dev/null | head -1')
+check("P20: cockpit-store carries tcasEnabled field",
+      p20_store.strip() not in ("", "0"),
+      f"tcas_enabled_refs={p20_store.strip()}")
+
+# 81. T4 HudCockpitFrame mounts TCAS client + renders overlay.
+p20_wire = vm('grep -cF "mountCockpitTcas" /home/zou/IntelHub/console/src/globe-hud/HudCockpitFrame.tsx 2>/dev/null | head -1')
+check("P20: HudCockpitFrame mounts TCAS client + overlay",
+      p20_wire.strip() not in ("", "0"),
+      f"frame_wire_refs={p20_wire.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
