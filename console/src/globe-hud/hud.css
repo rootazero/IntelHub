@@ -1190,6 +1190,78 @@ button.hud-detail-link {
   color: #7fd0ff;
 }
 
+/* ── element visibility switch (GEV P17, bottom-left) ── */
+.hud-cockpit-element {
+  position: absolute;
+  bottom: 70px;
+  left: 16px;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+.hud-cockpit-element-toggle {
+  padding: 6px 12px;
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 6px;
+  background: rgba(3, 5, 9, 0.72);
+  backdrop-filter: blur(6px);
+  color: #9aa4b2;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.hud-cockpit-element-toggle:hover {
+  color: #e6edf3;
+  border-color: rgba(154, 164, 178, 0.6);
+}
+
+.hud-cockpit-element-toggle.hot {
+  color: #ff9500;
+  border-color: rgba(255, 149, 0, 0.55);
+}
+
+.hud-cockpit-element-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  padding: 8px;
+  background: rgba(3, 5, 9, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(154, 164, 178, 0.35);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 6;
+}
+
+.hud-cockpit-element-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  color: #e6edf3;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.hud-cockpit-element-option:hover {
+  background: rgba(154, 164, 178, 0.12);
+}
+
+.hud-cockpit-element-option input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #ff9500;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
 /* ── exit button (top-right) ── */
 .hud-cockpit-exit {
   position: absolute;
