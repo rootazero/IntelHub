@@ -340,3 +340,23 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 - **Roadmap** (still deferred per P15 spec §6.3 + P16 spec §8):
   - §6.3 SVS / TCAS / replay — separate sub-project, product decision required.
   - CSS positioning polish for SVG groups (originally deferred from P16) — visual-design call, deserves its own spec.
+
+## GEV P18 — Cockpit SVG Positioning (2026-09-23)
+
+- **Branch**: `feat/gev-p18-svg-positioning` (merged + pushed to main @ `0ad65bb`).
+- **Behavior**: Replaces the P16/P17 flex layout with a 3-col × 2-row CSS grid that matches the P16 spec §4.3.1 layout sketch (deferred until now). Center column stacks 4 elements (pitch-ladder / bank-indicator / altimeter / speed) via `grid-area: pitchBank` overlap + z-index. Side columns hold altitude-ladder (left) and speed-tape (right). Bottom row holds compass (bottom-center) and VSI chevron (right edge).
+- **Visual consistency**: P16 elements wrapped in `.hud-cockpit-gauge-light` (half-opacity background, no border) — subtle visual hierarchy vs P9's `.hud-cockpit-gauge` (border + padding).
+- **Responsive**: `transform: scale(0.85)` at `< 800px` viewport height (uniform shrink, preserves grid math).
+- **P17 interaction**: empty grid cells collapse cleanly. Hiding `compass` doesn't disturb the center stack; hiding `pitchLadder` keeps `bank-indicator` readable. Hiding all elements → cluster collapses to 0×0 (cockpit chrome unaffected).
+- **Architecture**: CSS-only change to `hud.css` + 5 wrapper divs in `HudCockpitInstruments.tsx` (one per P16 SVG, preserving inner testids). No new modules, no new dependencies.
+- **Tests**: 3 new source contracts (c10 grid declaration, c11 pitchBank shared 4+, c12 gauge-light wrapper 5x in HudCockpitInstruments). 4 new sp8 bundle checks (#62-65: grid-template-areas, pitchBank refs, gauge-light refs, max-height media query). 16 P16 + 17 P17 + 5 new = 38 console tests covering the cluster; 687/695 console pass (8 pre-existing P15 mouse-look failures).
+- **Acceptance**: sp8 78 passed on 315 / 81 on 410 (74/77 baseline + 4 P18). sp6 51/5/1 (pre-existing txdot flake). sp7 16/11/0. sp3 19/0/0. **All P18 failures = 0**.
+- **Notable rulings**:
+  - `grid-area: pitchBank` overlap is the key technique — multiple elements sharing one grid area stack via z-index rather than competing for horizontal space.
+  - `.hud-cockpit-gauge-light` has no border (vs P9's `.hud-cockpit-gauge` which has a subtle border) — preserves the visual hierarchy "P9 = canonical gauges, P16 = auxiliaries".
+  - Wrapping each P16 SVG in a div keeps the `data-testid` on the inner SVG; existing 16 P16 tests query by inner testid and don't care about the wrapper.
+  - Responsive scaling uses `transform: scale(0.85)` not viewport-relative units — preserves the grid math without re-computing on resize.
+- **Roadmap** (still deferred):
+  - §6.3 SVS / TCAS / replay — separate sub-project, product decision still required (see companion spec `2026-09-23-gev-section-6-3-svs-tcas-replay-design.md`).
+  - Per-element resize / drag — UX feature.
+  - Per-element theme customization — out of scope.
