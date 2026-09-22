@@ -34,6 +34,7 @@ describe("cockpitReducer (pure)", () => {
         playbackSpeed: 1,
       },
       svsEnabled: false,
+      tcasEnabled: false,
     });
   });
 
@@ -263,6 +264,7 @@ describe("cockpit-store replay state (GEV §6.3)", () => {
       playbackSpeed: 1,
     });
     expect(store.getState().svsEnabled).toBe(false);
+    expect(store.getState().tcasEnabled).toBe(false);
   });
 
   test("startRecording dispatches and exposes segment id", () => {

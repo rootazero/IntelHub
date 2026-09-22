@@ -41,6 +41,9 @@ import { HudCockpitVisionSwitch } from "./HudCockpitVisionSwitch";
 import { HudCockpitElementSwitch } from "./HudCockpitElementSwitch";
 import { HudCockpitReplay } from "./HudCockpitReplay";
 import { HudCockpitSvsSwitch } from "./HudCockpitSvsSwitch";
+import { HudCockpitTcasSwitch } from "./HudCockpitTcasSwitch";
+import { HudCockpitTcasOverlay } from "./HudCockpitTcasOverlay";
+import { mountCockpitTcas, type TcasSnapshot } from "../gev-visual/cockpit/tcas-client";
 import {
   mountCockpitReplayRecorder,
   type ReplayRecorderHandle,
@@ -182,6 +185,43 @@ export function HudCockpitFrame({
     }
   }, [state.svsEnabled, svsTickRef.current]);
 
+  // GEV P20 TCAS: 1Hz REST polling when tcasEnabled. Lives at
+  // cockpit-frame scope so it survives state mutations.
+  const [tcasSnapshot, setTcasSnapshot] = useState<TcasSnapshot | null>(null);
+  const tcasRef = useRef<ReturnType<typeof mountCockpitTcas> | null>(null);
+  useEffect(() => {
+    if (!state.active) return;
+    const tcas = mountCockpitTcas({
+      authToken: localStorage.getItem("intelhub.console.key") ?? "",
+      baseUrl: window.location.origin,
+      pollMs: 1000,
+      radiusNm: 5,
+    });
+    tcasRef.current = tcas;
+    return () => {
+      tcas.destroy();
+      tcasRef.current = null;
+    };
+  }, [state.active]);
+  useEffect(() => {
+    const tcas = tcasRef.current;
+    if (!tcas) return;
+    if (state.tcasEnabled) {
+      tcas.start(
+        (snap) => setTcasSnapshot(snap),
+        () => {
+          const info = getTrackedInfo?.();
+          if (!info || info.latitude === undefined || info.longitude === undefined)
+            return null;
+          return { lat: info.latitude, lng: info.longitude };
+        },
+      );
+    } else {
+      tcas.stop();
+      setTcasSnapshot(null);
+    }
+  }, [state.tcasEnabled, tcasRef.current, getTrackedInfo]);
+
   useCockpitShortcuts({
     store,
     briefing: briefing ?? null,
@@ -285,6 +325,12 @@ export function HudCockpitFrame({
             svsSamples={svsSamples}
             svsAgentAltitudeM={state.trackedId ? (getTrackedInfo?.()?.altitudeM ?? null) : null}
           />
+          {state.tcasEnabled && tcasSnapshot ? (
+            <HudCockpitTcasOverlay
+              targets={tcasSnapshot.aircraft}
+              agentAltitudeM={state.trackedId ? (getTrackedInfo?.()?.altitudeM ?? null) : null}
+            />
+          ) : null}
           <HudCockpitBriefingPanel
             briefing={briefing}
             getTrackedInfo={getTrackedInfo}
@@ -296,6 +342,7 @@ export function HudCockpitFrame({
           />
           <HudCockpitElementSwitch store={store} />
           <HudCockpitSvsSwitch store={store} />
+          <HudCockpitTcasSwitch store={store} />
           <HudCockpitReplay store={store} recorder={recorder} player={player} />
           <HudCockpitVisionSwitch
             vision={vision}

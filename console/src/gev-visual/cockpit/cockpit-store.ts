@@ -40,6 +40,10 @@ export interface CockpitStoreState {
    *  preference). Defaults to false so the overlay doesn't clutter
    *  standard optical-mode flying. */
   svsEnabled: boolean;
+  /** GEV P20 TCAS: traffic collision avoidance toggle (proximity
+   *  diamonds + altitude bars). Defaults to false — TCAS is opt-in
+   *  like SVS. */
+  tcasEnabled: boolean;
 }
 
 export type CockpitAction =
@@ -57,7 +61,8 @@ export type CockpitAction =
   | { type: "seekPlayback"; timeMs: number }
   | { type: "stopPlayback" }
   | { type: "setPlaybackSpeed"; speed: ReplaySpeed }
-  | { type: "setSvsEnabled"; enabled: boolean };
+  | { type: "setSvsEnabled"; enabled: boolean }
+  | { type: "setTcasEnabled"; enabled: boolean };
 
 export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   active: false,
@@ -68,6 +73,7 @@ export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   elementVisibility: { ...DEFAULT_ELEMENT_VISIBILITY },
   replayState: { ...DEFAULT_REPLAY_STATE },
   svsEnabled: false,
+  tcasEnabled: false,
 };
 
 export function cockpitReducer(
@@ -174,6 +180,8 @@ export function cockpitReducer(
       };
     case "setSvsEnabled":
       return { ...state, svsEnabled: action.enabled };
+    case "setTcasEnabled":
+      return { ...state, tcasEnabled: action.enabled };
   }
 }
 
@@ -196,6 +204,8 @@ export interface CockpitStore {
   setPlaybackSpeed(speed: ReplaySpeed): void;
   // GEV P19 SVS toggle.
   setSvsEnabled(enabled: boolean): void;
+  // GEV P20 TCAS toggle.
+  setTcasEnabled(enabled: boolean): void;
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
@@ -254,6 +264,9 @@ export function createCockpitStore(
       dispatch({ type: "setPlaybackSpeed", speed }),
     // GEV P19 SVS toggle.
     setSvsEnabled: (enabled) => dispatch({ type: "setSvsEnabled", enabled }),
+    // GEV P20 TCAS toggle.
+    setTcasEnabled: (enabled) =>
+      dispatch({ type: "setTcasEnabled", enabled }),
     subscribe(fn) {
       listeners.add(fn);
       return () => {
