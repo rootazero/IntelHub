@@ -282,6 +282,21 @@ pub fn merge_globe_snapshots(
     }
     out["count"] = json!(merged.len());
     out["aircraft"] = json!(merged);
+    // GEV P21 T1 (2026-09-23): every merged envelope must carry a `ts` so the
+    // console adapter can compute per-record `positionTimeMs` (the input to
+    // the vendor's `_positionHistory` ring buffer that drives dead-reckoning
+    // between 15 s polls). When the T1 adsb.lol snapshot is alive, its `ts`
+    // is the upstream observation epoch and is preserved verbatim above.
+    // When it is dead, `out` was seeded from `json!({})` and the surviving
+    // overlay snapshots (adsbx/opensky) had their `ts` fields discarded by
+    // the partial-rebuild above. Synthesize a merge-time ts in that case —
+    // its semantics is "when this merged view was assembled", which the
+    // per-row `age_s` already disambiguates from the upstream observation
+    // moment. Skip when `adsb.is_none() && !contributed` because the early
+    // return above (the stale envelope shape) intentionally has no `ts`.
+    if out.get("ts").is_none() {
+        out["ts"] = json!(chrono::Utc::now().to_rfc3339());
+    }
     out
 }
 
@@ -665,5 +680,78 @@ mod tests {
         let m = merge_globe_snapshots(None, None, None);
         assert_eq!(m["stale"], true);
         assert_eq!(m["aircraft"].as_array().unwrap().len(), 0);
+    }
+
+    // ---------- GEV P21 T1 (2026-09-23): merged envelope must carry `ts`
+    // for the console adapter to compute per-record `positionTimeMs`. Without
+    // it, `fixEpochMs` collapses to null, the vendor's `_positionHistory`
+    // never advances past the first 1970-epoch fix, and aircraft on the globe
+    // page freeze in place (no per-frame interpolation between polls).
+    // Bug shape: when the T1 adsb.lol collector is down, `out` was seeded
+    // from `json!({})` and never restored `ts` from the surviving overlay
+    // snapshots (which carry their own). Two tests pin the contract:
+    //   1. adsb envelope present → its `ts` passes through verbatim.
+    //   2. adsb envelope absent → merge synthesizes a fresh RFC3339 ts.
+    // Both must hold so console/console-adapter/aircraft-map.ts can rely on
+    // `snapshotEpochMs(env)` returning a finite epoch.
+
+    #[test]
+    fn merge_preserves_adsb_ts_when_adsb_alive() {
+        let adsb = adsb_env(json!([ac_row("aa", Some(10), false)]));
+        let m = merge_globe_snapshots(Some(&adsb), None, None);
+        // Verbatim passthrough — the read-time merge does not re-stamp the
+        // upstream epoch (the underlying `age_s` per row carries upstream age).
+        assert_eq!(
+            m["ts"].as_str().expect("ts must be a string"),
+            "2026-09-17T00:00:00Z"
+        );
+        // And it must parse as RFC3339 so the console adapter's
+        // `Date.parse(env.ts)` succeeds.
+        let parsed = chrono::DateTime::parse_from_rfc3339(m["ts"].as_str().unwrap());
+        assert!(
+            parsed.is_ok(),
+            "ts must parse as RFC3339: got {:?}",
+            m["ts"]
+        );
+    }
+
+    #[test]
+    fn merge_synthesizes_ts_when_adsb_dead() {
+        // Simulates the production incident: T1 adsb.lol collector offline,
+        // adsbx (P13 T4) still publishing. Without the fix, `out` starts from
+        // `json!({})` and never gets a `ts` field, breaking the console
+        // adapter's `positionTimeMs` derivation.
+        let adsbx = json!({
+            "ts": "2026-09-22T12:00:00Z",
+            "count": 1, "coverage": "adsbx",
+            "aircraft": [ac_row("bb", Some(5), false)],
+        });
+        let m = merge_globe_snapshots(None, Some(&adsbx), None);
+        assert_eq!(m["count"], 1);
+        assert_eq!(m["coverage"], "adsbx");
+        // The fix: synthesize a ts at merge time when the upstream envelope
+        // had none. Use `Utc::now` so the test only asserts parseability +
+        // recency, not an exact string.
+        let ts_str = m["ts"]
+            .as_str()
+            .expect("merge must synthesize ts when adsb is dead");
+        let parsed = chrono::DateTime::parse_from_rfc3339(ts_str)
+            .expect("synthesized ts must be RFC3339");
+        let now = chrono::Utc::now();
+        let delta = (now - parsed.with_timezone(&chrono::Utc)).num_seconds().abs();
+        assert!(
+            delta < 60,
+            "synthesized ts must be within 60s of Utc::now, got delta={delta}s ts={ts_str}"
+        );
+        // And the synthesized ts must propagate through a re-merge (idempotent
+        // shape preservation across repeated reads).
+        let m2 = merge_globe_snapshots(None, Some(&adsbx), None);
+        let ts2_str = m2["ts"].as_str().unwrap();
+        let parsed2 = chrono::DateTime::parse_from_rfc3339(ts2_str).unwrap();
+        let delta = (parsed - parsed2).num_seconds().abs();
+        assert!(
+            delta < 2,
+            "two consecutive merge calls must produce ts within 2s of each other, got delta={delta}s"
+        );
     }
 }

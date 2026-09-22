@@ -1059,5 +1059,44 @@ check("P21: overlay subtitle names the ADS-B hub sweep",
       bool(p21_subtitle),
       f"refs={p21_subtitle or 'missing'}")
 
+# 84. GEV P21 T1 (2026-09-23): the merged /api/v1/globe/aircraft envelope
+# must carry an RFC3339 `ts` field. Without it, the console adapter's
+# `snapshotEpochMs(env)` returns null, every record's `positionTimeMs`
+# collapses to null, and the vendor's `_positionHistory` ring buffer never
+# advances past the first 1970-epoch fix — aircraft on the globe page freeze
+# in place because no per-frame interpolation between polls is possible.
+# The upstream guard is `merge_globe_snapshots` in adsb.rs (always sets ts,
+# either from the adsb envelope verbatim or synthesized at merge time when
+# the adsb collector is dead). The freshness window (≤10 min) covers the
+# longest realistic poll cycle (15 s + safety) without flapping on a quiet
+# hub. If the field goes missing again, this check fires immediately.
+st, p21_globe = req("/api/v1/globe/aircraft")
+if st != 200:
+    check("P21: /globe/aircraft envelope carries parseable RFC3339 ts (≤10 min old)",
+          False, f"status={st}")
+else:
+    ts_raw = p21_globe.get("ts")
+    p21_ts_ok = isinstance(ts_raw, str) and len(ts_raw) >= 10
+    p21_age_s = None
+    if p21_ts_ok:
+        try:
+            from datetime import datetime, timezone, timedelta
+            # RFC3339 with optional fractional seconds + tz offset; Python's
+            # fromisoformat handles the common forms produced by
+            # `chrono::Utc::now().to_rfc3339()` ("YYYY-MM-DDTHH:MM:SS+00:00"
+            # / "Z" suffix). Strip trailing Z before parse (older Python
+            # doesn't recognize it as UTC).
+            ts_norm = ts_raw.replace("Z", "+00:00") if ts_raw.endswith("Z") else ts_raw
+            ts_parsed = datetime.fromisoformat(ts_norm)
+            if ts_parsed.tzinfo is None:
+                ts_parsed = ts_parsed.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            p21_age_s = int((now - ts_parsed).total_seconds())
+        except Exception:
+            p21_ts_ok = False
+    check("P21: /globe/aircraft envelope carries parseable RFC3339 ts (≤10 min old)",
+          bool(p21_ts_ok and p21_age_s is not None and 0 <= p21_age_s <= 600),
+          f"ts={ts_raw!r} age_s={p21_age_s} status={st}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
