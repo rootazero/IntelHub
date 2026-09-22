@@ -71,7 +71,9 @@ describe("mountCockpitReplayPlayer", () => {
     const seg = makeSegment(1000, 20);
     const ticks: number[] = [];
     const player = mountCockpitReplayPlayer({
-      onTick: (f) => ticks.push(f.frame.altitudeFt),
+      onTick: (f) => {
+        if (f.frame.altitudeFt !== null) ticks.push(f.frame.altitudeFt);
+      },
     });
     await player.load(seg);
     player.play({ speed: 1 });

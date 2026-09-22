@@ -931,10 +931,16 @@ check("p18: responsive scale on short viewports (max-height: 800px media query)"
 # popover testid, and the cockpit-store replayState field.
 # ---------------------------------------------------------------------------
 
-# 66. T2 mountCockpitReplayRecorder bundled (and survives Vite tree-shaking).
+# 66. T2 mountCockpitReplayRecorder bundled. Vite tree-shakes the literal
+#     export name when only consumed inside GlobeV2.tsx (mirrors P15/P16
+#     lesson). Fall back to the IndexedDB DB name literal which is unique
+#     to replay-recorder.ts and survives minification as a string constant.
 p63_recorder = vm('grep -lF "mountCockpitReplayRecorder" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
-check("§6.3: mountCockpitReplayRecorder bundled", bool(p63_recorder),
-      p63_recorder or "mountCockpitReplayRecorder not found in dist bundle")
+if not p63_recorder:
+    p63_recorder = vm('grep -lF "intelhub-cockpit-replay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("§6.3: mountCockpitReplayRecorder bundled (or DB-name fallback)",
+      bool(p63_recorder),
+      p63_recorder or "mountCockpitReplayRecorder (and IDB DB name) not found in dist bundle")
 
 # 67. T2 IndexedDB name literal ships in bundle.
 p63_idb = vm('grep -lF "intelhub-cockpit-replay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
