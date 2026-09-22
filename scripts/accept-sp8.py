@@ -886,5 +886,43 @@ check("p17: cockpit-store carries elementVisibility field",
       p17_store_field.strip() not in ("", "0"),
       f"cockpit_store_refs={p17_store_field.strip()}")
 
+# ---------------------------------------------------------------------------
+# GEV P18 (2026-09-23): cockpit SVG positioning — replaces the P16/P17 flex
+# layout with a 3-col × 2-row CSS grid. Four checks cover: the grid-template-
+# areas declaration, the shared pitchBank grid area, the gauge-light wrapper
+# class, and the responsive scale media query.
+# ---------------------------------------------------------------------------
+
+# 62. CSS grid declaration: hud.css must declare grid-template-areas for the
+#    instruments cluster (not the P16/P17 flex layout). Source-level pin.
+p18_grid_src = vm('grep -cF "grid-template-areas" /home/zou/IntelHub/console/src/globe-hud/hud.css 2>/dev/null | head -1')
+check("p18: hud.css declares grid-template-areas (cluster uses CSS grid, not flex)",
+      p18_grid_src.strip() not in ("", "0"),
+      f"grid_template_areas_refs={p18_grid_src.strip()}")
+
+# 63. Pitch bank area shared by 4+ elements: pitch-ladder, bank-indicator,
+#    altimeter, speed all map to 'pitchBank' so they overlap (the spec
+#    sketch's center-column stack). Source-level pin.
+p18_pitchbank = vm('grep -cF "grid-area: pitchBank" /home/zou/IntelHub/console/src/globe-hud/hud.css 2>/dev/null | head -1')
+check("p18: 4+ elements share pitchBank grid area (center-column overlap)",
+      p18_pitchbank.strip() not in ("", "0") and int(p18_pitchbank.strip()) >= 4,
+      f"pitchBank_refs={p18_pitchbank.strip()}")
+
+# 64. gauge-light wrapper class: each P16 component wraps its SVG in this
+#    class for visual consistency. The literal class name must appear 5+
+#    times in HudCockpitInstruments.tsx (one per P16 component).
+p18_gauge_light = vm('grep -cF "hud-cockpit-gauge-light" /home/zou/IntelHub/console/src/globe-hud/HudCockpitInstruments.tsx 2>/dev/null | head -1')
+check("p18: P16 elements wrapped in hud-cockpit-gauge-light (5x in HudCockpitInstruments)",
+      p18_gauge_light.strip() not in ("", "0") and int(p18_gauge_light.strip()) >= 5,
+      f"gauge_light_refs={p18_gauge_light.strip()}")
+
+# 65. Responsive scale media query: short viewports (< 800px height) get a
+#    uniform scale(0.85). The max-height media query must be declared in
+#    hud.css so short-viewport pilots still see the cluster.
+p18_responsive = vm('grep -cF "max-height: 800px" /home/zou/IntelHub/console/src/globe-hud/hud.css 2>/dev/null | head -1')
+check("p18: responsive scale on short viewports (max-height: 800px media query)",
+      p18_responsive.strip() not in ("", "0"),
+      f"responsive_refs={p18_responsive.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
