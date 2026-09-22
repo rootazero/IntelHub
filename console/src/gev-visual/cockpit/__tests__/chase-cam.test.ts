@@ -651,4 +651,46 @@ describe("mountCockpitChaseCam", () => {
     expect(handle.getResolvedState()?.vsiMps).toBeCloseTo(250, 0);
     handle.destroy();
   });
+
+  it("bankRad defaults to 0 when HeadingPitchRoll.fromQuaternion throws", () => {
+    // P16 T1: pins the try/catch guard at chase-cam.ts:211-223 — even if
+    // Cesium.HeadingPitchRoll.fromQuaternion() throws on a quaternion that
+    // happens to be malformed (e.g. NaN components from a glitched sensor),
+    // the tick must not crash and bank must default to 0.
+    const viewer = makeViewer();
+    const store = makeStore({ active: true, trackedId: "icao-1" });
+    const transition = makeTransition();
+    // Entity WITH orientation that returns a quaternion
+    const entity = {
+      id: "icao-1",
+      position: {
+        getValue: (_t: unknown, r?: Cesium.Cartesian3) =>
+          Cesium.Cartesian3.fromDegrees(NYC_LON, NYC_LAT, NYC_ALT, undefined, r),
+      },
+      orientation: {
+        getValue: (_t: unknown) => new Cesium.Quaternion(0, 0, 0, 1), // identity
+      },
+    };
+    // Force fromQuaternion to throw on this test
+    const spy = vi
+      .spyOn(Cesium.HeadingPitchRoll, "fromQuaternion")
+      .mockImplementation(() => {
+        throw new Error("simulated Cesium throw");
+      });
+    const handle = mountCockpitChaseCam({
+      viewer: viewer as never,
+      store: store as never,
+      transition,
+      getTrackedEntity: () => entity as never,
+      getHeading: () => 90,
+    });
+    handle.start();
+    tickAdvance(60);
+    flushRafs(1);
+    const state = handle.getResolvedState();
+    expect(state).not.toBeNull();
+    expect(state?.bankRad).toBe(0);
+    handle.destroy();
+    spy.mockRestore();
+  });
 });
