@@ -19,11 +19,13 @@ describe("mountDefaultCamera", () => {
 
   it("calls viewer.camera.setView with DEFAULT_VIEW destination + pitch", () => {
     // The constants are the spec (plan §Task 1) — pin them so a refactor
-    // cannot silently drift the view back to a regional framing.
+    // cannot silently drift the view back to a regional framing, or push the
+    // globe back to a screen-filling framing (alt < 14_000 km makes Earth
+    // cover >60% of viewport height; we keep ~47%).
     expect(DEFAULT_VIEW).toEqual({
       lon: -50,
       lat: 20,
-      alt: 12_000_000,
+      alt: 20_000_000,
       pitch: -90,
     });
     const setView = vi.fn();
