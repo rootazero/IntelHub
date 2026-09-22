@@ -1041,5 +1041,23 @@ check("P20: HudCockpitFrame mounts TCAS client + overlay",
       p20_wire.strip() not in ("", "0"),
       f"frame_wire_refs={p20_wire.strip()}")
 
+# 82. PR 2 (globe-init overlay) — component exists, mounted in GlobeV2,
+# and the testid reaches the bundle. The testid is the contract surface;
+# a future refactor that drops it trips this assertion immediately.
+p21_overlay_src = vm('grep -cF "HudGlobeLoadingOverlay" /home/zou/IntelHub/console/src/pages/GlobeV2.tsx 2>/dev/null | head -1')
+p21_overlay_bundle = vm('grep -lF "hud-globe-loading-overlay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P21: globe-init overlay component mounted + testid in bundle",
+      p21_overlay_src.strip() not in ("", "0")
+      and bool(p21_overlay_bundle),
+      f"src_refs={p21_overlay_src.strip()} bundle={p21_overlay_bundle or 'missing'}")
+
+# 83. Subtitle carries the "ADS-B 区域" copy (8-hub sweep). Pinning the
+# literal forces the acceptance to track ADSBX_HUBS changes — a future
+# PR that drops to 6 hubs must also rewrite the overlay subtitle.
+p21_subtitle = vm('grep -lF "ADS-B" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P21: overlay subtitle names the ADS-B hub sweep",
+      bool(p21_subtitle),
+      f"refs={p21_subtitle or 'missing'}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)

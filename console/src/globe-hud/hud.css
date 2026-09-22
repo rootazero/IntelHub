@@ -1698,6 +1698,70 @@ body.recording-mode #global-loading-status,
 body.recording-mode #traffic-sync-chip,
 body.recording-mode #cctv-sync-chip,
 body.recording-mode #pp-toggles,
+
+/* Globe loading overlay — full-screen placeholder shown while the adsbx
+ * sweep warms up after page mount. z-index 15 sits above the Cesium canvas
+ * (default 0) but below the HUD edges (z-index 10 → push edges to 25 if
+ * stacking conflicts arise). The card is intentionally compact and centred
+ * so it does not fight the operator's spatial memory of the chrome. */
+.hud-globe-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 5, 9, 0.55);
+  backdrop-filter: blur(6px);
+  z-index: 15;
+  pointer-events: none;
+  animation: hud-globe-loading-fade-in 240ms ease-out;
+}
+
+.hud-globe-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 36px;
+  border-radius: 12px;
+  background: rgba(8, 12, 20, 0.78);
+  border: 1px solid rgba(154, 164, 178, 0.18);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  max-width: 360px;
+  text-align: center;
+}
+
+.hud-globe-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(154, 164, 178, 0.25);
+  border-top-color: #6ea8ff;
+  animation: hud-globe-loading-spin 900ms linear infinite;
+}
+
+.hud-globe-loading-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e8edf2;
+  letter-spacing: 0.02em;
+}
+
+.hud-globe-loading-subtitle {
+  font-size: 11px;
+  color: #9aa4b2;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes hud-globe-loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hud-globe-loading-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 body.recording-mode #clean-view-exit,
 body.recording-mode #param-slider-panel,
 body.recording-mode #control-panel,
