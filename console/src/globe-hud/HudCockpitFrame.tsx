@@ -6,7 +6,8 @@
 //   - HudCockpitBriefingPanel right panel (weather / summary + auto-rotate)
 //   - HudCockpitVisionSwitch bottom 5-mode selector
 // The exit button leaves P7 follow active (D5: 「退出驾驶舱（继续跟随）」).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import * as Cesium from "cesium";
 import type {
   CockpitStore,
   CockpitStoreState,
@@ -39,6 +40,7 @@ import {
 import { HudCockpitVisionSwitch } from "./HudCockpitVisionSwitch";
 import { HudCockpitElementSwitch } from "./HudCockpitElementSwitch";
 import { HudCockpitReplay } from "./HudCockpitReplay";
+import { HudCockpitSvsSwitch } from "./HudCockpitSvsSwitch";
 import {
   mountCockpitReplayRecorder,
   type ReplayRecorderHandle,
@@ -47,6 +49,12 @@ import {
   mountCockpitReplayPlayer,
   type ReplayPlayerHandle,
 } from "../gev-visual/cockpit/replay-player";
+import {
+  mountCockpitTerrainSampler,
+  type CockpitTerrainSamplerHandle,
+  type SvsSamplePoint,
+} from "../gev-visual/cockpit/svs-terrain-sampler";
+import { mountCockpitSvsTick } from "../gev-visual/cockpit/svs-tick";
 
 /** Subscribe a component to the cockpit store (shared by GlobeV2 + the frame). */
 export function useCockpitStore(store: CockpitStore): CockpitStoreState {
@@ -127,6 +135,52 @@ export function HudCockpitFrame({
       setPlayer(null);
     };
   }, [state.active, getTrackedInfo]);
+
+  // GEV P19 SVS: terrain sampler + 1Hz tick. Lives at cockpit-frame
+  // scope so it's available whenever the toggle is on (the tick
+  // self-throttles when svsEnabled = false).
+  const [svsSamples, setSvsSamples] = useState<SvsSamplePoint[]>([]);
+  const svsSamplerRef = useRef<CockpitTerrainSamplerHandle | null>(null);
+  const svsTickRef = useRef<ReturnType<typeof mountCockpitSvsTick> | null>(null);
+  useEffect(() => {
+    if (!state.active || !viewer) return;
+    let sampler: CockpitTerrainSamplerHandle | null = null;
+    let tick: ReturnType<typeof mountCockpitSvsTick> | null = null;
+    try {
+      const cesiumViewer = viewer as unknown as { scene: { globe: { terrainProvider: Cesium.TerrainProvider } } };
+      sampler = mountCockpitTerrainSampler({
+        scene: cesiumViewer.scene,
+        agentLat: 0,
+        agentLng: 0,
+        agentHeadingRad: 0,
+      });
+      tick = mountCockpitSvsTick({ sampler });
+      svsSamplerRef.current = sampler;
+      svsTickRef.current = tick;
+    } catch (e) {
+      console.warn("[HudCockpitFrame] SVS terrain sampler mount failed:", e);
+      return;
+    }
+    return () => {
+      tick?.destroy();
+      sampler?.destroy();
+      svsSamplerRef.current = null;
+      svsTickRef.current = null;
+    };
+  }, [state.active, viewer]);
+
+  // GEV P19 SVS: when the toggle flips on, start the tick; when off,
+  // stop. Update agent pose on every frame the tracker updates.
+  useEffect(() => {
+    const tick = svsTickRef.current;
+    if (!tick) return;
+    if (state.svsEnabled) {
+      tick.start((samples) => setSvsSamples(samples));
+    } else {
+      tick.stop();
+      setSvsSamples([]);
+    }
+  }, [state.svsEnabled, svsTickRef.current]);
 
   useCockpitShortcuts({
     store,
@@ -228,6 +282,8 @@ export function HudCockpitFrame({
           <HudCockpitInstruments
             instruments={instruments}
             visibility={state.elementVisibility}
+            svsSamples={svsSamples}
+            svsAgentAltitudeM={state.trackedId ? (getTrackedInfo?.()?.altitudeM ?? null) : null}
           />
           <HudCockpitBriefingPanel
             briefing={briefing}
@@ -239,6 +295,7 @@ export function HudCockpitFrame({
             onTabChange={setBriefingTab}
           />
           <HudCockpitElementSwitch store={store} />
+          <HudCockpitSvsSwitch store={store} />
           <HudCockpitReplay store={store} recorder={recorder} player={player} />
           <HudCockpitVisionSwitch
             vision={vision}
