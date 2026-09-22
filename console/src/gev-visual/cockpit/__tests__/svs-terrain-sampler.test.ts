@@ -4,10 +4,18 @@ import {
   type SvsSamplePoint,
 } from "../svs-terrain-sampler";
 
-function fakeScene(): {
-  scene: { globe: { terrainProvider: unknown } };
-} {
-  return { scene: { globe: { terrainProvider: {} } } };
+// Use `as never` cast — the sampler's `MountCockpitTerrainSamplerDeps.scene`
+// shape accepts a Cesium.Viewer.scene which has a `terrainProvider: Cesium.TerrainProvider`.
+// We don't need a real provider for the mock tests; we just need the shape
+// to compile.
+function fakeScene() {
+  return {
+    scene: {
+      globe: {
+        terrainProvider: {} as never,
+      },
+    },
+  };
 }
 
 describe("mountCockpitTerrainSampler (GEV P19)", () => {
@@ -51,7 +59,7 @@ describe("mountCockpitTerrainSampler (GEV P19)", () => {
   test("setAgentPose updates internal pose (sampled positions follow heading)", async () => {
     let callCount = 0;
     let capturedCartesians: Array<{ lng: number; lat: number }> = [];
-    const provider = {
+    const provider: unknown = {
       // Stub the method Cesium.sampleTerrainMostDetailed actually calls.
       ready: true,
       availability: undefined,
@@ -62,7 +70,7 @@ describe("mountCockpitTerrainSampler (GEV P19)", () => {
     // plumbing; instead, return early via a provider that lacks the
     // required surface — sample() should swallow the error and return [].
     const handle = mountCockpitTerrainSampler({
-      scene: { globe: { terrainProvider: provider } },
+      scene: { globe: { terrainProvider: provider as never } },
       agentLat: 0.5,
       agentLng: 1.0,
       agentHeadingRad: 0,
@@ -83,7 +91,11 @@ describe("mountCockpitTerrainSampler (GEV P19)", () => {
     // we can still validate the geometry math via a second route.
     void vi.fn();
     const handle = mountCockpitTerrainSampler({
-      scene: { globe: { terrainProvider: { ready: true } } },
+      scene: {
+        globe: {
+          terrainProvider: { ready: true } as unknown as never,
+        },
+      },
       agentLat: 0.5,
       agentLng: 1.0,
       agentHeadingRad: 0,
@@ -125,7 +137,11 @@ describe("mountCockpitTerrainSampler (GEV P19)", () => {
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     const handle = mountCockpitTerrainSampler({
-      scene: { globe: { terrainProvider: { ready: false } } },
+      scene: {
+        globe: {
+          terrainProvider: { ready: false } as unknown as never,
+        },
+      },
       agentLat: 0,
       agentLng: 0,
       agentHeadingRad: 0,
@@ -151,7 +167,11 @@ describe("mountCockpitTerrainSampler (GEV P19)", () => {
     // The simplest validation: there are 9 forward distances (50..450)
     // and 5 right distances (-80..80 step 40) for a 9×5 = 45 grid.
     const handle = sampler.mountCockpitTerrainSampler({
-      scene: { globe: { terrainProvider: { ready: false } } },
+      scene: {
+        globe: {
+          terrainProvider: { ready: false } as unknown as never,
+        },
+      },
       agentLat: 0.5,
       agentLng: 1.0,
       agentHeadingRad: 0,
