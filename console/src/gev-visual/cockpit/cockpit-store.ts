@@ -35,6 +35,11 @@ export interface CockpitStoreState {
   elementVisibility: ElementVisibility;
   /** GEV §6.3: replay recording/playback state. */
   replayState: ReplayState;
+  /** GEV P19 SVS: synthetic vision toggle (terrain overlay on pitch
+   *  ladder). Persists across enter/exit like visionMode (user
+   *  preference). Defaults to false so the overlay doesn't clutter
+   *  standard optical-mode flying. */
+  svsEnabled: boolean;
 }
 
 export type CockpitAction =
@@ -51,7 +56,8 @@ export type CockpitAction =
   | { type: "startPlayback"; segmentId: string; startMs: number }
   | { type: "seekPlayback"; timeMs: number }
   | { type: "stopPlayback" }
-  | { type: "setPlaybackSpeed"; speed: ReplaySpeed };
+  | { type: "setPlaybackSpeed"; speed: ReplaySpeed }
+  | { type: "setSvsEnabled"; enabled: boolean };
 
 export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   active: false,
@@ -61,6 +67,7 @@ export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   hidden: false,
   elementVisibility: { ...DEFAULT_ELEMENT_VISIBILITY },
   replayState: { ...DEFAULT_REPLAY_STATE },
+  svsEnabled: false,
 };
 
 export function cockpitReducer(
@@ -165,6 +172,8 @@ export function cockpitReducer(
           playbackSpeed: action.speed,
         },
       };
+    case "setSvsEnabled":
+      return { ...state, svsEnabled: action.enabled };
   }
 }
 
@@ -185,6 +194,8 @@ export interface CockpitStore {
   seekPlayback(timeMs: number): void;
   stopPlayback(): void;
   setPlaybackSpeed(speed: ReplaySpeed): void;
+  // GEV P19 SVS toggle.
+  setSvsEnabled(enabled: boolean): void;
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
@@ -241,6 +252,8 @@ export function createCockpitStore(
     stopPlayback: () => dispatch({ type: "stopPlayback" }),
     setPlaybackSpeed: (speed) =>
       dispatch({ type: "setPlaybackSpeed", speed }),
+    // GEV P19 SVS toggle.
+    setSvsEnabled: (enabled) => dispatch({ type: "setSvsEnabled", enabled }),
     subscribe(fn) {
       listeners.add(fn);
       return () => {
