@@ -4,7 +4,17 @@
 // Five actions (plan Task 3): enter(id) / exit() / setVisionMode(mode) /
 // pauseBriefing() / resumeBriefing(). The reducer is exported for direct
 // transition testing; createCockpitStore wraps it with subscription.
+//
+// GEV P17 extension: elementVisibility (per-element show/hide map for the
+// 8 cockpit HUD elements) + toggleElement / setElementVisibility actions.
+// Visibility persists across enter/exit like visionMode — user preference,
+// not session state.
 import type { VisionMode } from "./vision-mount";
+import type { ElementVisibility } from "./element-visibility";
+import {
+  DEFAULT_ELEMENT_VISIBILITY,
+  type CockpitElementKey,
+} from "./element-visibility";
 
 export interface CockpitStoreState {
   active: boolean;
@@ -14,6 +24,9 @@ export interface CockpitStoreState {
   /** Shift+C (T5): panels hidden so the globe is unobstructed. Reset on both
    *  enter and exit so every session starts visible. */
   hidden: boolean;
+  /** GEV P17: per-element show/hide map for the 8 cockpit HUD elements.
+   *  Persists across enter/exit like visionMode (user preference). */
+  elementVisibility: ElementVisibility;
 }
 
 export type CockpitAction =
@@ -22,7 +35,9 @@ export type CockpitAction =
   | { type: "setVisionMode"; mode: VisionMode }
   | { type: "pauseBriefing" }
   | { type: "resumeBriefing" }
-  | { type: "toggleHidden" };
+  | { type: "toggleHidden" }
+  | { type: "toggleElement"; key: CockpitElementKey }
+  | { type: "setElementVisibility"; visibility: Partial<ElementVisibility> };
 
 export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   active: false,
@@ -30,6 +45,7 @@ export const INITIAL_COCKPIT_STATE: CockpitStoreState = {
   visionMode: "optical",
   briefingPaused: false,
   hidden: false,
+  elementVisibility: { ...DEFAULT_ELEMENT_VISIBILITY },
 };
 
 export function cockpitReducer(
@@ -65,6 +81,19 @@ export function cockpitReducer(
       return { ...state, briefingPaused: false };
     case "toggleHidden":
       return { ...state, hidden: !state.hidden };
+    case "toggleElement":
+      return {
+        ...state,
+        elementVisibility: {
+          ...state.elementVisibility,
+          [action.key]: !state.elementVisibility[action.key],
+        },
+      };
+    case "setElementVisibility":
+      return {
+        ...state,
+        elementVisibility: { ...state.elementVisibility, ...action.visibility },
+      };
   }
 }
 
@@ -76,6 +105,8 @@ export interface CockpitStore {
   pauseBriefing(): void;
   resumeBriefing(): void;
   toggleHidden(): void;
+  toggleElement(key: CockpitElementKey): void;
+  setElementVisibility(visibility: Partial<ElementVisibility>): void;
   subscribe(fn: (state: CockpitStoreState) => void): () => void;
 }
 
@@ -118,6 +149,9 @@ export function createCockpitStore(
     pauseBriefing: () => dispatch({ type: "pauseBriefing" }),
     resumeBriefing: () => dispatch({ type: "resumeBriefing" }),
     toggleHidden: () => dispatch({ type: "toggleHidden" }),
+    toggleElement: (key) => dispatch({ type: "toggleElement", key }),
+    setElementVisibility: (visibility) =>
+      dispatch({ type: "setElementVisibility", visibility }),
     subscribe(fn) {
       listeners.add(fn);
       return () => {
