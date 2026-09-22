@@ -3,6 +3,11 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./index.css";
+import { initCesiumIon } from "./cesium-init";
+
+// GEV P19 SVS: set Cesium ion default access token as early as possible
+// so any subsequent ion asset request (terrain / imagery) authenticates.
+initCesiumIon();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

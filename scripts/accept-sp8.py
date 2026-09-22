@@ -958,5 +958,46 @@ check("§6.3: cockpit-store carries replayState field",
       p63_replay_state.strip() not in ("", "0"),
       f"replay_state_refs={p63_replay_state.strip()}")
 
+# ---------------------------------------------------------------------------
+# GEV P19 SVS (2026-09-23): Synthetic Vision System — Cesium-native terrain
+# sampling + 2D wireframe overlay on pitch ladder. Six checks.
+# ---------------------------------------------------------------------------
+
+# 70. T1 cesium-init.ts module exists in source.
+p19_init = vm('test -f /home/zou/IntelHub/console/src/cesium-init.ts && echo OK || echo MISSING')
+check("P19: cesium-init.ts module exists", p19_init.strip() == "OK",
+      p19_init.strip() or "cesium-init.ts missing")
+
+# 71. T4 HudCockpitSvsSwitch button testid ships in bundle.
+p19_switch = vm('grep -lF "hud-cockpit-svs-switch" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P19: hud-cockpit-svs-switch testid in bundle", bool(p19_switch),
+      p19_switch or "hud-cockpit-svs-switch not found in dist bundle")
+
+# 72. T2 mountCockpitTerrainSampler bundled (with tree-shake fallback).
+p19_sampler = vm('grep -lF "mountCockpitTerrainSampler" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+if not p19_sampler:
+    p19_sampler = vm('grep -lF "intelhub.cockpit.svsEnabled" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P19: mountCockpitTerrainSampler bundled (or storage-key fallback)",
+      bool(p19_sampler),
+      p19_sampler or "mountCockpitTerrainSampler (and storage key) not found in dist bundle")
+
+# 73. T4 HudCockpitSvsOverlay renders polylines (testid in bundle).
+p19_poly = vm('grep -cF "hud-cockpit-svs-overlay" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("P19: hud-cockpit-svs-overlay testid in bundle",
+      p19_poly.strip() not in ("", "0"),
+      f"svs_overlay_refs={p19_poly.strip()}")
+
+# 74. T3 cockpit-store carries svsEnabled field.
+p19_svs = vm('grep -cF "svsEnabled" /home/zou/IntelHub/console/src/gev-visual/cockpit/cockpit-store.ts 2>/dev/null | head -1')
+check("P19: cockpit-store carries svsEnabled field",
+      p19_svs.strip() not in ("", "0"),
+      f"svs_enabled_refs={p19_svs.strip()}")
+
+# 75. T4 HudCockpitFrame mounts terrain sampler inside state.active effect.
+p19_wire = vm('grep -cF "mountCockpitTerrainSampler" /home/zou/IntelHub/console/src/globe-hud/HudCockpitFrame.tsx 2>/dev/null | head -1')
+check("P19: HudCockpitFrame mounts terrain sampler",
+      p19_wire.strip() not in ("", "0"),
+      f"frame_wire_refs={p19_wire.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
