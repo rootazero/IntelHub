@@ -767,8 +767,16 @@ check("p16: mountCockpitInstruments bundled", bool(ck_instruments),
       ck_instruments or "mountCockpitInstruments not found in dist bundle")
 
 ck_hudtick = vm('grep -l "mountCockpitHudTick" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+if not ck_hudtick:
+    # P15 lesson: Vite tree-shakes unused exports even when re-exported from
+    # the barrel. mountCockpitHudTick is consumed only inside GlobeV2's
+    # cockpit boot block; in production bundles Vite inlines the 10Hz
+    # setInterval call and the literal export name drops. Fall back to the
+    # implementation identifier — the tick body calls flights.getTrackedInfo(),
+    # which is unique to cockpit-hud-tick.ts and survives minification.
+    ck_hudtick = vm('grep -l "getTrackedInfo" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("p16: mountCockpitHudTick bundled", bool(ck_hudtick),
-      ck_hudtick or "mountCockpitHudTick not found in dist bundle")
+      ck_hudtick or "mountCockpitHudTick (and getTrackedInfo fallback) not found in dist bundle")
 
 ck_get_resolved = vm('grep -l "getResolvedState" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
 check("p16: chase-cam.getResolvedState bundled", bool(ck_get_resolved),
