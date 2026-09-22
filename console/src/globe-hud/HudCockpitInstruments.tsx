@@ -180,6 +180,7 @@ function SpeedRuler({ frame }: { frame: CockpitInstrumentFrame | null }) {
 /** GEV P16 T5: vertical altitude ladder — slot-spaced ticks centered on slot 0. */
 function AltitudeLadder({ ticks }: { ticks: RulerTick[] }) {
   return (
+    <div className="hud-cockpit-gauge-light">
     <svg
       data-testid="altitude-ladder"
       className="hud-cockpit-altitude-ladder"
@@ -210,12 +211,14 @@ function AltitudeLadder({ ticks }: { ticks: RulerTick[] }) {
         </g>
       ))}
     </svg>
+    </div>
   );
 }
 
 /** GEV P16 T5: vertical speed tape — slot-spaced ticks, mirrored to right side. */
 function SpeedTape({ ticks }: { ticks: RulerTick[] }) {
   return (
+    <div className="hud-cockpit-gauge-light">
     <svg
       data-testid="speed-tape"
       className="hud-cockpit-speed-tape"
@@ -246,6 +249,7 @@ function SpeedTape({ ticks }: { ticks: RulerTick[] }) {
         </g>
       ))}
     </svg>
+    </div>
   );
 }
 
@@ -261,6 +265,7 @@ function PitchLadder({
   const bankDeg = (bankRad * 180) / Math.PI;
   const pitchDeg = (pitchRad * 180) / Math.PI;
   return (
+    <div className="hud-cockpit-gauge-light">
     <svg
       data-testid="pitch-ladder"
       className="hud-cockpit-pitch-ladder"
@@ -301,6 +306,7 @@ function PitchLadder({
         })}
       </g>
     </svg>
+    </div>
   );
 }
 
@@ -310,6 +316,7 @@ function BankIndicator({ bankRad }: { bankRad: number }) {
   const bankDeg = (bankRad * 180) / Math.PI;
   const markerX = 100 + bankDeg * 1.5;
   return (
+    <div className="hud-cockpit-gauge-light">
     <svg
       data-testid="bank-indicator"
       className="hud-cockpit-bank-indicator"
@@ -339,6 +346,7 @@ function BankIndicator({ bankRad }: { bankRad: number }) {
         fill="cyan"
       />
     </svg>
+    </div>
   );
 }
 
@@ -349,6 +357,7 @@ function VsiChevron({ vsiMps }: { vsiMps: number }) {
   const isUp = vsiMps > 0;
   const isDown = vsiMps < 0;
   return (
+    <div className="hud-cockpit-gauge-light">
     <svg
       data-testid="vsi-chevron"
       className="hud-cockpit-vsi-chevron"
@@ -375,6 +384,7 @@ function VsiChevron({ vsiMps }: { vsiMps: number }) {
         {vsiMps !== 0 ? ftpm.toFixed(0) : "0"}
       </text>
     </svg>
+    </div>
   );
 }
 
