@@ -388,3 +388,69 @@ implementation begins in a new worktree.
 - The other two §6.3 features (whichever wasn't picked first)
 - CSS positioning polish for SVG groups (separate spec — see
   follow-up doc)
+
+---
+
+## 10. Replay — Locked Decisions (2026-09-23)
+
+User delegated selection based on "high cohesion, low coupling"
+principle. Picked **Replay** for first §6.3 ship because:
+
+- **Highest cohesion**: single bounded context — "cockpit frame
+  lifecycle" (record → store → playback). All complexity
+  contained in one domain.
+- **Lowest coupling**: console-only, IndexedDB-native, only
+  touches the existing cockpit-store seam. No new dependencies,
+  no hub-core changes, no Cesium-specific leaking.
+- **TCAS rejected for first ship**: cross-cuts hub-core +
+  console (multi-layer coupling); broader scope dilutes
+  cohesion. Better as a focused second PR.
+- **SVS rejected for first ship**: high coupling to Cesium
+  internals (terrain provider API leaks engine-specific
+  concerns into HUD layer).
+
+### 10.1 Locked recommendations (from §5.2)
+
+- **D-REPLAY-1 → A**: just the cockpit frame (small payload,
+  coherent MVP).
+- **D-REPLAY-2 → A**: browser IndexedDB (local-only, no infra
+  change).
+- **D-REPLAY-3 → C**: user-selected segments (dashcam mental
+  model, default ~10 min, max ~2 hours).
+- **D-REPLAY-4 → A + B**: play / pause / speed + scrubber (the
+  baseline; loop + bookmarks deferred).
+- **D-REPLAY-5 → B**: popover from `◇ REPLAY` button in cockpit
+  chrome (mirrors `◇ ELEMENTS` from P17).
+
+### 10.2 Module breakdown (high cohesion, low coupling)
+
+```
+src/gev-visual/cockpit/
+├── replay-recorder.ts    # Recorder adapter (mount + IndexedDB IO + sampling)
+├── replay-player.ts      # Player adapter (mount + scrub + speed control)
+└── replay-types.ts       # ReplaySegment, ReplayFrame types (no shadow)
+
+src/gev-visual/cockpit/cockpit-store.ts
+└── EXTEND: 4 new actions (start/stop recording, start/stop
+   playback) + 2 new fields (recordingSegmentId, playbackState)
+
+src/globe-hud/
+└── HudCockpitReplay.tsx  # UI: popover with record/play/scrubber/speed
+```
+
+Boundary discipline:
+- Recorder/Player are pure adapters (mount/destroy pattern, like
+  `mountCockpitInstruments`). They never touch DOM.
+- HUD reads cockpit-store via the same seam as P17's
+  `HudCockpitElementSwitch` (subscribe + dispatch).
+- No new dependencies — IndexedDB is browser-native.
+- Tests use `fake-indexeddb` (vitest-only) so they run in jsdom.
+
+### 10.3 Effort estimate (matches §5.3)
+
+- T1: store extension (~50 LoC)
+- T2: recorder (~250 LoC + ~6 tests)
+- T3: player (~250 LoC + ~6 tests)
+- T4: HUD popover (~200 LoC + ~8 tests)
+- T5: source contracts + sp8 + frame wiring (~100 LoC + ~4 tests)
+- Total: ~850 LoC in 5 commits.
