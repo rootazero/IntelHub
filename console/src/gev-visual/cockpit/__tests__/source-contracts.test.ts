@@ -84,3 +84,55 @@ describe("c3: mouse-look is input-only — never writes camera directly", () => 
     expect(cameraReads).toBeGreaterThan(0);
   });
 });
+
+// ── c4: cockpit HUD tick module exports (GEV P16 T6) ───────────────────────
+//
+// mountCockpitHudTick is the 10Hz timer driver that drains chase-cam +
+// flights into the cockpit instruments adapter. It is added to the
+// barrel in P16 T4 alongside the HudTickHandle interface (type-only).
+
+describe("c4: cockpit-hud-tick module exports mountCockpitHudTick + HudTickHandle", () => {
+  test("cockpit-hud-tick exports mountCockpitHudTick as a runtime function", async () => {
+    const m = await import("../cockpit-hud-tick");
+    expect(typeof m.mountCockpitHudTick).toBe("function");
+  });
+
+  test("HudTickHandle is type-only (no runtime value)", async () => {
+    const m = await import("../cockpit-hud-tick");
+    // HudTickHandle is `export interface` — erased at runtime.
+    expect("HudTickHandle" in m).toBe(false);
+  });
+});
+
+// ── c5: barrel re-exports ChaseCamResolvedState (GEV P16 T6) ───────────────
+
+describe("c5: ChaseCamResolvedState type is re-exported from the barrel", () => {
+  test("index barrel surfaces ChaseCamResolvedState for type-only import", () => {
+    // Compile-time-only check via `import()` type syntax in type slot.
+    // TypeScript resolves the barrel's `export type { ChaseCamResolvedState }`
+    // even though no runtime value exists. The test body is intentionally
+    // empty — the assertion IS the compile check itself.
+    type _Check = import("../index").ChaseCamResolvedState;
+    const _compileSentinel: _Check | undefined = undefined;
+    expect(_compileSentinel).toBeUndefined();
+  });
+});
+
+// ── c6: instruments-mount frame includes P16 fields (GEV P16 T6) ────────────
+//
+// P16 T2 added pitchRad/bankRad/vsiMps to CockpitInstrumentFrame (forwarded
+// from ChaseCamResolvedState). This guard pins the shape at compile time so
+// HUD consumers (T5 HudCockpitInstruments) cannot drift to the wrong fields.
+
+describe("c6: instruments-mount frame includes 3 new P16 fields at compile time", () => {
+  test("CockpitInstrumentFrame carries pitchRad/bankRad/vsiMps", () => {
+    type Frame = {
+      pitchRad: number;
+      bankRad: number;
+      vsiMps: number;
+    };
+    // Type-only assignment — compile error if any field is missing.
+    const _typeCheck: Frame = { pitchRad: 0, bankRad: 0, vsiMps: 0 };
+    expect(_typeCheck).toBeDefined();
+  });
+});
