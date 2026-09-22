@@ -280,6 +280,57 @@ describe("HudCockpitFrame", () => {
   });
 });
 
+// ── GEV P17: element visibility switch integration ──────────────────
+
+describe("HudCockpitFrame (GEV P17 element visibility)", () => {
+  test("renders HudCockpitElementSwitch when cockpit is active", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(
+      screen.getByTestId("hud-cockpit-element-switch"),
+    ).toBeInTheDocument();
+  });
+
+  test("HudCockpitInstruments receives visibility from store (hidden elements disappear)", () => {
+    const store = createCockpitStore();
+    act(() => store.enter("abc123"));
+    act(() =>
+      store.setElementVisibility({
+        compass: false,
+        pitchLadder: false,
+        bankIndicator: false,
+        vsiChevron: false,
+        altitudeLadder: false,
+        speedTape: false,
+        altimeter: false,
+        speedRuler: false,
+      }),
+    );
+    render(
+      <HudCockpitFrame
+        store={store}
+        getTrackedInfo={() => null}
+        instruments={fakeInstruments()}
+        briefing={null}
+        vision={null}
+      />,
+    );
+    expect(screen.getByTestId("hud-cockpit-instruments")).toBeInTheDocument();
+    expect(screen.queryByTestId("hud-cockpit-compass")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pitch-ladder")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("vsi-chevron")).not.toBeInTheDocument();
+  });
+});
+
 describe("useCockpitStore", () => {
   test("tracks store transitions through a React render", () => {
     const store = createCockpitStore();
