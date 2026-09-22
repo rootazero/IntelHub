@@ -20,7 +20,10 @@ import * as Cesium from "cesium";
 export const DEFAULT_VIEW = {
   lon: -50, // center Western hemisphere
   lat: 20, // mid-latitude (above equator, sees N + S)
-  alt: 12_000_000, // 12,000 km — sees entire Americas + Pacific rim
+  // 20,000 km — Earth disc covers ~47% of viewport height (vs ~68% at 12,000 km),
+  // so the globe sits centered as a sphere rather than filling the screen, while
+  // still framing the entire Americas + Pacific rim from the Western hemisphere.
+  alt: 20_000_000,
   pitch: -90, // straight down (top-down globe view)
 } as const;
 
