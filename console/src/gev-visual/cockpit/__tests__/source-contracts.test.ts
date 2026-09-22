@@ -404,3 +404,65 @@ describe("c20: HudCockpitSvsOverlay renders inside pitch ladder banked group (GE
     expect(svsIdx).toBeLessThan(closeSvg);
   });
 });
+
+// ── c21: TCAS REST client exports (GEV P20) ───────────
+
+describe("c21: TCAS REST client exports (GEV P20)", () => {
+  test("tcas-client.ts exports mountCockpitTcas as a function", async () => {
+    const m = await import("../tcas-client");
+    expect(typeof m.mountCockpitTcas).toBe("function");
+  });
+
+  test("tcas-client.ts pins 1000 ms poll + 5 nm radius as defaults", () => {
+    const src = readCockpitSource("tcas-client.ts");
+    expect(src).toMatch(/DEFAULT_POLL_MS\s*=\s*1000/);
+    expect(src).toMatch(/DEFAULT_RADIUS_NM\s*=\s*5/);
+  });
+});
+
+// ── c22: TCAS overlay renders diamonds (GEV P20) ───────────
+
+describe("c22: HudCockpitTcasOverlay renders diamond markers (GEV P20)", () => {
+  test("HudCockpitTcasOverlay.tsx uses polygon for diamonds + agent triangle", () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "globe-hud", "HudCockpitTcasOverlay.tsx"),
+      "utf8",
+    );
+    // Diamond rendering uses 4-point polygon template.
+    expect(src).toContain("polygon");
+    expect(src).toMatch(/\${x},\${y - 4}/);
+  });
+});
+
+// ── c23: TCAS overlay threat-color helper (GEV P20) ───────────
+
+describe("c23: HudCockpitTcasOverlay threat-color helper exported (GEV P20)", () => {
+  test("threatColor + threatLabel exported", async () => {
+    const m = await import("../../../globe-hud/HudCockpitTcasOverlay");
+    expect(typeof m.threatColor).toBe("function");
+    expect(typeof m.threatLabel).toBe("function");
+  });
+});
+
+// ── c24: TCAS switch testid pins (GEV P20) ───────────
+
+describe("c24: HudCockpitTcasSwitch testid pins (GEV P20)", () => {
+  test("HudCockpitTcasSwitch.tsx renders data-testid='hud-cockpit-tcas-switch'", () => {
+    const src = readFileSync(
+      join(here, "..", "..", "..", "globe-hud", "HudCockpitTcasSwitch.tsx"),
+      "utf8",
+    );
+    expect(src).toContain('data-testid="hud-cockpit-tcas-switch"');
+    expect(src).toContain('data-testid="hud-cockpit-tcas-checkbox"');
+  });
+});
+
+// ── c25: cockpit-store carries tcasEnabled (GEV P20) ───────────
+
+describe("c25: cockpit-store carries tcasEnabled field (GEV P20)", () => {
+  test("cockpit-store.ts declares tcasEnabled: boolean", () => {
+    const src = readCockpitSource("cockpit-store.ts");
+    expect(src).toContain("tcasEnabled");
+    expect(src).toMatch(/tcasEnabled:\s*boolean/);
+  });
+});
