@@ -4,6 +4,22 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { HudCockpitInstruments } from "../HudCockpitInstruments";
 import { mountCockpitInstruments } from "../../gev-visual/cockpit/instruments-mount";
 import type { CockpitTrackedInfo } from "../../gev-visual/cockpit/instruments-mount";
+import {
+  DEFAULT_ELEMENT_VISIBILITY,
+  type ElementVisibility,
+} from "../../gev-visual/cockpit/element-visibility";
+
+const allVisible: ElementVisibility = { ...DEFAULT_ELEMENT_VISIBILITY };
+const allHidden: ElementVisibility = {
+  compass: false,
+  altimeter: false,
+  speedRuler: false,
+  altitudeLadder: false,
+  speedTape: false,
+  pitchLadder: false,
+  bankIndicator: false,
+  vsiChevron: false,
+};
 
 const tracked: CockpitTrackedInfo = {
   icao24: "abc123",
@@ -183,5 +199,87 @@ describe("HudCockpitInstruments", () => {
     render(<HudCockpitInstruments instruments={handle} />);
     expect(screen.queryByTestId("vsi-up")).not.toBeInTheDocument();
     expect(screen.queryByTestId("vsi-down")).not.toBeInTheDocument();
+  });
+});
+
+// ── GEV P17: visibility map conditional rendering ────────────────────
+
+describe("HudCockpitInstruments visibility (GEV P17)", () => {
+  test("hides pitch-ladder when visibility.pitchLadder is false", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(
+      <HudCockpitInstruments
+        instruments={handle}
+        visibility={{ ...allVisible, pitchLadder: false }}
+      />,
+    );
+    expect(screen.queryByTestId("pitch-ladder")).not.toBeInTheDocument();
+    expect(screen.getByTestId("bank-indicator")).toBeInTheDocument();
+  });
+
+  test("hides compass when visibility.compass is false", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(
+      <HudCockpitInstruments
+        instruments={handle}
+        visibility={{ ...allVisible, compass: false }}
+      />,
+    );
+    expect(screen.queryByTestId("hud-cockpit-compass")).not.toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-altimeter")).toBeInTheDocument();
+  });
+
+  test("hides altimeter + speed-ruler when both visibility flags are false", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(
+      <HudCockpitInstruments
+        instruments={handle}
+        visibility={{
+          ...allVisible,
+          altimeter: false,
+          speedRuler: false,
+        }}
+      />,
+    );
+    expect(screen.queryByTestId("hud-cockpit-altimeter")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("hud-cockpit-speed")).not.toBeInTheDocument();
+    expect(screen.getByTestId("hud-cockpit-compass")).toBeInTheDocument();
+  });
+
+  test("all-hidden still renders the wrapper element", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(
+      <HudCockpitInstruments
+        instruments={handle}
+        visibility={allHidden}
+      />,
+    );
+    expect(screen.getByTestId("hud-cockpit-instruments")).toBeInTheDocument();
+    expect(screen.queryByTestId("hud-cockpit-compass")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("altitude-ladder")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("vsi-chevron")).not.toBeInTheDocument();
+  });
+
+  test("no visibility prop defaults to all-visible (backwards compat)", () => {
+    const handle = mountCockpitInstruments({
+      viewer: fakeViewer(),
+      flights: { getTrackedInfo: () => tracked },
+    } as any);
+    render(<HudCockpitInstruments instruments={handle} />);
+    expect(screen.getByTestId("hud-cockpit-compass")).toBeInTheDocument();
+    expect(screen.getByTestId("pitch-ladder")).toBeInTheDocument();
+    expect(screen.getByTestId("vsi-chevron")).toBeInTheDocument();
   });
 });

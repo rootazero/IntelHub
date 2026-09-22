@@ -844,5 +844,47 @@ check("p13: adsbx monitor loop running (sweep journal + health cell)",
       bool(adsbx_journal) and adsbx_cell8 not in ("", "nil"),
       f"journal={bool(adsbx_journal)} cell={adsbx_cell8[:50]}")
 
+# ---------------------------------------------------------------------------
+# GEV P17 (2026-09-23): cockpit HUD element visibility — per-element show/
+# hide map persisted to localStorage. Four checks cover: toggle button
+# present in bundle, storage key literal ships, component file mounted in
+# GlobeV2 (the consumer that wires the new HUD into the cockpit overlay),
+# and the cockpit-store carries the elementVisibility field (source truth
+# for the contract).
+# ---------------------------------------------------------------------------
+
+# 58. T4 HudCockpitElementSwitch toggle button testid ships in dist. The
+#     literal is part of the button's `data-testid` and survives Vite
+#     minification (verbatim attribute).
+p17_switch_bundle = vm('grep -lF "hud-cockpit-element-switch" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p17: hud-cockpit-element-switch testid in bundle", bool(p17_switch_bundle),
+      p17_switch_bundle or "hud-cockpit-element-switch not found in dist bundle")
+
+# 59. T1 element-visibility module + storage key literal ship in bundle. The
+#     literal `intelhub.cockpit.elementVisibility` is the localStorage key
+#     pin and must survive — renaming it post-ship would invalidate every
+#     existing user's preferences silently.
+p17_storage_bundle = vm('grep -lF "intelhub.cockpit.elementVisibility" /home/zou/IntelHub/console/dist/assets/*.js 2>/dev/null | head -1')
+check("p17: ELEMENT_VISIBILITY_STORAGE_KEY literal in bundle", bool(p17_storage_bundle),
+      p17_storage_bundle or "intelhub.cockpit.elementVisibility not found in dist bundle")
+
+# 60. T6 wiring: HudCockpitElementSwitch must be mounted in
+#     HudCockpitFrame (the cockpit overlay that composes all cockpit HUD
+#     sub-components). Source-level proof so a refactor that removes the
+#     import is caught at acceptance time.
+p17_switch_mount = vm('grep -c "HudCockpitElementSwitch" /home/zou/IntelHub/console/src/globe-hud/HudCockpitFrame.tsx 2>/dev/null | head -1')
+check("p17: HudCockpitElementSwitch mounted in HudCockpitFrame",
+      p17_switch_mount.strip() not in ("", "0"),
+      f"cockpit_frame_refs={p17_switch_mount.strip()}")
+
+# 61. T2 source truth: cockpit-store carries elementVisibility in source.
+#     TypeScript would catch this at build time, but acceptance runs against
+#     the prebuilt dist — a grep-level pin protects against a sneaky refactor
+#     that drops the field from the runtime default.
+p17_store_field = vm('grep -cF "elementVisibility" /home/zou/IntelHub/console/src/gev-visual/cockpit/cockpit-store.ts 2>/dev/null | head -1')
+check("p17: cockpit-store carries elementVisibility field",
+      p17_store_field.strip() not in ("", "0"),
+      f"cockpit_store_refs={p17_store_field.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)

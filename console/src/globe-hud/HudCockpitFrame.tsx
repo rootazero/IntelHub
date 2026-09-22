@@ -37,6 +37,7 @@ import {
   type CockpitBriefingTab,
 } from "./HudCockpitBriefingPanel";
 import { HudCockpitVisionSwitch } from "./HudCockpitVisionSwitch";
+import { HudCockpitElementSwitch } from "./HudCockpitElementSwitch";
 
 /** Subscribe a component to the cockpit store (shared by GlobeV2 + the frame). */
 export function useCockpitStore(store: CockpitStore): CockpitStoreState {
@@ -182,7 +183,10 @@ export function HudCockpitFrame({
       {state.hidden ? null : (
         <>
           <HudCockpitContext getTrackedInfo={getTrackedInfo} />
-          <HudCockpitInstruments instruments={instruments} />
+          <HudCockpitInstruments
+            instruments={instruments}
+            visibility={state.elementVisibility}
+          />
           <HudCockpitBriefingPanel
             briefing={briefing}
             getTrackedInfo={getTrackedInfo}
@@ -192,6 +196,7 @@ export function HudCockpitFrame({
             tab={briefingTab}
             onTabChange={setBriefingTab}
           />
+          <HudCockpitElementSwitch store={store} />
           <HudCockpitVisionSwitch
             vision={vision}
             mode={state.visionMode}
