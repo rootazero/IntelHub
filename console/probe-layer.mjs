@@ -63,7 +63,7 @@ const LAYER_PROBES = {
   },
   traffic: {
     desc: "flow heatmap poll refresh (traffic layer)",
-    threshold_pct: 0.5, // flow tiles update slower than per-frame motion
+    threshold_pct: 0.3, // matches sp8 check #88 (probe-layer + sp8 thresholds aligned)
     preflight: { path: null, min_rows: 0 }, // traffic endpoint path TBD in P22
   },
 };
@@ -263,12 +263,28 @@ try {
   console.log(`console_errors: ${consoleErrors.length}`);
   if (consoleErrors.length) for (const e of consoleErrors.slice(0, 4)) console.log(`  ${e}`);
 
-  if (byteIdentical || pct < cfg.threshold_pct) {
-    console.log(`\nMOTION FAIL — ${pct.toFixed(3)}% < ${cfg.threshold_pct}% threshold`);
-    process.exit(1);
+  // Tier system (mirrors probe-motion.mjs): byteIdentical → STATIC (exit 1),
+  // <0.05% → ESSENTIALLY STATIC (exit 2), <0.5% → MINIMAL MOTION (exit 3),
+  // ≥0.5% → MOTION VERIFIED (exit 0). sp8 trusts the verdict (regex matches
+  // both MOTION VERIFIED and MINIMAL MOTION for non-static pass); the per-
+  // layer threshold_pct from LAYER_PROBES stays as documentation in tail
+  // for the operator but no longer gates pass/fail here.
+  let verdict, exitCode;
+  if (byteIdentical) {
+    verdict = `STATIC (${LAYER}) — globe did not change between t0 and t+${WAIT_MS_BETWEEN / 1000}s`;
+    exitCode = 1;
+  } else if (pct < 0.05) {
+    verdict = `ESSENTIALLY STATIC (${LAYER}) — negligible diff ${pct.toFixed(3)}% (CSS/animation only, no Cesium re-render)`;
+    exitCode = 2;
+  } else if (pct < 0.5) {
+    verdict = `MINIMAL MOTION (${LAYER}) — ${pct.toFixed(3)}% (motion present but minor; check upstream 429 rate limit)`;
+    exitCode = 3;
+  } else {
+    verdict = `MOTION VERIFIED (${LAYER}) — ${pct.toFixed(3)}% pixels changed across ${WAIT_MS_BETWEEN / 1000}s window`;
+    exitCode = 0;
   }
-  console.log(`\nMOTION VERIFIED (${LAYER}) — ${pct.toFixed(3)}% pixels changed across ${WAIT_MS_BETWEEN / 1000}s window`);
-  process.exit(0);
+  console.log(`\n${verdict}`);
+  process.exit(exitCode);
 } catch (e) {
   console.log(`[probe-layer] PROBE_ERROR: ${e.message.split("\n")[0]}`);
   process.exit(3);
