@@ -105,6 +105,7 @@ if (cfg.preflight?.path && API_KEY) {
         : Array.isArray(body?.vessels) ? body.vessels.length
         : Array.isArray(body?.stations) ? body.stations.length
         : Array.isArray(body?.data) ? body.data.length
+        : Array.isArray(body?.rows) ? body.rows.length  // AIS live / globe aircraft convention
         : 0;
     } else if (ct.includes("text/plain")) {
       // TLE format: 3 lines per satellite, line 2 starts with "1 ", line 3
