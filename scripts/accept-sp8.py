@@ -1156,5 +1156,102 @@ else:
         f"tail={'; '.join(tail_brief)}",
     )
 
+# 86-88. GEV P22 multi-layer motion probes: same CDP-screenshot-diff
+# mechanism as check #85 but generalized via probe-layer.mjs + LAYER_PROBES
+# table. Each layer has its own motion threshold (aircraft/satellites/vessels
+# move per-frame; traffic flow heatmap updates on poll cadence and uses a
+# slightly higher threshold to absorb per-frame noise vs feed-update
+# signal). All gated by SP8_MOTION_PROBE=1 (same opt-in as #85).
+#
+# Observed normal ranges (315 Debian-test, 2026-09-23):
+#   aircraft    1.3-1.5%
+#   satellites  ~12% (orbit propagation, ~440 markers)
+#   vessels     1.5-1.6%
+#   traffic     1.5-1.7% (TomTom/Overpass feed cadence)
+#
+# 410 production typically runs higher (full data flow, ~12% for aircraft).
+LAYER_MOTION_PROBES = [
+    # (layer_id, threshold_pct, sp8_label)
+    ("satellites", 0.3, "P22: satellites motion probe — ≥0.3% pixels change across 10s on /globe"),
+    ("vessels",    0.3, "P22: vessels motion probe — ≥0.3% pixels change across 10s on /globe"),
+    ("traffic",    0.5, "P22: traffic motion probe — ≥0.5% pixels change across 10s on /globe"),
+]
+for layer_id, threshold_pct, label in LAYER_MOTION_PROBES:
+    if not os.environ.get("SP8_MOTION_PROBE"):
+        check_shelved(
+            label,
+            f"SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + pulls chromium on first run)",
+        )
+        continue
+    probe_url = f"{BASE.rstrip('/')}/globe"
+    probe_out = vm(
+        f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-layer.sh '{layer_id}' '{probe_url}' 2>&1 | tail -25",
+        timeout=300,
+    )
+    pct_match = re.search(
+        r"pixels_with_chan_delta_gt_5:\s+\d+\s+/\s+\d+\s+\(([\d.]+)%\)",
+        probe_out,
+    )
+    verdict_match = re.search(
+        r"MOTION VERIFIED\s+\([^)]+\)\s+—\s+([\d.]+)% pixels changed across 10s window",
+        probe_out,
+    )
+    byte_match = re.search(r"byte_identical:\s+(\S+)", probe_out)
+    preflight_fail = "PREFLIGHT_FAIL" in probe_out
+    pct = float(pct_match.group(1)) if pct_match else 0.0
+    verified = bool(verdict_match)
+    byte_diff = (byte_match.group(1) == "false") if byte_match else False
+    tail_brief = probe_out.strip().splitlines()[-6:]
+    check(
+        label,
+        bool(byte_diff and verified and pct >= threshold_pct),
+        f"layer={layer_id} pct={pct:.3f}% threshold={threshold_pct}% "
+        f"verified={verified} byte_diff={byte_diff} preflight_fail={preflight_fail} "
+        f"tail={'; '.join(tail_brief)}",
+    )
+
+# 89. GEV P22 + nightly-CI: VM-native sp8-nightly.sh writes a Redis
+# heartbeat (hub:nightly:sp8:run) at 03:00 UTC. Check it from sp8: fails
+# if the last nightly run is older than 48h OR its status was "fail" OR
+# the hash is missing entirely. This makes the nightly timer self-policing
+# — if systemd stops running, sp8 catches it on the next manual run; if a
+# nightly run actually fails, sp8 flags it without waiting for the user
+# to read /var/log/intelhub/sp8-nightly-*.log. Shelved when the heartbeat
+# key is absent on a fresh hub (which is the case for VM 315 before the
+# systemd timer is installed there).
+heartbeat = redis("HGETALL", "hub:nightly:sp8:run")
+if heartbeat.strip():
+    # redis HGETALL returns key/value pairs on **separate lines**:
+    #   "ts\n2026-09-23T02:18:13Z\nhost\nIntelHub\n..."
+    # Pair them up by stepping 2 at a time.
+    lines = heartbeat.strip().splitlines()
+    hb = dict(zip(lines[0::2], lines[1::2]))
+    hb_ts = hb.get("ts", "")
+    hb_status = hb.get("status", "?")
+    hb_failed = hb.get("failed", "?")
+    age_h = None
+    try:
+        from datetime import datetime, timezone
+        ts_norm = hb_ts.replace("Z", "+00:00") if hb_ts.endswith("Z") else hb_ts
+        ts_parsed = datetime.fromisoformat(ts_norm)
+        if ts_parsed.tzinfo is None:
+            ts_parsed = ts_parsed.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age_h = round((now - ts_parsed).total_seconds() / 3600, 1)
+    except Exception:
+        pass
+    fresh = age_h is not None and age_h <= 48
+    healthy = hb_status == "ok" and hb_failed == "0"
+    check(
+        "P22: nightly sp8 heartbeat fresh + healthy (≤48h, status=ok, failed=0)",
+        bool(fresh and healthy),
+        f"ts={hb_ts!r} status={hb_status} failed={hb_failed} age_h={age_h} host={hb.get('host','?')}",
+    )
+else:
+    check_shelved(
+        "P22: nightly sp8 heartbeat fresh + healthy (≤48h, status=ok, failed=0)",
+        "hub:nightly:sp8:run hash missing — nightly timer not installed on this VM yet",
+    )
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
