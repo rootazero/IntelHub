@@ -1098,5 +1098,63 @@ else:
           bool(p21_ts_ok and p21_age_s is not None and 0 <= p21_age_s <= 600),
           f"ts={ts_raw!r} age_s={p21_age_s} status={st}")
 
+# 85. GEV P21 T1 browser-level hard-prove: a headless playwright probe loads
+# /globe, screenshots the Cesium canvas twice (t0 + t=+10s) via CDP, and
+# diffs the pixels. If aircraft are frozen (the original symptom — the
+# vendor _positionHistory ring buffer stuck at 1970 epoch), the diff is ~0;
+# if the merged /globe/aircraft envelope carries `ts` (check #84) and the
+# adapter converts it to per-record positionTimeMs, the dead-reckoning
+# interpolation moves aircraft every frame. Observed normal: 1.3-1.5%
+# pixel change across 10s on a hub with ≥100 cached aircraft.
+#
+# Gated by SP8_MOTION_PROBE=1 — the probe runs inside node:22-trixie docker
+# on the hub VM (no node/chromium on the host), takes ~50s warm / ~3min cold
+# (chromium download), and shells out. Default: shelved. Opt-in for periodic
+# deep validation against the regression.
+if not os.environ.get("SP8_MOTION_PROBE"):
+    check_shelved(
+        "P21: headless motion probe — ≥0.3% pixels change across 10s on /globe",
+        "SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + pulls chromium on first run)",
+    )
+else:
+    # Run on the hub VM (where docker + chromium are available). Auth via the
+    # same ihk_<hex> key sp8 already has; PROBE_API_KEY envs the probe through
+    # the console SPA's localStorage auth gate.
+    probe_url = f"{BASE.rstrip('/')}/globe"
+    # `vm()` doesn't cd into the repo root; use absolute path so the wrapper
+    # resolves regardless of the ssh session's cwd. timeout=300 covers the cold
+    # path (chromium ~200MB download + npm install + ~50s probe = ~3-4 min);
+    # warm path is ~50s.
+    probe_out = vm(
+        f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-motion.sh '{probe_url}' 2>&1 | tail -25",
+        timeout=300,
+    )
+    # Parse the structured tail. The wrapper prints:
+    #   byte_identical: false
+    #   viewport: 1440x900
+    #   pixels_with_chan_delta_gt_5: 17034 / 1296000 (1.314%)
+    #   ...
+    #   MOTION VERIFIED — 1.314% pixels changed across 10s window
+    pct_match = re.search(
+        r"pixels_with_chan_delta_gt_5:\s+\d+\s+/\s+\d+\s+\(([\d.]+)%\)",
+        probe_out,
+    )
+    verdict_match = re.search(
+        r"MOTION VERIFIED\s+—\s+([\d.]+)% pixels changed across 10s window",
+        probe_out,
+    )
+    byte_match = re.search(r"byte_identical:\s+(\S+)", probe_out)
+    pct = float(pct_match.group(1)) if pct_match else 0.0
+    verified = bool(verdict_match)
+    byte_diff = (byte_match.group(1) == "false") if byte_match else False
+    # Trim tail for detail (avoid 25 lines in failure summary).
+    tail_brief = probe_out.strip().splitlines()[-6:]
+    check(
+        "P21: headless motion probe — ≥0.3% pixels change across 10s on /globe",
+        bool(byte_diff and verified and pct >= 0.3),
+        f"pct={pct:.3f}% verified={verified} byte_diff={byte_diff} "
+        f"tail={'; '.join(tail_brief)}",
+    )
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
