@@ -1122,12 +1122,12 @@ else:
     # the console SPA's localStorage auth gate.
     probe_url = f"{BASE.rstrip('/')}/globe"
     # `vm()` doesn't cd into the repo root; use absolute path so the wrapper
-    # resolves regardless of the ssh session's cwd. timeout=300 covers the cold
-    # path (chromium ~200MB download + npm install + ~50s probe = ~3-4 min);
-    # warm path is ~50s.
+    # resolves regardless of the ssh session's cwd. timeout=600 covers the
+    # cold path (chromium ~200MB download + npm install + apt-get --with-deps
+    # + ~50s probe = ~5-9 min on prod — observed); warm path is ~50s.
     probe_out = vm(
         f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-motion.sh '{probe_url}' 2>&1 | tail -25",
-        timeout=300,
+        timeout=600,
     )
     # Parse the structured tail. The wrapper prints:
     #   byte_identical: false
@@ -1186,7 +1186,7 @@ for layer_id, threshold_pct, label in LAYER_MOTION_PROBES:
     probe_url = f"{BASE.rstrip('/')}/globe"
     probe_out = vm(
         f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-layer.sh '{layer_id}' '{probe_url}' 2>&1 | tail -25",
-        timeout=300,
+        timeout=600,
     )
     pct_match = re.search(
         r"pixels_with_chan_delta_gt_5:\s+\d+\s+/\s+\d+\s+\(([\d.]+)%\)",
