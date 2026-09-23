@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly IntelHub sp8 acceptance schedule
+Requires=sp8-nightly.service
+
+[Timer]
+# Run at 03:00 UTC nightly. AGENTS.md stampede cooldown note: hub-core's
+# own cctv-refresh chain runs ~every 15 min, so a 03:00 nightly trigger
+# avoids coincidence. Adjust if hub-core schedule moves.
+OnCalendar=*-*-* 03:00:00 UTC
+# Catch missed runs if the VM was off during the scheduled time.
+Persistent=true
+# Random 0-5 min offset to avoid all CI instances stampeding the hub.
+RandomizedDelaySec=300
+Unit=sp8-nightly.service
+
+[Install]
+WantedBy=timers.target

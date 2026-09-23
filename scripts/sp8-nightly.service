@@ -1,0 +1,29 @@
+[Unit]
+Description=IntelHub sp8 nightly acceptance + motion probes
+# Run after typical collector-quiet hours (UTC); avoids stampede during the
+# 03:00 cctv-refresh internal chain. Tightly bounded (5 min max) so a
+# hung probe doesn't wedge the next-night run.
+Wants=sp8-nightly.timer
+
+[Service]
+Type=oneshot
+User=zou
+WorkingDirectory=/home/zou/IntelHub
+ExecStart=/home/zou/IntelHub/scripts/sp8-nightly.sh
+# Logs go to ~/.local/share/intelhub/logs/ via XDG (see sp8-nightly.sh);
+# the systemd journal still records lifecycle events even without these
+# StandardOutput/Error lines.
+StandardOutput=append:/home/zou/.local/share/intelhub/logs/sp8-nightly.service.log
+StandardError=append:/home/zou/.local/share/intelhub/logs/sp8-nightly.service.log
+# Allow chromium download (~3 min cold) + 4 motion probes (~50s each warm)
+# + base sp8 (~5s) = ~10 min budget. 15 min for safety.
+TimeoutStartSec=900
+# Restart on transient infra failure (Redis hiccup, hub restart); do not
+# restart on real acceptance failure (the heartbeat already records that).
+Restart=on-failure
+RestartSec=300
+StartLimitBurst=2
+StartLimitIntervalSec=1800
+
+[Install]
+WantedBy=multi-user.target
