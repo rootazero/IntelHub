@@ -33,6 +33,12 @@ pub mod nager_date;
 // twilight"). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
 // integration-roadmap.md §2.1.
 pub mod sunrise_sunset;
+// Public-API integration roadmap Phase 1.7 (2026-09-27): INPE Queimadas
+// (Brazilian wildfire satellite detection — keyless, INPE public-domain
+// satellite data). Top-50 fires/day by FRP from the daily CSV. Spec:
+// docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+// §2.1.
+pub mod queimadas_inpe;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
