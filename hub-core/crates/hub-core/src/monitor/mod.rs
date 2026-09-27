@@ -425,6 +425,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
     // roadmap.md §2.1.
     out.push(Box::new(sources::hdx_humanitarian::HdxHumanitarian));
+    // Public-API integration Phase 1.5 (2026-09-27): Nager.Date public
+    // holidays (https://date.nager.at/ — keyless, 204 country coverage).
+    // 34 OSINT-relevant countries (verified Nager has data for all 34;
+    // IR/IL/IN/PK/AF/MM/SA/AE/TH/MY are NOT in Nager — out of scope
+    // here), 24h cadence, single PublicHolidays/{year}/{cc} request per
+    // country per sweep, filter to today. Severity: global+Public/Bank
+    // → routine, else info (holidays are CONTEXT signals not alerts).
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+    // roadmap.md §2.1.
+    out.push(Box::new(sources::nager_date::NagerDate));
     out
 }
 

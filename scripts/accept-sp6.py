@@ -312,6 +312,20 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:hdx_humanitarian'
 check("hdx_humanitarian events present (zero OK on quiet UN-OCHA days)",
       n.isdigit(), f"hdx_humanitarian={n}")
 
+# 4e. Public-API Phase 1.5 (2026-09-27): Nager.Date public holidays
+# (https://date.nager.at/ — keyless, 204 country coverage, 24h cadence,
+# 34-country OSINT watchlist). Emits `kind='holiday'` Signals for entries
+# whose `date` matches today; zero-row baseline is NORMAL on days when
+# no watchlist country has a holiday (e.g. weekends in many countries).
+# Acceptance is the health cell; row count is a secondary signal that
+# the per-country PublicHolidays fetch + date filter reached geo_events.
+nd_state = states.get("nager_date")
+check("nager_date collector ran (health cell present)",
+      bool(nd_state), f"state={nd_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:nager_date'")
+check("nager_date events present (zero OK on no-holiday days — see payload schema)",
+      n.isdigit(), f"nager_date={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:

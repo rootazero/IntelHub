@@ -20,6 +20,11 @@ pub mod open_aq;
 // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
 // §2.1.
 pub mod hdx_humanitarian;
+// Public-API integration roadmap Phase 1.5 (2026-09-27): Nager.Date public
+// holidays (https://date.nager.at/ — keyless, 204 country coverage). Spec:
+// docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+// §2.1.
+pub mod nager_date;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
