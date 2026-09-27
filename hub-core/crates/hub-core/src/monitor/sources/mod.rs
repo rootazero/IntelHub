@@ -39,6 +39,13 @@ pub mod sunrise_sunset;
 // docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
 // §2.1.
 pub mod queimadas_inpe;
+// Public-API integration roadmap Phase 1.8 (2026-09-27): Helium News
+// MCP (https://heliumtrades.com/mcp-page/ — keyless, no signup, 50 free
+// queries/window). Bias-balanced news synthesis from 5000+ sources per
+// query. Single 'geopolitics' query, top-10 results, severity by rank
+// (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
+// 2026-09-27-public-api-integration-roadmap.md §2.1.
+pub mod helium_news;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

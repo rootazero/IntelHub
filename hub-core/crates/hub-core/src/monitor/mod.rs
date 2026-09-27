@@ -455,6 +455,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // delayed publishing on weekends/holidays. Spec: docs/superpowers/
     // roadmaps/2026-09-27-public-api-integration-roadmap.md §2.1.
     out.push(Box::new(sources::queimadas_inpe::QueimadasInpe));
+    // Public-API integration Phase 1.8 (2026-09-27): Helium News MCP
+    // (https://heliumtrades.com/mcp_balanced_search/?q=geopolitics —
+    // keyless, no signup, 50 free queries/window). Bias-balanced news
+    // synthesis from 5000+ sources per query — much richer than a
+    // single-headline feed (each result carries summary + takeaway +
+    // context + evidence[] citations + potential_outcomes). Top-10
+    // results per day, severity by rank: 1=priority, 2-5=routine,
+    // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §2.1.
+    out.push(Box::new(sources::helium_news::HeliumNews));
     out
 }
 
