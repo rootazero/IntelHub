@@ -1,6 +1,6 @@
 # IntelHub — Agent 操作手册
 
-> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-13，main @09ece20）。
+> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-27 04:40，main @a7a2650）。
 
 ## 主机与路径
 
@@ -15,6 +15,17 @@
 | GitHub | `https://github.com/rootazero/IntelHub`（**PRIVATE**，push over HTTPS） |
 | hub 服务 | systemd 原生 `hub-core`（唯一的非 docker 例外），端口 8800 |
 | 数据层 | docker：`intelhub-postgres` / `intelhub-redis`（compose/compose.base.yml） |
+
+## ⚠️ 网络可达性（2026-09-27 校正）
+
+**老假设**（已过时）：Windows 环境 (10.10.10.5) 不能 ssh 到 Debian-test (10.10.10.35) / IntelHub (10.10.10.41)，Mac (10.10.10.4) 也到不了 VM，必须用户亲自跑部署。
+
+**新事实**（2026-09-27 验证）：Windows 环境用 ssh-key + ssh config（`Debian-test` / `IntelHub`）**可以直接**到两台 VM，**Mac 同样可以**（之前是 Mac→VM 的网络限制，与 Windows↔VM 路径无关）。Windows env / Mac 都和用户一样可以执行全流程——`worktree → rsync/scp → build → restart → sp6 → git push`。
+
+**含义**：
+- Agent 可以独立完成从代码改动到生产部署 + 验收的完整链条
+- 不需要等待用户在终端执行
+- 但 agent 必须严格遵守本文件所有铁律（生产/测试隔离、5-min cooldown、.git stale fix 等）
 
 ## 开发流程（铁律）
 
@@ -48,6 +59,37 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 ```
 
 详见：`docs/superpowers/execution/2026-09-20-deploy-stampede-postmortem.md`
+
+## ⚠️ 2026-09-27 PVE40 stampede 复发（Phase 1 部署后 50+ min 仍在 down）
+
+**时间线**（UTC）：
+- 03:48:39 — IntelHub 生产上 `sudo systemctl restart hub-core`（Phase 1 commit a7a2650，含 +8 sources）
+- 03:53:39 — sleep 300 完成，cctv-refresh 91s 完成（no stampede，stampede 修复生效）
+- 03:57:20 — ssh 第一次 timeout
+- 03:57–04:39 — 持续 ssh timeout，PVE40 10.10.10.40 端口 22/8006 都不通，10.10.10.41 (IntelHub VM) 也不通
+- 04:39+ — 仍在 down（postmortem 说 38-min host outages，但这次超出）
+
+**Debian-test**（315，pve30 上的 VM）**完全正常**——同样的代码、同样的 key、同样的 build/restart 序列，sp6 36/5/32，Phase 1 全部 PASS。所以**问题不是 hub-core 代码**，而是 PVE40 host 的网络栈被击穿。
+
+**与上次区别**：上次的 stampede 发生在 74 sources，本次是 82 sources（+8 Phase 1）。pool_max_idle_per_host(8) + scheduler stagger (idx*3)/2 + cctv Semaphore(3) 都已部署 (cd07a7b)。cctv-refresh 91s 完成证明 stampede 修复**对 cctv-refresh 这一层生效**。
+
+**未解释的部分**：
+- 为什么 5-min wait 之后 PVE40 host 仍 down？
+- 是否 Phase 1 8 个 sources 加起来仍击穿 openclash / bridge fdb？
+- 是否需要更严的 rate limit（如 per-source 最小 stagger > 3s，或基于 host 的 reqwest pool 改成 ≤4）？
+
+**恢复需要**：物理重启 PVE40（按 2026-09-20 postmortem 要求）。Agent 无法在网络隔离状态下远程执行。
+
+**后续 action items**（待用户物理恢复后）：
+1. 验证 IntelHub 恢复后 hub-core 自动续运行（systemd restart=on-failure）
+2. 验证 Phase 1 8 sources 在 IntelHub 上也 PASS sp6
+3. 如果再次出现 PVE40 down，考虑 **per-source pool_max_idle_per_host(2)** 或 **scheduler stagger 加到 (idx*5)/3**
+4. 调研 openclash 的连接追踪表上限，调整 conntrack
+
+**教训**：
+- 即使 stampede 修复已部署，Phase 1 +8 sources（keyless，每个都有自己的 first-sweep URL）可能仍足量击穿 PVE40 的 bridge fdb / openclash NAT
+- 后续每次大规模加 source（>5/批次）都应该考虑“分批 restart”（先 restart hub-core，让前 N 个 sources 首轮 sweep 完成，再 add 下一批）
+- **接受 retry-restart-on-PVE40-down 场景**，但在代码层提供 `--max-fanout` 参数，给运营留手动 ramp-up 能力
 
 ## 部署命令（每次必走的完整序列）
 
@@ -227,6 +269,7 @@ Host IntelHub-test
 - **Redis 健康格（每轮写）与 sweephist 环（只记成功轮）是两条基线**——读 delta 时必须 ring-first，别混
 - **gdelt 429** 是共享出口 IP 惩罚箱，自愈，别当 bug 修
 - 失败源**保持可见**（用户决策）：清晰错误文案 + 自动重试 + 上游批准后自愈（acled/reliefweb/bls/x 现都在此状态）
+- **sp6 secret() 必须查两个 env 文件**（2026-09-27 教训）：hub-core 的 systemd unit 使用两个 `EnvironmentFile=`（`core/secrets.env` + `core/hub.env`），systemd 按顺序 merge，后到的覆盖前到的。运行中进程能看到任一文件里的 key。sp6 的 `secret()` 原本只查 `secrets.env` → HUB_OPENAQ_API_KEY 写在 `hub.env` 时被误判为 SHELVE。修法：`secret()` 先查 `secrets.env`，空则回退 `hub.env`。任何**新增 env-gated source 都应同时检查两文件**
 - **Leaflet 视图未就绪禁动视图**（2026-09-13 教训）：任何对 `map.flyToBounds` / `setView` / `setZoom` 的 `useEffect`，首次 mount 时必须显式跳过——地图初始化的 `fitBounds` 包在 `requestAnimationFrame` 里还来不及跑，初次触发就抛 "Set map center and zoom first" → React 卸载整树 → 整页黑屏。判断方式：拿 headless Chromium 抓 pageerror 现场。修法：`const skipFirst = useRef(true)` + effect 头部 `if (skipFirst.current) { skipFirst.current = false; return; }`
 - **React render 崩会变全黑**：React 18+ 无 error boundary 时未捕获的 render 异常会卸载根 → `#root` 空、内容全黑。快速诊断：装 `playwright` + headless chromium，调本地页加载，`page.on("pageerror", e => ...)` 抓控制台错误（参考 `console/probe-monitor.mjs` 模式），比读代码快一个数量级
 - **`sources` 表存的是网站来源（origin, base_url），不是 monitor 收集器**——监控源健康在 Redis health cell（`monitor:health:<name>` HSET）。任何 `SELECT source, last_status FROM sources` 都会报错，因为列名是 `origin/base_url/source_id/reputation/first_seen`。用 redis-cli 看监控健康：`redis-cli HGETALL monitor:health:<name>`
