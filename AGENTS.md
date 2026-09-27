@@ -91,28 +91,86 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 - 后续每次大规模加 source（>5/批次）都应该考虑“分批 restart”（先 restart hub-core，让前 N 个 sources 首轮 sweep 完成，再 add 下一批）
 - **接受 retry-restart-on-PVE40-down 场景**，但在代码层提供 `--max-fanout` 参数，给运营留手动 ramp-up 能力
 
+## 🔴 部署铁律（2026-09-27 PVE40 二次崩溃后确立）
+
+### 规则 1：IntelHub（VM 410, 生产）**绝不允许测试**
+
+VM 410 是**生产服务**——任何对 hub-core 的 `restart` / `build` 操作都直接冲击生产。2026-09-27 实测：Phase 1 +8 sources 后 `restart hub-core` 击穿 PVE40 宿主机网络栈 → PVE40 物理断网 → 85+ min 才恢复。PVE40 上只有 VM 410 一个 VM，bridge fdb / openclash NAT 表被击穿后**没有 fallback**，只能等硬件/网络恢复。
+
+**铁律**：
+1. **任何**代码改动先在 **Debian-test（VM 315, pve30）** 完整测试（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）
+2. **只有全部 sp 验收通过**后才允许在 410 上跑 `update.sh`
+3. **永远不要**在 410 上跑 `bash scripts/build-hub.sh` 当成"试一下能不能编译"——这就是"在生产上测试"
+4. **永远不要**因为"小改动"跳过 Debian-test 验证直接部署到 410
+5. 误操作（410 上手动改文件后 build）的补救：备份 `core/` → 重置 `.git` → 重 fetch → 重置 → 重建
+
+### 规则 2：生产部署走 `update.sh`（在 VM 上跑），**不走** `deploy.sh`（从 Mac rsync）
+
+**禁止**从 Mac / Windows 跑 `bash scripts/deploy.sh`（即 `rsync -az --delete ./ IntelHub:/home/zou/IntelHub/`）到 410。理由：
+- `deploy.sh` 是从 Mac 的 `/Volumes/TBU/Workspace/IntelHub`（网络盘）走 LAN rsync 到 410——这条路径与 hub-core restart 时的 74+ monitor 并发出口**叠加**，曾造成 PVE40 bridge fdb 击穿
+- `deploy.sh` 推代码 → 410 build + restart 是 stampede 的同样触发场景（deploy + restart 两次叠加）
+- `update.sh` 在 410 本机跑，先 `git pull --rebase --autostash`（代码从 GitHub origin HTTPS 拉，**不走 LAN rsync**），再 build + restart——只触发**一次** stampede（restart 本身）
+
+**部署到 410 的唯一正确姿势**：
+```bash
+# 从 Mac / Windows 远端 ssh 进 410，**在 410 本机**跑 update.sh：
+ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
+  && bash scripts/update.sh 2>&1 | tail -50'
+# 然后按 stampede 规则 sleep 300：
+ssh -o BatchMode=yes IntelHub 'sleep 300 && systemctl is-active hub-core'
+# 再跑 sp 验收：
+KEY=$(ssh -o BatchMode=yes IntelHub 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
+python3 scripts/accept-sp6.py "$KEY" "http://10.10.10.41:8800" 2>&1 | grep -E "==.*(passed|failed|shelved)"
+```
+
+**`update.sh` 内部做的**（已实现，详见 `scripts/update.sh`）：
+- `git pull --rebase --autostash`（代码从 GitHub origin HTTPS 拉，**不走 LAN rsync**）
+- `bash scripts/build-hub.sh`
+- `bash scripts/build-console.sh`
+- `sudo systemctl restart hub-core`
+- 轮询 `/api/v1/health` 直到 200
+- Track B：docker 组件的 smart-diff 升级
+
+**如果 410 上 `.git` 是 stale worktree 状态**（前次部署留下的），先修复再 `update.sh`：
+```bash
+ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
+  && sudo cp -a core /tmp/intelhub-core-backup-$(date +%s) \
+  && sudo rm -rf .git && sudo chown -R zou:zou /home/zou/IntelHub \
+  && git init -b main && git remote add origin https://github.com/rootazero/IntelHub.git \
+  && git fetch origin main && git reset --hard origin/main \
+  && sudo cp -a /tmp/intelhub-core-backup-* core && sudo chown -R zou:zou core'
+```
+
+### 规则 3：Debian-test（VM 315）允许任何测试
+
+Debian-test 在 pve30 上——即使它被 stampede 击穿，影响的也只是 pve30 上的其他 VM，**不会扩散到 IntelHub / pve40**。所以：
+- 第一次 build、压力测试、调试、playground 都允许在 315
+- 同样要 sleep 300（避免在同一台 VM 上重复踩 stampede）
+- sp 全绿后才允许进 410
+
 ## 部署命令（每次必走的完整序列）
 
-### 阶段 1：IntelHub-test 验收（必做）
+### 阶段 1：Debian-test（VM 315）验收（必做）
 
 ```bash
-# 1. rsync 到测试 VM（exclude 清单固定，照搬）
+# 1. rsync 到测试 VM（exclude 清单固定，照搬） — ⚠️ **废弃，改用 update.sh**（见下方新流程）
+#    本块保留仅为迁移参考；正式部署不要跑下面这段
 cd /Volumes/TBU/Workspace/IntelHub-<suffix> && rsync -az --delete \
   --exclude '.git/' --exclude 'backups/' --exclude '.DS_Store' \
   --exclude 'compose/.env' --exclude 'compose/.env.crucix' --exclude 'docs/' --exclude 'build/' \
   --exclude 'config/searxng/' --exclude 'hub-core/target/' \
   --exclude 'console/node_modules/' --exclude 'console/dist/' \
   --exclude 'core/' --exclude 'data/' \
-  ./ IntelHub-test:/home/zou/IntelHub/
+  ./ Debian-test:/home/zou/IntelHub/
 
-# 2. 测试 VM 构建 + 重启
-ssh -o BatchMode=yes IntelHub-test 'cd /home/zou/IntelHub \
+# 2. 测试 VM 构建 + 重启 — ⚠️ **同上废弃**
+ssh -o BatchMode=yes Debian-test 'cd /home/zou/IntelHub \
   && bash scripts/build-hub.sh 2>&1 | grep -E "^error|built" | head -8 \
   && bash scripts/build-console.sh 2>&1 | tail -1 \
   && sudo systemctl restart hub-core && sleep 4 && systemctl is-active hub-core'
 
-# 3. 415 验收全绿
-KEY=$(ssh -o BatchMode=yes IntelHub-test 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
+# 3. 315 验收全绿
+KEY=$(ssh -o BatchMode=yes Debian-test 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
 for a in sp8 sp6 sp7 sp3; do
   python3 scripts/accept-$a.py "$KEY" 2>&1 | grep -E '==.*(passed|failed)' | tail -1
 done
@@ -124,9 +182,9 @@ done
 git add -A && git commit
 cd /Volumes/TBU/Workspace/IntelHub && git merge --no-ff feat/<name> && git worktree remove ../IntelHub-<suffix> && git branch -d feat/<name>
 
-# 与 415 同样的 rsync + 构建 + 重启，目标换成 IntelHub
+# ⚠️ 以下 rsync + 重启流程**废弃**。详见上方"规则 2"。仅保留为迁移参考。
 cd /Volumes/TBU/Workspace/IntelHub && rsync -az --delete \
-  --exclude '.git/' ...（同 415 exclude 清单）
+  --exclude '.git/' ...（同 315 exclude 清单）
   ./ IntelHub:/home/zou/IntelHub/
 
 ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
