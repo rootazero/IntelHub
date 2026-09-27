@@ -1,6 +1,10 @@
 //! Phase-A collectors (spec §3). One file per source; each is self-contained
 //! and unit-testable (parsers are pure functions).
 
+// Public-API integration roadmap Phase 1.1 (2026-09-27): Open-Meteo global
+// weather forecast (keyless). Spec: docs/superpowers/roadmaps/
+// 2026-09-27-public-api-integration-roadmap.md §2.1.
+pub mod open_meteo;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

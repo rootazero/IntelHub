@@ -358,6 +358,14 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // stale sweep only after a full 4/4 round; hub-restart rounds skip when
     // data is <24h old (max(fetched_at) probe). Emits no geo Signals.
     out.push(Box::new(sources::installations::Installations));
+    // Public-API integration Phase 1.1 (2026-09-27): Open-Meteo global
+    // weather forecast (https://open-meteo.com — free, keyless, non-
+    // commercial use per upstream ToS). 30 OSINT strategic cities, 30-min
+    // cadence, four extreme-weather triggers (heat ≥40°C / cold ≤-20°C →
+    // priority; precip ≥50mm / wind ≥20m/s → routine). Pure keyless — no
+    // env var required, no graceful-degrade path needed. Spec:
+    // docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+    out.push(Box::new(sources::open_meteo::OpenMeteo));
     // GEV P3 (2026-09-17): CCTV static catalog base load (T8) — vendor
     // cctv_sources.*.json → PG cctv_cameras (0021, contracts.md §3).
     // Keyless, idempotent; missing vendor dir degrades to a warn, never
