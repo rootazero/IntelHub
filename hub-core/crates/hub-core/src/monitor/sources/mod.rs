@@ -144,6 +144,7 @@ pub mod congress_invests;
 // public-api-integration-roadmap.md section 4.
 pub mod gitguardian;
 pub mod threatcluster;
+pub mod who_disease_outbreak;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

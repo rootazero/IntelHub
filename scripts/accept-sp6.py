@@ -562,6 +562,21 @@ else:
         "HUB_THREATCLUSTER_API_KEY not configured - collector shelved-by-design "
         "until signup at https://threatcluster.io (free tier, no card)",
     )
+# 6g. Public-API Phase 4.2 (2026-09-27): WHO Disease Outbreak News
+# (https://www.who.int/api/emergencies/diseaseoutbreaknews - OData
+# JSON feed, keyless, CC BY 3.0 IGO content). 24h cadence, top-20
+# filtered to past 30 days. Compounds with `threatcluster` (4.1).
+# Severity by title keyword: ebola/marburg/H5N1/pandemic/SARS/MERS/
+# plague/cholera/haemorrhagic/smallpox/mpox/nipah/crimean-congo/
+# lassa = priority; measles/polio/dengue/malaria/typhoid/tuberculosis/
+# COVID/influenza = routine; else = info. Spec: docs/superpowers/
+# roadmaps/2026-09-27-public-api-integration-roadmap.md section 5.
+who_state = states.get("who_disease_outbreak")
+check("who_disease_outbreak collector ran (health cell present, keyless)",
+      bool(who_state), f"state={who_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:who_disease_outbreak'")
+check("who_disease_outbreak events present (≤20/day from 30-day window, zero OK on quiet period)",
+      n.isdigit(), f"who_disease_outbreak={n}")
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

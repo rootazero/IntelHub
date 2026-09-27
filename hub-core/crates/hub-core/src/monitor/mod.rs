@@ -620,6 +620,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
             "threatcluster: no HUB_THREATCLUSTER_API_KEY - collector not registered; sp6 will report 'shelved-by-design' until signup at https://threatcluster.io (free tier, no card)"
         ),
     }
+    // Public-API integration Phase 4.2 (2026-09-27): WHO Disease
+    // Outbreak News (https://www.who.int/api/emergencies/
+    // diseaseoutbreaknews - OData JSON feed, keyless, CC BY 3.0 IGO
+    // content per WHO terms). 24h cadence, top-20 most recent DONs
+    // filtered to past 30 days. Compounds with `threatcluster` (4.1)
+    // by surfacing 'actor hit what disease in what region' correlated
+    // signals. Severity by title keyword: ebola/marburg/H5N1/
+    // pandemic/SARS/MERS/plague/cholera/haemorrhagic/smallpox/mpox/
+    // nipah/crimean-congo/lassa = priority; measles/polio/dengue/
+    // malaria/typhoid/tuberculosis/COVID/influenza/RSV/pertussis/
+    // leptospirosis/anthrax/rabies = routine; else = info. Spec:
+    // docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+    // roadmap.md section 5.
+    out.push(Box::new(sources::who_disease_outbreak::WhoDiseaseOutbreak));
     out
 }
 
