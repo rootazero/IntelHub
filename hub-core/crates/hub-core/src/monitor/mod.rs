@@ -598,6 +598,28 @@ pub fn registry() -> Vec<Box<dyn Source>> {
             "gitguardian: no HUB_GITGUARDIAN_API_KEY - collector not registered; sp6 will report 'shelved-by-design' until signup at https://dashboard.gitguardian.com"
         ),
     }
+    // Public-API integration Phase 4.1 (2026-09-27): ThreatCluster
+    // Public API (https://threatcluster.io/api/public/v1 - free tier
+    // 100 req/day at https://threatcluster.io, no card; HUB_THREATCLUSTER_API_KEY
+    // env-gated). Incident clustering + active-exploited CVE feed.
+    // Two sub-queries per sweep: GET /threats?time_filter=24h for
+    // recent clusters (severity-by-cluster, top 15) and
+    // GET /vulnerabilities?kev=true&exploited=true for active
+    // exploited CVEs (KEV+exploited=priority, KEV-only or
+    // exploited-only=routine, neither=info; top 25). Compounds with
+    // nvd + osv + cisakev by adding incident context (which actors
+    // hit which vendors this week) + exploit timeline (when the
+    // exploit went public). 24h cadence, free-tier headroom allows
+    // 100 req/day. Without key the collector is NOT registered; sp6
+    // reports 'shelved-by-design' until signup. Spec: docs/
+    // superpowers/roadmaps/2026-09-27-public-api-integration-
+    // roadmap.md section 5.
+    match sources::threatcluster::api_key() {
+        Some(_) => out.push(Box::new(sources::threatcluster::ThreatCluster)),
+        None => tracing::info!(
+            "threatcluster: no HUB_THREATCLUSTER_API_KEY - collector not registered; sp6 will report 'shelved-by-design' until signup at https://threatcluster.io (free tier, no card)"
+        ),
+    }
     out
 }
 
