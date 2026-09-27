@@ -399,6 +399,22 @@ pub fn registry() -> Vec<Box<dyn Source>> {
             "ais: no AISSTREAM_API_KEY — collector not registered; /api/ais-live will report status 'missing-key'"
         ),
     }
+    // Public-API integration Phase 1.3 (2026-09-27): OpenAQ global air
+    // quality (https://openaq.org/ — free tier, requires API key signup
+    // at https://explore.openaq.org/register). Env-gated, AIS pattern —
+    // without HUB_OPENAQ_API_KEY/OPENAQ_API_KEY the collector is NOT
+    // registered; the sp6 acceptance script reports the source as
+    // 'shelved-by-design' (no failure). When registered, 30 OSINT
+    // strategic cities, 30-min cadence, three-tier severity ladder
+    // (good / routine-warn / priority-hazard) on PM2.5/PM10/NO2/SO2/O3.
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+    // roadmap.md §2.1.
+    match sources::open_aq::api_key() {
+        Some(_) => out.push(Box::new(sources::open_aq::OpenAq)),
+        None => tracing::info!(
+            "open_aq: no HUB_OPENAQ_API_KEY — collector not registered; sp6 will report 'shelved-by-design' until signup at https://explore.openaq.org/register"
+        ),
+    }
     out
 }
 
