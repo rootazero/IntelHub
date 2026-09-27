@@ -114,7 +114,7 @@ impl Source for ThreatCluster {
     }
 }
 
-fn api_key() -> Option<String> {
+pub fn api_key() -> Option<String> {
     std::env::var(ENV_KEY)
         .ok()
         .filter(|s| !s.is_empty())
@@ -327,10 +327,9 @@ fn pick_bool(v: &serde_json::Value, keys: &[&str]) -> Option<bool> {
 
 fn short_hash(s: &str) -> String {
     use sha2::{Digest, Sha256};
-    let mut h = Sha256::new();
-    h.update(s.as_bytes());
-    let out = h.finalize();
-    hex::encode(&out[..8])
+    let h = Sha256::digest(s.as_bytes());
+    let hex = format!("{:x}", h);
+    hex.chars().take(16).collect()
 }
 
 #[cfg(test)]
