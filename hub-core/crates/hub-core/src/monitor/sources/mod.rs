@@ -46,6 +46,7 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.1 (2026-09-27): GreyNoise
 // Community API (https://docs.greynoise.io — keyless, free
 // unauthenticated, 50 lookups/week for free-tier with API key).
@@ -54,6 +55,15 @@ pub mod helium_news;
 // unknown=info, ordinary IP=skip. Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §3.
 pub mod greynoise;
+=======
+// Public-API integration roadmap Phase 2.3 (2026-09-27): Semantic
+// Scholar Graph API (https://api.semanticscholar.org — requires free
+// API key for sustained use, 100 req/sec with key). Academic citation
+// search; env-gated via HUB_SEMANTIC_SCHOLAR_API_KEY. Phase 2.3.x
+// will wire it into enrich.rs (roadmap §3.1). Spec: docs/superpowers/
+// roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod semantic_scholar;
+>>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
