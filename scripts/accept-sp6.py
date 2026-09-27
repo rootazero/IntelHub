@@ -577,6 +577,19 @@ check("who_disease_outbreak collector ran (health cell present, keyless)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:who_disease_outbreak'")
 check("who_disease_outbreak events present (≤20/day from 30-day window, zero OK on quiet period)",
       n.isdigit(), f"who_disease_outbreak={n}")
+# 6h. Public-API Phase 4.3 (2026-09-27): HDX HAPI national-risk +
+# humanitarian funding (https://hapi.humdata.org/ - keyless,
+# app_identifier is base64(name:email), NOT a secret per HAPI docs).
+# 24h cadence, top-15 risk + top-15 funding. Compounds with Phase 1.4
+# hdx_humanitarian CKAN. Severity: risk>=7.5=priority, >=5=routine;
+# funding_pct<30=priority, <70=routine. Spec: docs/superpowers/
+# roadmaps/2026-09-27-public-api-integration-roadmap.md section 5.
+hh_state = states.get("hdx_hapi")
+check("hdx_hapi collector ran (health cell present, keyless)",
+      bool(hh_state), f"state={hh_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:hdx_hapi'")
+check("hdx_hapi events present (≤30/day risk+funding combined, zero OK on quiet period)",
+      n.isdigit(), f"hdx_hapi={n}")
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
