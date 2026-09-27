@@ -516,6 +516,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §3.
     out.push(Box::new(sources::fofa::Fofa));
+    // Public-API integration Phase 3.2 (2026-09-27): Strait of Hormuz
+    // Ship Monitor (https://hormuz.data-tracking.net/api/crossings -
+    // keyless, CC-BY-4.0 public AIS crossing feed). First chokepoint
+    // OSINT source (roadmap 4.1 sequencing - 3.2 lands first to prove
+    // the chokepoint-alert pattern; 3.1 ArcNautical + 3.3 CompliAPI
+    // plug into the same alert-rule scaffolding when those land).
+    // 30-min cadence (matches upstream's own update cadence), <=30
+    // events/day. Severity ladder: IR-flagged Oil/Chemical Tanker with
+    // dwt>=50000 = priority; non-IR tanker dwt>=50000 = routine;
+    // bulker/tanker dwt>=25000 = routine; else info. Compounds with the
+    // existing `ais` collector (live positions) by adding "did this ship
+    // transit Hormuz" event. Spec: docs/superpowers/roadmaps/
+    // 2026-09-27-public-api-integration-roadmap.md section 4.
+    out.push(Box::new(sources::strait_of_hormuz::StraitOfHormuz));
     out
 }
 
