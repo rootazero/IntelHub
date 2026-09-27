@@ -138,7 +138,7 @@ impl Source for WhoDiseaseOutbreak {
                 .http
                 .get(BASE_URL)
                 .query(&[
-                    ("$top", &TOP_N.to_string()),
+                    ("$top", TOP_N.to_string().as_str()),
                     ("$orderby", "PublicationDate desc"),
                 ])
                 .send()
@@ -250,10 +250,12 @@ fn strip_html(s: &str) -> String {
                 in_tag = false;
                 out.push(' ');
             }
-            _ if !in_tag => out.push(c),
+            _ => {
+                if !in_tag {
+                    out.push(c);
+                }
+            }
         }
-        // inside-tag content trimmed
-        _ => {}
     }
     // Decode common entities.
     let out = out
