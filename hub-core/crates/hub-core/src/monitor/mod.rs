@@ -465,6 +465,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::helium_news::HeliumNews));
+    // Public-API integration Phase 2.4 (2026-09-27): GBIF biodiversity
+    // (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/
+    // min/IP). 12-species watchlist of CITES-trafficking-relevant
+    // vertebrates (pangolin, rhino, tiger, elephant, gorilla, etc.),
+    // 24h cadence, last 30 days eventDate filter, ≤30 events/day.
+    // Severity by base species risk: pangolins/rhinos/tigers=priority,
+    // elephants/gorillas/orangutans/sea turtles=routine, others=info.
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::gbif::Gbif));
     out
 }
 

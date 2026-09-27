@@ -380,6 +380,19 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
+# 5d. Public-API Phase 2.4 (2026-09-27): GBIF biodiversity
+# (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/min/IP).
+# 12-species watchlist of CITES-trafficking-relevant vertebrates.
+# Standalone dimension (ecological/animal-disease); doesn't compound
+# with Phase 1 sources. Expected ≤30 events/day; zero OK on weekends
+# or quiet biodiversity-data windows.
+gb_state = states.get("gbif")
+check("gbif collector ran (health cell present)",
+      bool(gb_state), f"state={gb_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:gbif'")
+check("gbif events present (≤30/day from 12-species watchlist — zero OK on quiet days)",
+      n.isdigit(), f"gbif={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:

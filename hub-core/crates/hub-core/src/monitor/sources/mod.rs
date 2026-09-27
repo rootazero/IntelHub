@@ -46,6 +46,13 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+// Public-API integration roadmap Phase 2.4 (2026-09-27): GBIF — Global
+// Biodiversity Information Facility (https://api.gbif.org — keyless,
+// public, 60 req/min/IP). Standalone dimension (ecological/animal-
+// disease); doesn't compound with Phase 1 sources. Watchlist of
+// CITES-trafficking-relevant species. Spec: docs/superpowers/
+// roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod gbif;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
