@@ -46,6 +46,12 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+// Public-API integration roadmap Phase 2.2 (2026-09-27): Currents API
+// (https://currentsapi.services — free 250 req/day with API key).
+// Multi-language news; env-gated via HUB_CURRENTS_API_KEY. Phase 2.2.x
+// will wire it as GDELT 429 fallback (roadmap §3.1). Spec: docs/
+// superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod currents;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

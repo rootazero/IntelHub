@@ -380,6 +380,27 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
+# 5b. Public-API Phase 2.2 (2026-09-27): Currents API
+# (https://api.currentsapi.services/v1/latest-news — env-gated via
+# HUB_CURRENTS_API_KEY, free 250 req/day after signup). Multi-language
+# news aggregator; severity by category (politics/crime=priority,
+# economy/science/environment=routine, sport/lifestyle=info). Future
+# Phase 2.2.x wires it as GDELT 429 fallback (roadmap §3.1).
+# Without key → shelved-by-design; with key → ≤10 events/day.
+cu_state = states.get("currents")
+if secret("HUB_CURRENTS_API_KEY"):
+    check("currents collector ran (health cell present, key configured)",
+          bool(cu_state), f"state={cu_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:currents'")
+    check("currents events present (≤10/day — zero OK on degraded upstream)",
+          n.isdigit(), f"currents={n}")
+else:
+    check_shelved(
+        "currents events present (key configured)",
+        "HUB_CURRENTS_API_KEY not configured — collector shelved-by-design "
+        "until signup at https://currentsapi.services/en/register",
+    )
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:

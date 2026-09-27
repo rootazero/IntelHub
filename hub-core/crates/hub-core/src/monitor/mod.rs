@@ -465,6 +465,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::helium_news::HeliumNews));
+    // Public-API integration Phase 2.2 (2026-09-27): Currents API
+    // (https://api.currentsapi.services/v1/latest-news — env-gated via
+    // HUB_CURRENTS_API_KEY, free 250 req/day after signup at
+    // https://currentsapi.services/en/register). Multi-language news
+    // aggregator; severity by category (politics/crime=priority,
+    // economy/science/environment=routine, sport/lifestyle=info).
+    // Roadmap §3.1 calls for wiring as GDELT 429 fallback in 2.2.x —
+    // Phase 2.2 v1 emits as a normal monitor. Spec: docs/superpowers/
+    // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+    out.push(Box::new(sources::currents::Currents));
     out
 }
 
