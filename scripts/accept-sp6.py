@@ -441,6 +441,7 @@ else:
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 >>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 =======
+<<<<<<< HEAD
 # 5d. Public-API Phase 2.4 (2026-09-27): GBIF biodiversity
 # (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/min/IP).
 # 12-species watchlist of CITES-trafficking-relevant vertebrates.
@@ -456,6 +457,28 @@ check("gbif events present (≤30/day from 12-species watchlist — zero OK on q
 >>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 >>>>>>> 5a90364 (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 >>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+=======
+# 5e. Public-API Phase 2.5 (2026-09-27): FOFA Chinese cyberspace
+# asset mapping (https://fofa.info/api/v1/search/all — env-gated via
+# HUB_FOFA_EMAIL + HUB_FOFA_KEY). Curated CN-government query, ≤10
+# events/day. China-network routing verified post-deploy (roadmap §3.1).
+ff_state = states.get("fofa")
+if secret("HUB_FOFA_EMAIL") and secret("HUB_FOFA_KEY"):
+    check("fofa collector ran (health cell present, key configured)",
+          bool(ff_state), f"state={ff_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:fofa'")
+    check("fofa events present (≤10/day — zero OK on degraded upstream)",
+          n.isdigit(), f"fofa={n}")
+else:
+    check_shelved(
+        "fofa events present (key configured)",
+        "HUB_FOFA_EMAIL or HUB_FOFA_KEY not configured — collector shelved-by-design "
+        "until signup at https://en.fofa.info",
+    )
+>>>>>>> d560921 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> 0255fa2 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> cec5152 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> 74e7ee4 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

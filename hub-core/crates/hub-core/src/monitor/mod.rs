@@ -506,6 +506,7 @@ pub fn registry() -> Vec<Box<dyn Source>> {
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 >>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 =======
+<<<<<<< HEAD
     // Public-API integration Phase 2.4 (2026-09-27): GBIF biodiversity
     // (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/
     // min/IP). 12-species watchlist of CITES-trafficking-relevant
@@ -519,6 +520,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
 >>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 >>>>>>> 5a90364 (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 >>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+=======
+    // Public-API integration Phase 2.5 (2026-09-27): FOFA Chinese asset
+    // search (https://fofa.info/api/v1/search/all — env-gated via
+    // HUB_FOFA_EMAIL + HUB_FOFA_KEY, signup at https://en.fofa.info).
+    // 24h cadence, single curated query (HTTP + CN + government title),
+    // ≤10 matches/day, severity=priority (filter targets sensitive
+    // assets). China-network routing verified post-deploy (roadmap §3.1).
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::fofa::Fofa));
+>>>>>>> d560921 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> 0255fa2 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> cec5152 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> 74e7ee4 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
     out
 }
 
