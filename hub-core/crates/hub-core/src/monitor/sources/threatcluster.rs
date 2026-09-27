@@ -101,7 +101,16 @@ impl Source for ThreatCluster {
             // 1) Recent threat clusters
             match fetch_threats(ctx, &api_key).await {
                 Ok(v) => all.extend(v),
-                Err(e) => tracing::warn!(error = %e, "threatcluster threats fetch failed"),
+                Err(e) => {
+                    tracing::warn!(error = %e, "threatcluster threats fetch failed");
+                    // Surface the failure to the scheduler so the
+                    // exponential-backoff path kicks in (rather than the
+                    // 24h success-wait). Without this, intermittent
+                    // reqwest connection blips cause the source to be
+                    // silent for 24h on first miss — 2026-09-27 root
+                    // cause: openclash fake-IP returns ~10% 000s.
+                    return Err(e);
+                }
             }
             // 2) Active exploited CVEs
             match fetch_vulnerabilities(ctx, &api_key).await {
