@@ -419,6 +419,7 @@ else:
     )
 >>>>>>> 31b62bc (feat(monitor): currents Phase 2.2 — multi-language news (env-gated))
 =======
+<<<<<<< HEAD
 # 5c. Public-API Phase 2.3 (2026-09-27): Semantic Scholar Graph API
 # (https://api.semanticscholar.org/graph/v1/paper/search — env-gated
 # via HUB_SEMANTIC_SCHOLAR_API_KEY). Academic citation search; severity
@@ -439,6 +440,22 @@ else:
     )
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 >>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
+=======
+# 5d. Public-API Phase 2.4 (2026-09-27): GBIF biodiversity
+# (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/min/IP).
+# 12-species watchlist of CITES-trafficking-relevant vertebrates.
+# Standalone dimension (ecological/animal-disease); doesn't compound
+# with Phase 1 sources. Expected ≤30 events/day; zero OK on weekends
+# or quiet biodiversity-data windows.
+gb_state = states.get("gbif")
+check("gbif collector ran (health cell present)",
+      bool(gb_state), f"state={gb_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:gbif'")
+check("gbif events present (≤30/day from 12-species watchlist — zero OK on quiet days)",
+      n.isdigit(), f"gbif={n}")
+>>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+>>>>>>> 5a90364 (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+>>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

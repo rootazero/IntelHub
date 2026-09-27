@@ -56,6 +56,7 @@ pub mod helium_news;
 // 2026-09-27-public-api-integration-roadmap.md §3.
 pub mod greynoise;
 =======
+<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.3 (2026-09-27): Semantic
 // Scholar Graph API (https://api.semanticscholar.org — requires free
 // API key for sustained use, 100 req/sec with key). Academic citation
@@ -64,6 +65,16 @@ pub mod greynoise;
 // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
 pub mod semantic_scholar;
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
+=======
+// Public-API integration roadmap Phase 2.4 (2026-09-27): GBIF — Global
+// Biodiversity Information Facility (https://api.gbif.org — keyless,
+// public, 60 req/min/IP). Standalone dimension (ecological/animal-
+// disease); doesn't compound with Phase 1 sources. Watchlist of
+// CITES-trafficking-relevant species. Spec: docs/superpowers/
+// roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod gbif;
+>>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+>>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

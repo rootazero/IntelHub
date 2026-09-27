@@ -491,6 +491,7 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     out.push(Box::new(sources::currents::Currents));
 >>>>>>> 31b62bc (feat(monitor): currents Phase 2.2 — multi-language news (env-gated))
 =======
+<<<<<<< HEAD
     // Public-API integration Phase 2.3 (2026-09-27): Semantic Scholar
     // Graph API (https://api.semanticscholar.org/graph/v1/paper/search
     // — env-gated via HUB_SEMANTIC_SCHOLAR_API_KEY, free key from
@@ -504,6 +505,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     out.push(Box::new(sources::semantic_scholar::SemanticScholar));
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 >>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
+=======
+    // Public-API integration Phase 2.4 (2026-09-27): GBIF biodiversity
+    // (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/
+    // min/IP). 12-species watchlist of CITES-trafficking-relevant
+    // vertebrates (pangolin, rhino, tiger, elephant, gorilla, etc.),
+    // 24h cadence, last 30 days eventDate filter, ≤30 events/day.
+    // Severity by base species risk: pangolins/rhinos/tigers=priority,
+    // elephants/gorillas/orangutans/sea turtles=routine, others=info.
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::gbif::Gbif));
+>>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+>>>>>>> 5a90364 (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+>>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
     out
 }
 
