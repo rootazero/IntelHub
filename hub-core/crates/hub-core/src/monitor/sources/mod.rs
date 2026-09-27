@@ -15,6 +15,11 @@ pub mod usgs_water;
 // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
 // §2.1.
 pub mod open_aq;
+// Public-API integration roadmap Phase 1.4 (2026-09-27): HDX Humanitarian
+// Data Exchange (https://data.humdata.org/ — UN OCHA, keyless CKAN API).
+// Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+// §2.1.
+pub mod hdx_humanitarian;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
