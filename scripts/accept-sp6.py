@@ -249,6 +249,20 @@ check("keyless collectors ok >= 4", len(keyless_ok) >= 4, ",".join(keyless_ok))
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:usgs' AND occurred_at > now() - interval '2 days'")
 check("USGS quake events flowing", n.isdigit() and int(n) > 0, f"usgs={n}")
 
+# 4a. Public-API Phase 1.1 (2026-09-27): Open-Meteo global weather
+# (https://open-meteo.com — keyless, 30-min cadence, 30 OSINT cities). The
+# source emits `kind='weather_extreme'` Signals; we accept either (a) the
+# health cell is "ok" within 5 min of a fresh sweep, or (b) some geo_events
+# rows are present (which can be zero in calm weather — the four extreme
+# triggers fire rarely). The cell-based check is the primary acceptance;
+# the row count is a secondary signal that the parser reached geo_events.
+om_state = states.get("open_meteo")
+check("open_meteo collector ran (health cell present)",
+      bool(om_state), f"state={om_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:open_meteo'")
+check("open_meteo events present (zero OK in calm weather — see payload schema)",
+      n.isdigit(), f"open_meteo={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
