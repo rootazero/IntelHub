@@ -380,6 +380,21 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
+# 5a. Public-API Phase 2.1 (2026-09-27): GreyNoise Community API
+# (https://api.greynoise.io/v3/community/{ip} — keyless, free
+# unauthenticated, ~50/week with API key). 25-IP curated watchlist,
+# 24h cadence, severity by classification (malicious=priority,
+# benign=routine, unknown=info, ordinary=skip). Expected daily count
+# is small (~5-10 of the watchlist are still active scanners) but
+# variable — zero OK if all watched IPs have gone dormant or rate-
+# limited us.
+gn_state = states.get("greynoise")
+check("greynoise collector ran (health cell present)",
+      bool(gn_state), f"state={gn_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:greynoise'")
+check("greynoise events present (≤25/day from 25-IP watchlist — zero OK on rate-limit or all-quiet)",
+      n.isdigit(), f"greynoise={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:

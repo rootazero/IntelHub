@@ -465,6 +465,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::helium_news::HeliumNews));
+    // Public-API integration Phase 2.1 (2026-09-27): GreyNoise Community
+    // (https://api.greynoise.io/v3/community/{ip} — keyless, free
+    // unauthenticated, ~50/week with API key). IP-context classification:
+    // malicious=priority scanner, benign=RIOT routine (false-positive
+    // filter), unknown=info scanner, ordinary=skip. 25-IP curated
+    // watchlist (TOR exits, IoT botnet C2s, well-known scanner
+    // networks), 1 lookup/day per IP, 24h cadence. Compounds with
+    // shodan_internetdb + romainmarcoux_malicious_ip by adding the
+    // "is this a scanner" classification. Spec: docs/superpowers/
+    // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+    out.push(Box::new(sources::greynoise::GreyNoise));
     out
 }
 
