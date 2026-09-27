@@ -54,6 +54,12 @@ pub mod helium_news;
 // unknown=info, ordinary IP=skip. Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §3.
 pub mod greynoise;
+// Public-API integration roadmap Phase 2.2 (2026-09-27): Currents API
+// (https://currentsapi.services — free 250 req/day with API key).
+// Multi-language news; env-gated via HUB_CURRENTS_API_KEY. Phase 2.2.x
+// will wire it as GDELT 429 fallback (roadmap §3.1). Spec: docs/
+// superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod currents;
 // Public-API integration roadmap Phase 2.3 (2026-09-27): Semantic
 // Scholar Graph API (https://api.semanticscholar.org — requires free
 // API key for sustained use, 100 req/sec with key). Academic citation
