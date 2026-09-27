@@ -33,12 +33,12 @@
 
 1. **worktree 隔离**：`cd /Volumes/TBU/Workspace/IntelHub && git worktree add ../IntelHub-<suffix> -b feat/<name>`（网络盘有同步延迟，紧接着操作前 `sleep 4`；失败的 worktree → `rm -rf ../IntelHub-<suffix> && git branch -D feat/<name> && git worktree prune`）
 2. 在 worktree 里改代码
-3. **rsync → 测试 VM 构建 → 重启 → 验收**（命令见下）—— **全在 IntelHub-test 上**
-4. 415 验收全绿 → `git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d`
-5. **再次 rsync → IntelHub 生产部署**（与 415 同样的编译/重启序列）
+3. **代码改动完成后，在 Debian-test（315）上完整验收**（命令见下）—— **全在 Debian-test 上**
+4. 315 验收全绿 → `git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d`
+5. **再次部署 IntelHub 生产**（远端 ssh 进 410，**在 410 本机跑 `update.sh`**，与 315 同样的编译/重启序列；详见下方"🔴 部署铁律"规则 2）
 6. 生产验收（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）
 7. **`git push origin main`**
-8. **绝不**：① 直接在 main 工作区改；② 跳过 415 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
+8. **绝不**：① 直接在 main 工作区改；② 跳过 315 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
 
 ## 🔴 重启 hub-core 后必须等 5 分钟（2026-09-20 PVE40 崩溃教训）
 
@@ -176,7 +176,7 @@ for a in sp8 sp6 sp7 sp3; do
 done
 ```
 
-### 阶段 2：合并 main → 部署 IntelHub（仅 415 全绿后）
+### 阶段 2：合并 main → 部署 IntelHub（仅 315 全绿后）
 
 ```bash
 git add -A && git commit
