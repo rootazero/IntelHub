@@ -491,6 +491,45 @@ check("arcnautical collector ran (health cell present)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:arcnautical'")
 check("arcnautical events present (≤25/day from IMO watchlist — zero OK if all GREEN)",
       n.isdigit(), f"arcnautical={n}")
+# 6c. Public-API Phase 3.3 (2026-09-27): CompliAPI / Vett multi-source
+# sanctions screening (https://docs.compliapi.com - paid tier;
+# HUB_COMPLIAPI_API_KEY env-gated). 24h cadence, 25-name curated
+# watchlist. Compounds with `ofac` + `opensanctions` by adding
+# multi-source cross-validation. Severity: match+conf>=0.85=priority,
+# review=routine, clear=info.
+if secret("HUB_COMPLIAPI_API_KEY"):
+    cp_state = states.get("compliapi")
+    check("compliapi collector ran (health cell present, key configured)",
+          bool(cp_state), f"state={cp_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:compliapi'")
+    check("compliapi events present (≤25/day — zero OK if all clear)",
+          n.isdigit(), f"compliapi={n}")
+else:
+    check_shelved(
+        "compliapi events present (key configured)",
+        "HUB_COMPLIAPI_API_KEY not configured - collector shelved-by-design "
+        "until signup at https://docs.compliapi.com",
+    )
+# 6d. Public-API Phase 3.5 (2026-09-27): CongressInvests US
+# politician trades (https://congressinvests.com - paid tier;
+# HUB_CONGRESSINVESTS_API_KEY env-gated). 24h cadence, ~50 trades/day
+# typical disclosure volume. Compounds with `sec_edgar` + `treasury`
+# by adding 'are US politicians trading on this?' dimension. Severity:
+# senior/committee-chair=priority, committee member $250k+=routine,
+# rank-and-file=info.
+if secret("HUB_CONGRESSINVESTS_API_KEY"):
+    ci_state = states.get("congress_invests")
+    check("congress_invests collector ran (health cell present, key configured)",
+          bool(ci_state), f"state={ci_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:congress_invests'")
+    check("congress_invests events present (≤50/day from disclosure feed)",
+          n.isdigit(), f"congress_invests={n}")
+else:
+    check_shelved(
+        "congress_invests events present (key configured)",
+        "HUB_CONGRESSINVESTS_API_KEY not configured - collector shelved-by-design "
+        "until signup at https://congressinvests.com",
+    )
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
