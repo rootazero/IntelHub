@@ -547,6 +547,25 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // opts in. Spec: docs/superpowers/roadmaps/
     // 2026-09-27-public-api-integration-roadmap.md section 4.
     out.push(Box::new(sources::arcnautical::ArcNautical));
+    // Public-API integration Phase 3.3 (2026-09-27): CompliAPI / Vett
+    // multi-source sanctions screening (https://docs.compliapi.com -
+    // paid tier; HUB_COMPLIAPI_API_KEY env-gated). Compounds with the
+    // existing `ofac` + `opensanctions` collectors by adding
+    // multi-source cross-validation (OFAC SDN + EU FSD + UN
+    // Consolidated + UK OFSI + PEP). 24h cadence, 25-name curated
+    // watchlist (Russian oligarchs + Iranian state actors + Syrian
+    // regime + Venezuelan + North Korean + generic PEP placeholders).
+    // Severity: match+conf>=0.85=priority, review=routine, match
+    // low-confidence=routine, clear=info. Without key the collector
+    // is NOT registered; sp6 reports 'shelved-by-design' until signup
+    // at https://docs.compliapi.com. Spec: docs/superpowers/
+    // roadmaps/2026-09-27-public-api-integration-roadmap.md section 4.
+    match sources::compliapi::api_key() {
+        Some(_) => out.push(Box::new(sources::compliapi::CompliApi)),
+        None => tracing::info!(
+            "compliapi: no HUB_COMPLIAPI_API_KEY - collector not registered; sp6 will report 'shelved-by-design' until signup at https://docs.compliapi.com"
+        ),
+    }
     out
 }
 
