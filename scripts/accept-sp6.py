@@ -590,6 +590,21 @@ check("hdx_hapi collector ran (health cell present, keyless)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:hdx_hapi'")
 check("hdx_hapi events present (≤30/day risk+funding combined, zero OK on quiet period)",
       n.isdigit(), f"hdx_hapi={n}")
+# 6i. Public-API Phase 4.4 (2026-09-27): Festival Public Holidays
+# (https://caldays.com/api/holidays - keyless, CC BY 4.0). 24h
+# cadence, 30-country watchlist + 2 years. Strict upgrade of
+# Phase 1.5 nager_date (caldays has more holidays/country/year
+# including lesser-known observances). Severity by date proximity
+# + country significance: priority = imminent (<=7d) AND significant
+# country (US/CN/RU/IN/BR/DE/GB/FR/JP/TR/IR/UA/SA/IL/PK); routine =
+# <=30d; info = past or >30d. Spec: docs/superpowers/roadmaps/
+# 2026-09-27-public-api-integration-roadmap.md section 5.
+fh_state = states.get("festival_holidays")
+check("festival_holidays collector ran (health cell present, keyless)",
+      bool(fh_state), f"state={fh_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:festival_holidays'")
+check("festival_holidays events present (≤100/day from 30 countries x 2 years, zero OK if no imminent holidays)",
+      n.isdigit(), f"festival_holidays={n}")
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

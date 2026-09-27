@@ -647,6 +647,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md section 5.
     out.push(Box::new(sources::hdx_hapi::HdxHapi));
+    // Public-API integration Phase 4.4 (2026-09-27): Festival Public
+    // Holidays (https://caldays.com/api/holidays - keyless, CC BY
+    // 4.0, CORS-open CDN-cached). 24h cadence, 30-country watchlist
+    // (current year + next year = 60 req/day). Compounds with
+    // Phase 1.5 nager_date (Nager has 14 holidays/IN/year, caldays
+    // has 23+, including lesser-known observances like Robert E.
+    // Lee Day, Hindu festivals). Severity by date proximity +
+    // country significance: priority = imminent (<=7d) AND country
+    // in significant subset (US/CN/RU/IN/BR/DE/GB/FR/JP/TR/IR/UA/
+    // SA/IL/PK); routine = <=30d OR imminent + non-significant
+    // country; info = past or >30d. Spec: docs/superpowers/
+    // roadmaps/2026-09-27-public-api-integration-roadmap.md
+    // section 5.
+    out.push(Box::new(sources::festival_holidays::FestivalHolidays));
     out
 }
 
