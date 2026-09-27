@@ -356,6 +356,19 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:queimadas_inpe'")
 check("queimadas_inpe events present (top-50 by FRP per day — zero OK on degraded upstream)",
       n.isdigit(), f"queimadas_inpe={n}")
 
+# 4h. Public-API Phase 1.8 (2026-09-27): Helium News MCP
+# (https://heliumtrades.com/mcp_balanced_search/?q=geopolitics — keyless,
+# no signup, 50 free queries/window). Bias-balanced news synthesis from
+# 5000+ sources per query. Top-10 results per day, severity by rank.
+# Acceptance is the health cell; row count is a secondary signal that
+# the query reached geo_events.
+hn_state = states.get("helium_news")
+check("helium_news collector ran (health cell present)",
+      bool(hn_state), f"state={hn_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
+check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
+      n.isdigit(), f"helium_news={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
