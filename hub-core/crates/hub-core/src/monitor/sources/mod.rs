@@ -146,6 +146,7 @@ pub mod gitguardian;
 pub mod threatcluster;
 pub mod who_disease_outbreak;
 pub mod hdx_hapi;
+pub mod festival_holidays;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
