@@ -366,6 +366,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // env var required, no graceful-degrade path needed. Spec:
     // docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
     out.push(Box::new(sources::open_meteo::OpenMeteo));
+    // Public-API integration Phase 1.2 (2026-09-27): USGS Water Services
+    // IV (https://waterservices.usgs.gov/nwis/iv/ — US public domain,
+    // keyless). 25 strategic US stream gauges (Mississippi / Missouri /
+    // Ohio / Tennessee / Potomac / Susquehanna / Sacramento / Columbia /
+    // etc.), single HTTP call returns all sites, 60-min cadence. Severity
+    // ladder matches NWS flood-stage conventions (action → routine;
+    // minor / moderate / major → priority), most-severe crossing wins
+    // (one Signal per gauge per sweep — no flood-noise dupes). Pure
+    // keyless — no env var required. Spec: docs/superpowers/roadmaps/
+    // 2026-09-27-public-api-integration-roadmap.md §2.1.
+    out.push(Box::new(sources::usgs_water::UsgsWater));
     // GEV P3 (2026-09-17): CCTV static catalog base load (T8) — vendor
     // cctv_sources.*.json → PG cctv_cameras (0021, contracts.md §3).
     // Keyless, idempotent; missing vendor dir degrades to a warn, never

@@ -5,6 +5,11 @@
 // weather forecast (keyless). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod open_meteo;
+// Public-API integration roadmap Phase 1.2 (2026-09-27): USGS Water Services
+// real-time stream-gauge instantaneous values (keyless, US public domain).
+// Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+// §2.1.
+pub mod usgs_water;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
