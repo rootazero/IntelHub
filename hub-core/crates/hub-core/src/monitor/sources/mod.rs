@@ -118,18 +118,31 @@ pub mod arcnautical;
 // roadmap.md section 4.
 pub mod compliapi;
 // Public-API integration roadmap Phase 3.5 (2026-09-27): CongressInvests
-// US politician trades disclosure feed (https://congressinvests.com -
-// paid tier; HUB_CONGRESSINVESTS_API_KEY env-gated). Compounds with
-// the existing `sec_edgar` + `treasury` financial-plane collectors by
+// US politician trades disclosure feed (https://congressinvests.com/
+// trades - keyless public endpoint, no signup per user confirmation
+// 2026-09-27 'congress_invests 免费无需注册'). Compounds with the
+// existing `sec_edgar` + `treasury` financial-plane collectors by
 // adding the 'are US politicians trading on this?' dimension. 24h
 // cadence, ~50 trades/day typical disclosure volume. Severity:
-// Speaker/Committee Chair etc = priority (politically significant
-// conflicts of interest), committee member with $250k+ trade = routine,
-// rank-and-file = info. Without key the collector is NOT registered;
-// sp6 reports 'shelved-by-design' until signup at https://congressinvests.com.
-// Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
-// roadmap.md section 4.
+// Senate = routine (politically significant), House + $250k+ = routine,
+// House small = info. The public endpoint doesn't expose committee_role
+// (premium-only); a future 3.5.x with paid tier could refine the
+// priority signal. Spec: docs/superpowers/roadmaps/2026-09-27-public-
+// api-integration-roadmap.md section 4.
 pub mod congress_invests;
+// Public-API integration roadmap Phase 3.4 (2026-09-27): GitGuardian
+// Public API (https://api.gitguardian.com/v1/incidents/secrets - paid
+// tier; HUB_GITGUARDIAN_API_KEY env-gated). Leaked-secret incident
+// feed: emits a Signal per TRIGGERED incident with detector + count
+// metadata (the leaked secret payload itself is NOT surfaced by v1
+// - a future 3.4.x with paid tier could enrich with payload hashes
+// for entity-graph integration). 24h cadence, <=50 incidents/day
+// cap. Severity: TRIGGERED+occurrences>=5=priority, TRIGGERED=routine,
+// IGNORED=info. Without key the collector is NOT registered; sp6
+// reports 'shelved-by-design' until signup at https://dashboard.
+// gitguardian.com. Spec: docs/superpowers/roadmaps/2026-09-27-
+// public-api-integration-roadmap.md section 4.
+pub mod gitguardian;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
