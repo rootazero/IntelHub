@@ -46,6 +46,14 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+// Public-API integration roadmap Phase 2.1 (2026-09-27): GreyNoise
+// Community API (https://docs.greynoise.io — keyless, free
+// unauthenticated, 50 lookups/week for free-tier with API key).
+// Scanner/IoT/botnet classification for a curated 25-IP watchlist.
+// Severity by classification: malicious=priority, benign=routine,
+// unknown=info, ordinary IP=skip. Spec: docs/superpowers/roadmaps/
+// 2026-09-27-public-api-integration-roadmap.md §3.
+pub mod greynoise;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
