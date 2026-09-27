@@ -143,6 +143,7 @@ pub mod congress_invests;
 // gitguardian.com. Spec: docs/superpowers/roadmaps/2026-09-27-
 // public-api-integration-roadmap.md section 4.
 pub mod gitguardian;
+pub mod threatcluster;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
