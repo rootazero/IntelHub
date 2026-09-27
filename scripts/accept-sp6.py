@@ -46,8 +46,19 @@ def check_shelved(name, reason):
 
 
 def secret(name):
-    """Read a single env var value from hub secrets.env. Returns "" if missing."""
-    out = vm(f"grep '^{name}=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-").strip()
+    """Read a single env var value from hub secrets.env OR hub.env.
+
+    systemd on hub-core uses two EnvironmentFile directives (secrets.env
+    + hub.env), so a key in either is visible to the running process.
+    Returns "" if missing from both.
+    """
+    out = vm(
+        f"grep '^{name}=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | cut -d= -f2-"
+    ).strip()
+    if not out:
+        out = vm(
+            f"grep '^{name}=' /home/zou/IntelHub/core/hub.env 2>/dev/null | cut -d= -f2-"
+        ).strip()
     return out
 
 
