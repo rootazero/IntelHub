@@ -634,6 +634,19 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // docs/superpowers/roadmaps/2026-09-27-public-api-integration-
     // roadmap.md section 5.
     out.push(Box::new(sources::who_disease_outbreak::WhoDiseaseOutbreak));
+    // Public-API integration Phase 4.3 (2026-09-27): HDX HAPI -
+    // Humanitarian API (https://hapi.humdata.org/ - keyless,
+    // app_identifier is just base64("name:email") per HAPI docs,
+    // not a secret). 24h cadence, two sub-queries: GET
+    // /coordination-context/national-risk (top-15 INFORM-style
+    // risk scores; overall >=7.5=priority, >=5.0=routine, else=info)
+    // + GET /coordination-context/funding (top-15 most-underfunded
+    // appeals; funding_pct <30=priority, <70=routine, else=info).
+    // Compounds with Phase 1.4 hdx_humanitarian (CKAN catalog) by
+    // surfacing actual risk + funding scores vs dataset metadata.
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md section 5.
+    out.push(Box::new(sources::hdx_hapi::HdxHapi));
     out
 }
 
