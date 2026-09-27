@@ -326,6 +326,22 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:nager_date'")
 check("nager_date events present (zero OK on no-holiday days — see payload schema)",
       n.isdigit(), f"nager_date={n}")
 
+# 4f. Public-API Phase 1.6 (2026-09-27): Sunrise-Sunset API
+# (https://sunrise-sunset.org/json — keyless, 24h cadence, 30 OSINT
+# cities). Emits `kind='daylight'` info Signals carrying the full
+# daylight envelope (sunrise/sunset/civil+nautical+astronomical
+# twilight) in the payload. CONTEXT signals, not alerts — they exist
+# so downstream can correlate with other geo_events ("this strike
+# happened during astronomical twilight"). One signal per city per
+# day is the expected baseline (~30 rows/day on success, 0 on a
+# network blip day).
+ss_state = states.get("sunrise_sunset")
+check("sunrise_sunset collector ran (health cell present)",
+      bool(ss_state), f"state={ss_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:sunrise_sunset'")
+check("sunrise_sunset events present (≈30/day expected — 30 OSINT cities)",
+      n.isdigit(), f"sunrise_sunset={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:

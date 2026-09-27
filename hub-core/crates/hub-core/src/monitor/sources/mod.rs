@@ -25,6 +25,14 @@ pub mod hdx_humanitarian;
 // docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
 // §2.1.
 pub mod nager_date;
+// Public-API integration roadmap Phase 1.6 (2026-09-27): Sunrise-Sunset
+// API (https://sunrise-sunset.org/api — keyless). Daylight envelope
+// (sunrise/sunset/civil+nautical+astronomical twilight) for 30 OSINT
+// cities; pure context signal (info severity) for downstream event
+// correlation (e.g. "this drone strike happened during astronomical
+// twilight"). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+// integration-roadmap.md §2.1.
+pub mod sunrise_sunset;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

@@ -435,6 +435,15 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
     // roadmap.md §2.1.
     out.push(Box::new(sources::nager_date::NagerDate));
+    // Public-API integration Phase 1.6 (2026-09-27): Sunrise-Sunset API
+    // (https://sunrise-sunset.org/api — keyless, no registration). 30
+    // OSINT cities, 24h cadence, single GET per city per sweep carrying
+    // the full daylight envelope (sunrise/sunset/civil+nautical+astronomical
+    // twilight) as a payload. Always info severity — daylight is
+    // CONTEXT for downstream event correlation, never a standalone
+    // alert. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §2.1.
+    out.push(Box::new(sources::sunrise_sunset::SunriseSunset));
     out
 }
 
