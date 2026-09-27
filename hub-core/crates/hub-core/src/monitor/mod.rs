@@ -478,6 +478,7 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
     out.push(Box::new(sources::greynoise::GreyNoise));
 =======
+<<<<<<< HEAD
     // Public-API integration Phase 2.2 (2026-09-27): Currents API
     // (https://api.currentsapi.services/v1/latest-news — env-gated via
     // HUB_CURRENTS_API_KEY, free 250 req/day after signup at
@@ -489,6 +490,20 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
     out.push(Box::new(sources::currents::Currents));
 >>>>>>> 31b62bc (feat(monitor): currents Phase 2.2 — multi-language news (env-gated))
+=======
+    // Public-API integration Phase 2.3 (2026-09-27): Semantic Scholar
+    // Graph API (https://api.semanticscholar.org/graph/v1/paper/search
+    // — env-gated via HUB_SEMANTIC_SCHOLAR_API_KEY, free key from
+    // https://www.semanticscholar.org/product/api#api-key-form).
+    // Academic citation search; severity by citation count (>=50
+    // citations = priority, >=10 = routine, else info). 24h cadence,
+    // 1 query ("geopolitics"), top-10 results. Phase 2.3.x will wire
+    // it into enrich.rs (per roadmap §3.1) — v1 emits as a normal
+    // monitor. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::semantic_scholar::SemanticScholar));
+>>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
+>>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
     out
 }
 
