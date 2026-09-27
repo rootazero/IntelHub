@@ -380,7 +380,6 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
-<<<<<<< HEAD
 # 5a. Public-API Phase 2.1 (2026-09-27): GreyNoise Community API
 # (https://api.greynoise.io/v3/community/{ip} — keyless, free
 # unauthenticated, ~50/week with API key). 25-IP curated watchlist,
@@ -395,8 +394,6 @@ check("greynoise collector ran (health cell present)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:greynoise'")
 check("greynoise events present (≤25/day from 25-IP watchlist — zero OK on rate-limit or all-quiet)",
       n.isdigit(), f"greynoise={n}")
-=======
-<<<<<<< HEAD
 # 5b. Public-API Phase 2.2 (2026-09-27): Currents API
 # (https://api.currentsapi.services/v1/latest-news — env-gated via
 # HUB_CURRENTS_API_KEY, free 250 req/day after signup). Multi-language
@@ -417,9 +414,6 @@ else:
         "HUB_CURRENTS_API_KEY not configured — collector shelved-by-design "
         "until signup at https://currentsapi.services/en/register",
     )
->>>>>>> 31b62bc (feat(monitor): currents Phase 2.2 — multi-language news (env-gated))
-=======
-<<<<<<< HEAD
 # 5c. Public-API Phase 2.3 (2026-09-27): Semantic Scholar Graph API
 # (https://api.semanticscholar.org/graph/v1/paper/search — env-gated
 # via HUB_SEMANTIC_SCHOLAR_API_KEY). Academic citation search; severity
@@ -438,10 +432,6 @@ else:
         "HUB_SEMANTIC_SCHOLAR_API_KEY not configured — collector shelved-by-design "
         "until signup at https://www.semanticscholar.org/product/api#api-key-form",
     )
->>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
->>>>>>> ab8a9b0 (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
-=======
-<<<<<<< HEAD
 # 5d. Public-API Phase 2.4 (2026-09-27): GBIF biodiversity
 # (https://api.gbif.org/v1/occurrence/search — keyless, 60 req/min/IP).
 # 12-species watchlist of CITES-trafficking-relevant vertebrates.
@@ -454,10 +444,6 @@ check("gbif collector ran (health cell present)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:gbif'")
 check("gbif events present (≤30/day from 12-species watchlist — zero OK on quiet days)",
       n.isdigit(), f"gbif={n}")
->>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
->>>>>>> 5a90364 (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
->>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
-=======
 # 5e. Public-API Phase 2.5 (2026-09-27): FOFA Chinese cyberspace
 # asset mapping (https://fofa.info/api/v1/search/all — env-gated via
 # HUB_FOFA_EMAIL + HUB_FOFA_KEY). Curated CN-government query, ≤10
@@ -475,10 +461,6 @@ else:
         "HUB_FOFA_EMAIL or HUB_FOFA_KEY not configured — collector shelved-by-design "
         "until signup at https://en.fofa.info",
     )
->>>>>>> d560921 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
->>>>>>> 0255fa2 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
->>>>>>> cec5152 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
->>>>>>> 74e7ee4 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

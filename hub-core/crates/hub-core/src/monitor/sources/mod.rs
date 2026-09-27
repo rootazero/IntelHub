@@ -46,7 +46,6 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
-<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.1 (2026-09-27): GreyNoise
 // Community API (https://docs.greynoise.io — keyless, free
 // unauthenticated, 50 lookups/week for free-tier with API key).
@@ -55,8 +54,6 @@ pub mod helium_news;
 // unknown=info, ordinary IP=skip. Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §3.
 pub mod greynoise;
-=======
-<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.3 (2026-09-27): Semantic
 // Scholar Graph API (https://api.semanticscholar.org — requires free
 // API key for sustained use, 100 req/sec with key). Academic citation
@@ -64,9 +61,6 @@ pub mod greynoise;
 // will wire it into enrich.rs (roadmap §3.1). Spec: docs/superpowers/
 // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
 pub mod semantic_scholar;
->>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
-=======
-<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.4 (2026-09-27): GBIF — Global
 // Biodiversity Information Facility (https://api.gbif.org — keyless,
 // public, 60 req/min/IP). Standalone dimension (ecological/animal-
@@ -74,9 +68,6 @@ pub mod semantic_scholar;
 // CITES-trafficking-relevant species. Spec: docs/superpowers/
 // roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
 pub mod gbif;
->>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
->>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
-=======
 // Public-API integration roadmap Phase 2.5 (2026-09-27): FOFA — Chinese
 // cyberspace asset mapping (https://en.fofa.info — requires FOFA
 // account + API key). Compounds with shodan_internetdb + ipapi_co by
@@ -84,9 +75,6 @@ pub mod gbif;
 // coverage). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
 // integration-roadmap.md §3.
 pub mod fofa;
->>>>>>> d560921 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
->>>>>>> cec5152 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
->>>>>>> 74e7ee4 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
