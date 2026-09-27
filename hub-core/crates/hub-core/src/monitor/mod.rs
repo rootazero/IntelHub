@@ -415,6 +415,16 @@ pub fn registry() -> Vec<Box<dyn Source>> {
             "open_aq: no HUB_OPENAQ_API_KEY — collector not registered; sp6 will report 'shelved-by-design' until signup at https://explore.openaq.org/register"
         ),
     }
+    // Public-API integration Phase 1.4 (2026-09-27): HDX Humanitarian Data
+    // Exchange (https://data.humdata.org/ — UN OCHA CKAN, keyless). Single
+    // fq=organization:(wfp OR unhcr OR iom ...) query per 24h sweep; 12
+    // watchlist orgs (WFP/UNHCR/IOM/FAO/OCHA/HOT/REACH/iMMAP/ACLED/MSF/
+    // IFRC/SAVE); static centroid table for 30 active crisis countries +
+    // UN HQ fallback; severity ladder by tag urgency (complex-emergency /
+    // epidemic / flood / earthquake → priority; otherwise routine/info).
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+    // roadmap.md §2.1.
+    out.push(Box::new(sources::hdx_humanitarian::HdxHumanitarian));
     out
 }
 

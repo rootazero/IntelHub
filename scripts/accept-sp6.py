@@ -297,6 +297,21 @@ else:
     check("open_aq events present (zero OK in clean air — see payload schema)",
           n.isdigit(), f"open_aq={n}")
 
+# 4d. Public-API Phase 1.4 (2026-09-27): HDX Humanitarian Data Exchange
+# (https://data.humdata.org/ — UN OCHA CKAN, keyless, 24h cadence, 12-org
+# watchlist). Emits `kind in (humanitarian_update, humanitarian_new,
+# humanitarian_crisis_*)` Signals; routine / info / priority by tag
+# urgency. 24h cadence + UN-OCHA publishing patterns → expect 4-30
+# signals per day on a busy day, 0 on a quiet day (both are valid).
+# Acceptance is the health cell; row count is a secondary signal that
+# the package_search → tag/groups unwrap reached geo_events.
+hdx_state = states.get("hdx_humanitarian")
+check("hdx_humanitarian collector ran (health cell present)",
+      bool(hdx_state), f"state={hdx_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:hdx_humanitarian'")
+check("hdx_humanitarian events present (zero OK on quiet UN-OCHA days)",
+      n.isdigit(), f"hdx_humanitarian={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
