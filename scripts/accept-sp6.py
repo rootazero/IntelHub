@@ -511,24 +511,37 @@ else:
         "until signup at https://docs.compliapi.com",
     )
 # 6d. Public-API Phase 3.5 (2026-09-27): CongressInvests US
-# politician trades (https://congressinvests.com - paid tier;
-# HUB_CONGRESSINVESTS_API_KEY env-gated). 24h cadence, ~50 trades/day
-# typical disclosure volume. Compounds with `sec_edgar` + `treasury`
-# by adding 'are US politicians trading on this?' dimension. Severity:
-# senior/committee-chair=priority, committee member $250k+=routine,
-# rank-and-file=info.
-if secret("HUB_CONGRESSINVESTS_API_KEY"):
-    ci_state = states.get("congress_invests")
-    check("congress_invests collector ran (health cell present, key configured)",
-          bool(ci_state), f"state={ci_state!r}")
-    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:congress_invests'")
-    check("congress_invests events present (≤50/day from disclosure feed)",
-          n.isdigit(), f"congress_invests={n}")
+# politician trades (https://congressinvests.com/trades - KEYLESS
+# per user confirmation 2026-09-27 'congress_invests 免费无需注册').
+# 24h cadence, ~50 trades/day typical disclosure volume. Compounds
+# with `sec_edgar` + `treasury` by adding 'are US politicians trading
+# on this?' dimension. Severity: Senate=routine, House+$250k+=routine,
+# House small=info. NOTE: committee_role is premium-only on the
+# upstream so the v1 ladder is chamber+amount-based.
+ci_state = states.get("congress_invests")
+check("congress_invests collector ran (health cell present, keyless)",
+      bool(ci_state), f"state={ci_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:congress_invests'")
+check("congress_invests events present (≤50/day from disclosure feed)",
+      n.isdigit(), f"congress_invests={n}")
+# 6e. Public-API Phase 3.4 (2026-09-27): GitGuardian leaked-secret
+# incident feed (https://api.gitguardian.com/v1/incidents/secrets -
+# paid tier; HUB_GITGUARDIAN_API_KEY env-gated). 24h cadence, ≤50
+# incidents/day cap. Severity: TRIGGERED+occurrences>=5=priority,
+# TRIGGERED=routine, IGNORED=info. Spec: docs/superpowers/roadmaps/
+# 2026-09-27-public-api-integration-roadmap.md section 4.
+if secret("HUB_GITGUARDIAN_API_KEY"):
+    gg_state = states.get("gitguardian")
+    check("gitguardian collector ran (health cell present, key configured)",
+          bool(gg_state), f"state={gg_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:gitguardian'")
+    check("gitguardian events present (≤50/day — zero OK if no new TRIGGERED incidents)",
+          n.isdigit(), f"gitguardian={n}")
 else:
     check_shelved(
-        "congress_invests events present (key configured)",
-        "HUB_CONGRESSINVESTS_API_KEY not configured - collector shelved-by-design "
-        "until signup at https://congressinvests.com",
+        "gitguardian events present (key configured)",
+        "HUB_GITGUARDIAN_API_KEY not configured - collector shelved-by-design "
+        "until signup at https://dashboard.gitguardian.com",
     )
 
 # 5. key migration: FIRMS working with secrets.env key
