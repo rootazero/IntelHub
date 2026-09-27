@@ -66,6 +66,7 @@ pub mod greynoise;
 pub mod semantic_scholar;
 >>>>>>> ae7d2ff (feat(monitor): semantic_scholar Phase 2.3 — academic citation search (env-gated))
 =======
+<<<<<<< HEAD
 // Public-API integration roadmap Phase 2.4 (2026-09-27): GBIF — Global
 // Biodiversity Information Facility (https://api.gbif.org — keyless,
 // public, 60 req/min/IP). Standalone dimension (ecological/animal-
@@ -75,6 +76,17 @@ pub mod semantic_scholar;
 pub mod gbif;
 >>>>>>> 337ad8f (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
 >>>>>>> 068c42a (feat(monitor): gbif Phase 2.4 — CITES biodiversity occurrence tracking (keyless))
+=======
+// Public-API integration roadmap Phase 2.5 (2026-09-27): FOFA — Chinese
+// cyberspace asset mapping (https://en.fofa.info — requires FOFA
+// account + API key). Compounds with shodan_internetdb + ipapi_co by
+// filling the China-network gap (GFW limits Western scanners' mainland
+// coverage). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+// integration-roadmap.md §3.
+pub mod fofa;
+>>>>>>> d560921 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> cec5152 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
+>>>>>>> 74e7ee4 (feat(monitor): fofa Phase 2.5 — Chinese cyberspace asset mapping (env-gated))
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
