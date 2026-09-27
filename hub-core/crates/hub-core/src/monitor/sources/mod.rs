@@ -46,6 +46,13 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+// Public-API integration roadmap Phase 2.3 (2026-09-27): Semantic
+// Scholar Graph API (https://api.semanticscholar.org — requires free
+// API key for sustained use, 100 req/sec with key). Academic citation
+// search; env-gated via HUB_SEMANTIC_SCHOLAR_API_KEY. Phase 2.3.x
+// will wire it into enrich.rs (roadmap §3.1). Spec: docs/superpowers/
+// roadmaps/2026-09-27-public-api-integration-roadmap.md §3.
+pub mod semantic_scholar;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

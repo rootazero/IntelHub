@@ -465,6 +465,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::helium_news::HeliumNews));
+    // Public-API integration Phase 2.3 (2026-09-27): Semantic Scholar
+    // Graph API (https://api.semanticscholar.org/graph/v1/paper/search
+    // — env-gated via HUB_SEMANTIC_SCHOLAR_API_KEY, free key from
+    // https://www.semanticscholar.org/product/api#api-key-form).
+    // Academic citation search; severity by citation count (>=50
+    // citations = priority, >=10 = routine, else info). 24h cadence,
+    // 1 query ("geopolitics"), top-10 results. Phase 2.3.x will wire
+    // it into enrich.rs (per roadmap §3.1) — v1 emits as a normal
+    // monitor. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::semantic_scholar::SemanticScholar));
     out
 }
 

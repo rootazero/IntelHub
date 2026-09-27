@@ -380,6 +380,25 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
+# 5c. Public-API Phase 2.3 (2026-09-27): Semantic Scholar Graph API
+# (https://api.semanticscholar.org/graph/v1/paper/search — env-gated
+# via HUB_SEMANTIC_SCHOLAR_API_KEY). Academic citation search; severity
+# by citation count (>=50=priority, >=10=routine, else=info). Future
+# Phase 2.3.x wires into enrich.rs (roadmap §3.1).
+ss_state = states.get("semantic_scholar")
+if secret("HUB_SEMANTIC_SCHOLAR_API_KEY"):
+    check("semantic_scholar collector ran (health cell present, key configured)",
+          bool(ss_state), f"state={ss_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:semantic_scholar'")
+    check("semantic_scholar events present (≤10/day — zero OK on degraded upstream)",
+          n.isdigit(), f"semantic_scholar={n}")
+else:
+    check_shelved(
+        "semantic_scholar events present (key configured)",
+        "HUB_SEMANTIC_SCHOLAR_API_KEY not configured — collector shelved-by-design "
+        "until signup at https://www.semanticscholar.org/product/api#api-key-form",
+    )
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
