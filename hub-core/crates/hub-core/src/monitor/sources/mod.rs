@@ -117,6 +117,19 @@ pub mod arcnautical;
 // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
 // roadmap.md section 4.
 pub mod compliapi;
+// Public-API integration roadmap Phase 3.5 (2026-09-27): CongressInvests
+// US politician trades disclosure feed (https://congressinvests.com -
+// paid tier; HUB_CONGRESSINVESTS_API_KEY env-gated). Compounds with
+// the existing `sec_edgar` + `treasury` financial-plane collectors by
+// adding the 'are US politicians trading on this?' dimension. 24h
+// cadence, ~50 trades/day typical disclosure volume. Severity:
+// Speaker/Committee Chair etc = priority (politically significant
+// conflicts of interest), committee member with $250k+ trade = routine,
+// rank-and-file = info. Without key the collector is NOT registered;
+// sp6 reports 'shelved-by-design' until signup at https://congressinvests.com.
+// Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+// roadmap.md section 4.
+pub mod congress_invests;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
