@@ -476,6 +476,21 @@ check("strait_of_hormuz collector ran (health cell present)",
 n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:strait_of_hormuz'")
 check("strait_of_hormuz events present (≤30/day from Hormuz chokepoint — zero OK on quiet Strait days)",
       n.isdigit(), f"strait_of_hormuz={n}")
+# 6b. Public-API Phase 3.1 (2026-09-27): ArcNautical vessel OSINT
+# (https://arcnautical.com/api/v1/vessels/{imo}/check - keyless verdict
+# summary endpoint; the full fleet / monitor API is paid but the
+# verdict-summary is free at ~60 req/min/IP). 24h cadence, 25-IMO
+# watchlist (Iranian sanctioned + Hormuz-active commercial hulls +
+# publicly-tracked commodity carriers). Compounds with `strait_of_hormuz`
+# Phase 3.2 by adding 'is this hull flagged?' to 'did it transit the
+# chokepoint?'. Severity: sanctions.RED=priority, YELLOW/vetting
+# D-E/ownership HIGH=routine, else info.
+an_state = states.get("arcnautical")
+check("arcnautical collector ran (health cell present)",
+      bool(an_state), f"state={an_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:arcnautical'")
+check("arcnautical events present (≤25/day from IMO watchlist — zero OK if all GREEN)",
+      n.isdigit(), f"arcnautical={n}")
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")

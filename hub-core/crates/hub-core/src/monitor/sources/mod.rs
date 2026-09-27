@@ -91,6 +91,18 @@ pub mod fofa;
 // Chemical Tanker with dwt>=50000 = priority, otherwise routine/info
 // (see strait_of_hormuz.rs docstring for full ladder).
 pub mod strait_of_hormuz;
+// Public-API integration roadmap Phase 3.1 (2026-09-27): ArcNautical
+// vessel OSINT screen (https://arcnautical.com/api/v1/vessels/{imo}/check
+// — keyless verdict-summary endpoint; the full fleet / monitor API is
+// paid but the verdict check is free and IP-rate-limited ~60/min).
+// 24h cadence, 25-IMO curated watchlist (Iranian sanctioned tankers +
+// major Hormuz-active commercial hulls + publicly-tracked commodity
+// carriers). Compounds directly with `strait_of_hormuz` Phase 3.2 by
+// adding "is this hull flagged?" to "did it transit the chokepoint?".
+// Severity: sanctions.RED=priority, YELLOW/vetting D-E/ownership HIGH
+// =routine, else info. Spec: docs/superpowers/roadmaps/
+// 2026-09-27-public-api-integration-roadmap.md section 4.
+pub mod arcnautical;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
