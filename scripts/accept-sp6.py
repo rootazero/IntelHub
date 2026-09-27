@@ -562,12 +562,6 @@ else:
         "HUB_THREATCLUSTER_API_KEY not configured - collector shelved-by-design "
         "until signup at https://threatcluster.io (free tier, no card)",
     )
-else:
-    check_shelved(
-        "gitguardian events present (key configured)",
-        "HUB_GITGUARDIAN_API_KEY not configured - collector shelved-by-design "
-        "until signup at https://dashboard.gitguardian.com",
-    )
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
