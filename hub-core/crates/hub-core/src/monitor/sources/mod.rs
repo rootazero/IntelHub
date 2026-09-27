@@ -10,6 +10,11 @@ pub mod open_meteo;
 // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
 // §2.1.
 pub mod usgs_water;
+// Public-API integration roadmap Phase 1.3 (2026-09-27): OpenAQ global air
+// quality (requires free API key signup at explore.openaq.org/register).
+// Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-roadmap.md
+// §2.1.
+pub mod open_aq;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

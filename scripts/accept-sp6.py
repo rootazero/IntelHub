@@ -277,6 +277,26 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:usgs_water'")
 check("usgs_water events present (zero OK in dry weather — see payload schema)",
       n.isdigit(), f"usgs_water={n}")
 
+# 4c. Public-API Phase 1.3 (2026-09-27): OpenAQ global air quality
+# (https://openaq.org/ — free tier, requires API key signup at
+# https://explore.openaq.org/register). Env-gated: without HUB_OPENAQ_API_KEY
+# the collector is NOT registered and no geo_events land. The shelved check
+# below accommodates the missing-key baseline; once the user provides a key
+# (signup flow ~5 minutes), this automatically becomes a real row check.
+openaq_key = secret("HUB_OPENAQ_API_KEY") or secret("OPENAQ_API_KEY")
+if not openaq_key:
+    check_shelved(
+        "open_aq events present (key configured)",
+        "HUB_OPENAQ_API_KEY not configured in secrets.env — collector shelved-by-design until signup at https://explore.openaq.org/register",
+    )
+else:
+    oa_state = states.get("open_aq")
+    check("open_aq collector ran (health cell present, key configured)",
+          bool(oa_state), f"state={oa_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:open_aq'")
+    check("open_aq events present (zero OK in clean air — see payload schema)",
+          n.isdigit(), f"open_aq={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
