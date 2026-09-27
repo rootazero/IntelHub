@@ -537,6 +537,31 @@ if secret("HUB_GITGUARDIAN_API_KEY"):
     n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:gitguardian'")
     check("gitguardian events present (≤50/day — zero OK if no new TRIGGERED incidents)",
           n.isdigit(), f"gitguardian={n}")
+# 6f. Public-API Phase 4.1 (2026-09-27): ThreatCluster incident
+# clusters + active-exploited CVE feed
+# (https://threatcluster.io/api/public/v1 - free tier 100 req/day
+# at https://threatcluster.io, no card; HUB_THREATCLUSTER_API_KEY
+# env-gated). Two sub-queries per 24h sweep: GET /threats (top 15
+# clusters by 24h severity) + GET /vulnerabilities?kev=true
+# (top 25 active-exploited CVEs). Compounds with `nvd` + `osv` +
+# `cisakev` by adding incident context + exploit timeline.
+# Severity: threat critical=priority, high/conf≥0.8=routine, else=info;
+# CVE kev+exploited=priority, kev-or-exploited=routine, neither=info.
+# Spec: docs/superpowers/roadmaps/2026-09-27-public-api-integration-
+# roadmap.md section 5.
+if secret("HUB_THREATCLUSTER_API_KEY"):
+    tc_state = states.get("threatcluster")
+    check("threatcluster collector ran (health cell present, key configured)",
+          bool(tc_state), f"state={tc_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:threatcluster'")
+    check("threatcluster events present (≤40/day — threats + vulns combined, zero OK on quiet day)",
+          n.isdigit(), f"threatcluster={n}")
+else:
+    check_shelved(
+        "threatcluster events present (key configured)",
+        "HUB_THREATCLUSTER_API_KEY not configured - collector shelved-by-design "
+        "until signup at https://threatcluster.io (free tier, no card)",
+    )
 else:
     check_shelved(
         "gitguardian events present (key configured)",
