@@ -465,6 +465,15 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // 6+=info. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::helium_news::HeliumNews));
+    // Public-API integration Phase 2.5 (2026-09-27): FOFA Chinese asset
+    // search (https://fofa.info/api/v1/search/all — env-gated via
+    // HUB_FOFA_EMAIL + HUB_FOFA_KEY, signup at https://en.fofa.info).
+    // 24h cadence, single curated query (HTTP + CN + government title),
+    // ≤10 matches/day, severity=priority (filter targets sensitive
+    // assets). China-network routing verified post-deploy (roadmap §3.1).
+    // Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+    // integration-roadmap.md §3.
+    out.push(Box::new(sources::fofa::Fofa));
     out
 }
 

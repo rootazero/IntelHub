@@ -46,6 +46,13 @@ pub mod queimadas_inpe;
 // (1=priority, 2-5=routine, 6+=info). Spec: docs/superpowers/roadmaps/
 // 2026-09-27-public-api-integration-roadmap.md §2.1.
 pub mod helium_news;
+// Public-API integration roadmap Phase 2.5 (2026-09-27): FOFA — Chinese
+// cyberspace asset mapping (https://en.fofa.info — requires FOFA
+// account + API key). Compounds with shodan_internetdb + ipapi_co by
+// filling the China-network gap (GFW limits Western scanners' mainland
+// coverage). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
+// integration-roadmap.md §3.
+pub mod fofa;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;

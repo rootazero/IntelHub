@@ -380,6 +380,24 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:helium_news'")
 check("helium_news events present (top-10 per day — zero OK on degraded upstream)",
       n.isdigit(), f"helium_news={n}")
 
+# 5e. Public-API Phase 2.5 (2026-09-27): FOFA Chinese cyberspace
+# asset mapping (https://fofa.info/api/v1/search/all — env-gated via
+# HUB_FOFA_EMAIL + HUB_FOFA_KEY). Curated CN-government query, ≤10
+# events/day. China-network routing verified post-deploy (roadmap §3.1).
+ff_state = states.get("fofa")
+if secret("HUB_FOFA_EMAIL") and secret("HUB_FOFA_KEY"):
+    check("fofa collector ran (health cell present, key configured)",
+          bool(ff_state), f"state={ff_state!r}")
+    n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:fofa'")
+    check("fofa events present (≤10/day — zero OK on degraded upstream)",
+          n.isdigit(), f"fofa={n}")
+else:
+    check_shelved(
+        "fofa events present (key configured)",
+        "HUB_FOFA_EMAIL or HUB_FOFA_KEY not configured — collector shelved-by-design "
+        "until signup at https://en.fofa.info",
+    )
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
