@@ -81,6 +81,16 @@ pub mod gbif;
 // coverage). Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
 // integration-roadmap.md §3.
 pub mod fofa;
+// Public-API integration roadmap Phase 3.2 (2026-09-27): Strait of Hormuz
+// Ship Monitor (https://hormuz.data-tracking.net/ — keyless, CC-BY-4.0
+// public AIS dataset). The first chokepoint OSINT source; compounds with
+// the existing `ais` collector (which tracks live vessel positions) by
+// adding the "did this ship transit the Hormuz chokepoint and what's its
+// flag / dwt / transit-path" event. 30-min cadence to match upstream's
+// own update cadence. Severity ladder per roadmap §4: IR-flagged Oil/
+// Chemical Tanker with dwt>=50000 = priority, otherwise routine/info
+// (see strait_of_hormuz.rs docstring for full ladder).
+pub mod strait_of_hormuz;
 pub mod acled;
 pub mod ahmia;
 pub mod courtlistener;
