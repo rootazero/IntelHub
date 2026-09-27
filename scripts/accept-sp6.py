@@ -263,6 +263,20 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:open_meteo'")
 check("open_meteo events present (zero OK in calm weather — see payload schema)",
       n.isdigit(), f"open_meteo={n}")
 
+# 4b. Public-API Phase 1.2 (2026-09-27): USGS Water Services IV
+# (https://waterservices.usgs.gov/nwis/iv/ — US public domain, keyless,
+# 60-min cadence, 25 strategic gauges). Emits `kind='flood'` Signals;
+# zero-row baseline is NORMAL in dry weather (most of the year, most of
+# the country is below action stage). Acceptance is the health cell; the
+# row count is a secondary signal that the SOAP-envelope unwrap + parse
+# reached geo_events without panicking on the upstream's payload shape.
+uw_state = states.get("usgs_water")
+check("usgs_water collector ran (health cell present)",
+      bool(uw_state), f"state={uw_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:usgs_water'")
+check("usgs_water events present (zero OK in dry weather — see payload schema)",
+      n.isdigit(), f"usgs_water={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
