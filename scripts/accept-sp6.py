@@ -461,6 +461,21 @@ else:
         "HUB_FOFA_EMAIL or HUB_FOFA_KEY not configured — collector shelved-by-design "
         "until signup at https://en.fofa.info",
     )
+# 6a. Public-API Phase 3.2 (2026-09-27): Strait of Hormuz Ship Monitor
+# (https://hormuz.data-tracking.net/api/crossings — keyless, CC-BY-4.0
+# public AIS crossing feed). First chokepoint OSINT source (roadmap §4.1
+# sequencing — 3.2 lands first to prove the chokepoint-alert pattern;
+# 3.1 ArcNautical + 3.3 CompliAPI plug into the same alert-rule
+# scaffolding when those land). 30-min cadence (matches upstream's own
+# update cadence), ≤30 events/day. Severity ladder: IR-flagged Oil/
+# Chemical Tanker with dwt>=50000 = priority; non-IR tanker dwt>=50000
+# = routine; bulker/tanker dwt>=25000 = routine; else info.
+sh_state = states.get("strait_of_hormuz")
+check("strait_of_hormuz collector ran (health cell present)",
+      bool(sh_state), f"state={sh_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:strait_of_hormuz'")
+check("strait_of_hormuz events present (≤30/day from Hormuz chokepoint — zero OK on quiet Strait days)",
+      n.isdigit(), f"strait_of_hormuz={n}")
 
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
