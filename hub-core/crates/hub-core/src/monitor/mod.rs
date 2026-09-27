@@ -444,6 +444,17 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // alert. Spec: docs/superpowers/roadmaps/2026-09-27-public-api-
     // integration-roadmap.md §2.1.
     out.push(Box::new(sources::sunrise_sunset::SunriseSunset));
+    // Public-API integration Phase 1.7 (2026-09-27): INPE Queimadas
+    // (https://queimadas.dgi.inpe.br/queimadas/dados-abertos/ — Brazilian
+    // wildfire satellite detection, keyless, INPE public-domain). Daily
+    // CSV with 14k+ fires; we cap at top-50 by FRP (Fire Radiative Power
+    // in MW) so geo_events doesn't flood while the most newsworthy events
+    // always surface. Severity ladder: >500 MW = priority (extreme), >200
+    // MW = priority (high), >100 MW = routine (significant), else info
+    // (top-50 means it's still meaningful). 3-day lookback handles
+    // delayed publishing on weekends/holidays. Spec: docs/superpowers/
+    // roadmaps/2026-09-27-public-api-integration-roadmap.md §2.1.
+    out.push(Box::new(sources::queimadas_inpe::QueimadasInpe));
     out
 }
 

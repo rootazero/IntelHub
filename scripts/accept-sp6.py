@@ -342,6 +342,20 @@ n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:sunrise_sunset'")
 check("sunrise_sunset events present (≈30/day expected — 30 OSINT cities)",
       n.isdigit(), f"sunrise_sunset={n}")
 
+# 4g. Public-API Phase 1.7 (2026-09-27): INPE Queimadas (Brazilian
+# wildfire satellite detection — keyless, INPE public-domain). Daily
+# CSV from dataserver-coids.inpe.br, top-50 fires by FRP. 24h cadence,
+# 3-day lookback (handles delayed publishing). Expected 50 rows/day on
+# a normal day; 0 on a degraded upstream day (404 across lookback).
+# Acceptance is the health cell; row count sanity-checked against the
+# 50-fire cap (with margin for replay + cap-edge dedup).
+qm_state = states.get("queimadas_inpe")
+check("queimadas_inpe collector ran (health cell present)",
+      bool(qm_state), f"state={qm_state!r}")
+n = pg1("SELECT count(*) FROM geo_events WHERE source='monitor:queimadas_inpe'")
+check("queimadas_inpe events present (top-50 by FRP per day — zero OK on degraded upstream)",
+      n.isdigit(), f"queimadas_inpe={n}")
+
 # 5. key migration: FIRMS working with secrets.env key
 firms_key = secret("FIRMS_MAP_KEY")
 if not firms_key:
