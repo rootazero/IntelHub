@@ -530,6 +530,23 @@ pub fn registry() -> Vec<Box<dyn Source>> {
     // transit Hormuz" event. Spec: docs/superpowers/roadmaps/
     // 2026-09-27-public-api-integration-roadmap.md section 4.
     out.push(Box::new(sources::strait_of_hormuz::StraitOfHormuz));
+    // Public-API integration Phase 3.1 (2026-09-27): ArcNautical vessel
+    // OSINT screen (https://arcnautical.com/api/v1/vessels/{imo}/check
+    // - keyless verdict-summary endpoint; the full fleet / monitor API
+    // is paid but the verdict check is free and IP-rate-limited
+    // ~60/min). 24h cadence, 25-IMO curated watchlist (Iranian
+    // sanctioned tankers + major Hormuz-active commercial hulls +
+    // publicly-tracked commodity carriers). Compounds directly with
+    // `strait_of_hormuz` Phase 3.2 by adding 'is this hull flagged?'
+    // to 'did it transit the chokepoint?'. Severity: sanctions.RED =
+    // priority, YELLOW/vetting D-E/ownership HIGH = routine, else info.
+    // Roadmap 4.1 originally marked ArcNautical 'paid' because the
+    // full fleet API is paid - but the public verdict summary is free;
+    // Phase 3.1 ships on the free endpoint. Future 3.1.x can swap to
+    // the authenticated /screened endpoint for richer data when user
+    // opts in. Spec: docs/superpowers/roadmaps/
+    // 2026-09-27-public-api-integration-roadmap.md section 4.
+    out.push(Box::new(sources::arcnautical::ArcNautical));
     out
 }
 
