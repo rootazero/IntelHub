@@ -175,19 +175,20 @@ fn parse_threats(j: &serde_json::Value) -> Vec<Signal> {
         let cluster_id = pick_string(r, &["cluster_id", "id", "identifier"]).unwrap_or_default();
         let title = pick_string(r, &["title", "name", "headline"])
             .unwrap_or_else(|| "Untitled threat cluster".to_string());
-        let severity = pick_string(r, &["severity", "priority"]).unwrap_or_default();
-        let confidence = pick_number(r, &["confidence", "confidence_score"]).unwrap_or(0.0);
+        let urgency = pick_string(r, &["urgency_level", "severity", "priority"]).unwrap_or_default();
+        let threat_score = pick_number(r, &["threat_score", "confidence", "confidence_score"])
+            .unwrap_or(0.0);
         let category = pick_string(r, &["category", "type", "threat_type"]).unwrap_or_default();
         let actor = pick_string(r, &["actor", "threat_actor", "group"]).unwrap_or_default();
         let target_sector = pick_string(r, &["target_sector", "sector", "industry"]).unwrap_or_default();
         let target_country = pick_string(r, &["target_country", "country"]).unwrap_or_default();
-        let source_count = pick_number(r, &["source_count", "sources", "mention_count"])
+        let article_count = pick_number(r, &["article_count", "source_count", "sources", "mention_count"])
             .unwrap_or(0.0) as i64;
         let summary = pick_string(r, &["summary", "description"]).unwrap_or_default();
         let created_at = pick_string(r, &["created_at", "first_seen", "timestamp"])
             .unwrap_or_default();
         let url = pick_string(r, &["url", "source_url"]).unwrap_or_default();
-        let (sev, kind) = classify_threat(&severity, confidence);
+        let (sev, kind) = classify_threat(&urgency, threat_score);
         let ext_id = if !cluster_id.is_empty() {
             format!("threatcluster:{cluster_id}")
         } else {
@@ -199,13 +200,13 @@ fn parse_threats(j: &serde_json::Value) -> Vec<Signal> {
                 .payload(serde_json::json!({
                     "kind": "threatcluster_threat",
                     "cluster_id": cluster_id,
-                    "severity": severity,
-                    "confidence": confidence,
+                    "urgency_level": urgency,
+                    "threat_score": threat_score,
                     "category": category,
                     "actor": actor,
                     "target_sector": target_sector,
                     "target_country": target_country,
-                    "source_count": source_count,
+                    "article_count": article_count,
                     "summary": summary,
                     "created_at": created_at,
                     "url": url,
@@ -227,59 +228,60 @@ fn parse_vulnerabilities(j: &serde_json::Value) -> Vec<Signal> {
         }
         let title = pick_string(r, &["title", "name"])
             .unwrap_or_else(|| format!("{cve_id} active exploit"));
-        let kev = pick_bool(r, &["kev", "in_kev", "is_kev"]).unwrap_or(false);
-        let exploited_in_wild =
-            pick_bool(r, &["exploited_in_wild", "exploited", "wild_exploit"]).unwrap_or(false);
-        let cvss = pick_number(r, &["cvss", "cvss_score"]).unwrap_or(0.0);
-        let epss = pick_number(r, &["epss", "epss_score"]).unwrap_or(0.0);
-        let severity = pick_string(r, &["severity", "cvss_severity"]).unwrap_or_default();
-        let vendor = pick_string(r, &["vendor", "affected_vendor"]).unwrap_or_default();
-        let product = pick_string(r, &["product", "affected_product"]).unwrap_or_default();
-        let exploit_kind =
-            pick_string(r, &["exploit_kind", "exploit_type"]).unwrap_or_default();
-        let ransomware_use =
-            pick_string(r, &["ransomware_use", "ransomware_family"]).unwrap_or_default();
-        let first_exploited = pick_string(r, &["first_exploited", "exploit_first_seen"])
-            .unwrap_or_default();
-        let (sev, kind) = classify_vuln(kev, exploited_in_wild);
+        let in_kev = pick_bool(r, &["in_kev", "kev", "is_kev"]).unwrap_or(false);
+        let has_exploit = pick_bool(r, &["has_exploit", "exploited_in_wild", "exploited"])
+            .unwrap_or(false);
+        let cvss = pick_number(r, &["cvss_v3_score", "cvss", "cvss_score"]).unwrap_or(0.0);
+        let exploit_count =
+            pick_number(r, &["exploit_count"]).unwrap_or(0.0) as i64;
+        let severity = pick_string(r, &["cvss_v3_severity", "severity"]).unwrap_or_default();
+        let description = pick_string(r, &["description", "summary"]).unwrap_or_default();
+        let published_date = pick_string(r, &["published_date", "published"]).unwrap_or_default();
+        let last_modified = pick_string(r, &["last_modified", "modified"]).unwrap_or_default();
+        let (sev, kind) = classify_vuln(in_kev, has_exploit, &severity, cvss);
         out.push(
             Signal::new(kind, title, 0.0, 0.0, format!("threatcluster:cve:{cve_id}"))
                 .severity(sev)
                 .payload(serde_json::json!({
                     "kind": "threatcluster_vuln",
                     "cve_id": cve_id,
-                    "kev": kev,
-                    "exploited_in_wild": exploited_in_wild,
-                    "cvss": cvss,
-                    "epss": epss,
-                    "severity": severity,
-                    "vendor": vendor,
-                    "product": product,
-                    "exploit_kind": exploit_kind,
-                    "ransomware_use": ransomware_use,
-                    "first_exploited": first_exploited,
+                    "in_kev": in_kev,
+                    "has_exploit": has_exploit,
+                    "cvss_v3_score": cvss,
+                    "cvss_v3_severity": severity,
+                    "exploit_count": exploit_count,
+                    "description": description,
+                    "published_date": published_date,
+                    "last_modified": last_modified,
                 })),
         );
     }
     out
 }
 
-fn classify_threat(severity: &str, confidence: f64) -> (&'static str, &'static str) {
-    if severity.eq_ignore_ascii_case("critical") {
+fn classify_threat(urgency: &str, threat_score: f64) -> (&'static str, &'static str) {
+    let u = urgency.to_lowercase();
+    if u == "critical" || threat_score >= 80.0 {
         return ("priority", "threatcluster_threat_critical");
     }
-    if severity.eq_ignore_ascii_case("high") || confidence >= 0.8 {
+    if u == "high" || threat_score >= 50.0 {
         return ("routine", "threatcluster_threat_high");
     }
     ("info", "threatcluster_threat_low")
 }
 
-fn classify_vuln(kev: bool, exploited_in_wild: bool) -> (&'static str, &'static str) {
-    if kev && exploited_in_wild {
-        return ("priority", "threatcluster_vuln_kev_exploited");
+fn classify_vuln(
+    in_kev: bool,
+    has_exploit: bool,
+    cvss_severity: &str,
+    cvss: f64,
+) -> (&'static str, &'static str) {
+    let s = cvss_severity.to_uppercase();
+    if s == "CRITICAL" || (in_kev && has_exploit) {
+        return ("priority", "threatcluster_vuln_critical");
     }
-    if kev || exploited_in_wild {
-        return ("routine", "threatcluster_vuln_active_exploit");
+    if in_kev || has_exploit || s == "HIGH" || cvss >= 7.0 {
+        return ("routine", "threatcluster_vuln_active");
     }
     ("info", "threatcluster_vuln_background")
 }
@@ -356,19 +358,19 @@ mod tests {
                 {
                     "cluster_id": "TC-2026-0002",
                     "title": "Spear phishing wave against EU diplomats",
-                    "severity": "high",
-                    "confidence": 0.85,
+                    "urgency_level": "high",
+                    "threat_score": 72.0,
                     "category": "phishing",
                     "actor": "APT29",
                     "target_sector": "government",
                     "target_country": "EU",
-                    "source_count": 18
+                    "article_count": 18
                 },
                 {
                     "cluster_id": "TC-2026-0003",
                     "title": "Low-confidence DDoS chatter",
-                    "severity": "medium",
-                    "confidence": 0.4
+                    "urgency_level": "medium",
+                    "threat_score": 32.0
                 }
             ]
         })
@@ -376,51 +378,49 @@ mod tests {
 
     fn sample_vulns() -> serde_json::Value {
         serde_json::json!({
-            "data": [
+            "cves": [
                 {
                     "cve_id": "CVE-2026-1234",
-                    "title": "Windows kernel RCE",
-                    "kev": true,
-                    "exploited_in_wild": true,
-                    "cvss": 9.8,
-                    "epss": 0.87,
-                    "severity": "CRITICAL",
-                    "vendor": "Microsoft",
-                    "product": "Windows",
-                    "exploit_kind": "rce",
-                    "ransomware_use": "BlackCat",
-                    "first_exploited": "2026-09-15"
+                    "description": "Windows kernel RCE",
+                    "cvss_v3_score": 9.8,
+                    "cvss_v3_severity": "CRITICAL",
+                    "in_kev": true,
+                    "has_exploit": true,
+                    "exploit_count": 3,
+                    "published_date": "2026-09-15T00:00:00"
                 },
                 {
                     "cve_id": "CVE-2026-5678",
-                    "title": "Apache path traversal",
-                    "kev": true,
-                    "exploited_in_wild": false,
-                    "cvss": 7.5,
-                    "vendor": "Apache",
-                    "product": "httpd"
+                    "description": "Apache path traversal",
+                    "cvss_v3_score": 7.5,
+                    "cvss_v3_severity": "HIGH",
+                    "in_kev": true,
+                    "has_exploit": false,
+                    "exploit_count": 0
                 },
                 {
                     "cve_id": "CVE-2026-9012",
-                    "title": "Linux kernel info leak",
-                    "kev": false,
-                    "exploited_in_wild": true,
-                    "cvss": 5.3,
-                    "vendor": "Linux",
-                    "product": "kernel"
+                    "description": "Linux kernel info leak",
+                    "cvss_v3_score": 5.3,
+                    "cvss_v3_severity": "MEDIUM",
+                    "in_kev": false,
+                    "has_exploit": true,
+                    "exploit_count": 1
                 },
                 {
                     "cve_id": "CVE-2026-3456",
-                    "title": "Theoretical CVE",
-                    "kev": false,
-                    "exploited_in_wild": false,
-                    "cvss": 6.5
+                    "description": "Theoretical CVE",
+                    "cvss_v3_score": 6.5,
+                    "cvss_v3_severity": "MEDIUM",
+                    "in_kev": false,
+                    "has_exploit": false,
+                    "exploit_count": 0
                 }
             ]
         })
     }
 
-    /// critical severity → priority
+    /// critical urgency OR threat_score >= 80 → priority
     #[test]
     fn threat_critical_is_priority() {
         let sigs = parse_threats(&sample_threats());
@@ -429,20 +429,33 @@ mod tests {
         assert_eq!(sigs[0].kind, "threatcluster_threat_critical");
     }
 
-    /// high severity or confidence >= 0.8 → routine
+    /// high urgency OR threat_score >= 50 → routine
     #[test]
-    fn threat_high_or_confidence_is_routine() {
+    fn threat_high_or_score_is_routine() {
         let sigs = parse_threats(&sample_threats());
         assert_eq!(sigs[1].severity, "routine");
         assert_eq!(sigs[1].kind, "threatcluster_threat_high");
     }
 
-    /// medium severity + low confidence → info
+    /// medium urgency + low threat_score → info
     #[test]
     fn threat_low_is_info() {
         let sigs = parse_threats(&sample_threats());
         assert_eq!(sigs[2].severity, "info");
         assert_eq!(sigs[2].kind, "threatcluster_threat_low");
+    }
+
+    /// threat_score >= 80 alone → priority even without "critical" urgency
+    #[test]
+    fn threat_score_drives_priority() {
+        let mut j = sample_threats();
+        j["threats"].as_array_mut().unwrap().push(serde_json::json!({
+            "cluster_id": "TC-score-90", "title": "high score",
+            "urgency_level": "medium", "threat_score": 90.0
+        }));
+        let sigs = parse_threats(&j);
+        let high = sigs.iter().find(|s| s.external_id.contains("score-90")).unwrap();
+        assert_eq!(high.severity, "priority");
     }
 
     /// external_id shape = threatcluster:{cluster_id}
@@ -452,34 +465,48 @@ mod tests {
         assert_eq!(sigs[0].external_id, "threatcluster:TC-2026-0001");
     }
 
-    /// KEV + exploited → priority
+    /// KEV + has_exploit → priority
     #[test]
     fn vuln_kev_and_exploited_is_priority() {
         let sigs = parse_vulnerabilities(&sample_vulns());
         assert_eq!(sigs[0].severity, "priority");
-        assert_eq!(sigs[0].kind, "threatcluster_vuln_kev_exploited");
+        assert_eq!(sigs[0].kind, "threatcluster_vuln_critical");
     }
 
-    /// KEV only OR exploited only → routine
+    /// KEV only OR has_exploit only OR HIGH severity → routine
     #[test]
     fn vuln_kev_only_is_routine() {
         let sigs = parse_vulnerabilities(&sample_vulns());
-        // CVE-2026-5678: kev=true, exploited=false → routine
+        // CVE-2026-5678: in_kev=true, has_exploit=false, severity=HIGH → routine
         let sig = sigs.iter().find(|s| s.external_id.contains("5678")).unwrap();
         assert_eq!(sig.severity, "routine");
-        assert_eq!(sig.kind, "threatcluster_vuln_active_exploit");
-        // CVE-2026-9012: kev=false, exploited=true → routine
+        assert_eq!(sig.kind, "threatcluster_vuln_active");
+        // CVE-2026-9012: in_kev=false, has_exploit=true → routine
         let sig = sigs.iter().find(|s| s.external_id.contains("9012")).unwrap();
         assert_eq!(sig.severity, "routine");
     }
 
-    /// No KEV + no exploit → info
+    /// No KEV + no exploit + MEDIUM severity → info
     #[test]
     fn vuln_neither_is_info() {
         let sigs = parse_vulnerabilities(&sample_vulns());
         let sig = sigs.iter().find(|s| s.external_id.contains("3456")).unwrap();
         assert_eq!(sig.severity, "info");
         assert_eq!(sig.kind, "threatcluster_vuln_background");
+    }
+
+    /// CRITICAL cvss_v3_severity alone → priority
+    #[test]
+    fn vuln_critical_severity_is_priority() {
+        let j = serde_json::json!({"cves": [{
+            "cve_id": "CVE-2026-CCCC",
+            "cvss_v3_score": 9.0,
+            "cvss_v3_severity": "CRITICAL",
+            "in_kev": false,
+            "has_exploit": false
+        }]});
+        let sigs = parse_vulnerabilities(&j);
+        assert_eq!(sigs[0].severity, "priority");
     }
 
     /// vulnerability external_id = threatcluster:cve:{cve_id}
@@ -492,7 +519,7 @@ mod tests {
     /// Skip rows with empty cve_id (defensive)
     #[test]
     fn vuln_skips_empty_cve() {
-        let j = serde_json::json!({"data": [{"title": "no cve"}, {"cve_id": "CVE-2026-9999"}]});
+        let j = serde_json::json!({"cves": [{"description": "no cve"}, {"cve_id": "CVE-2026-9999"}]});
         let sigs = parse_vulnerabilities(&j);
         assert_eq!(sigs.len(), 1);
         assert_eq!(sigs[0].external_id, "threatcluster:cve:CVE-2026-9999");
