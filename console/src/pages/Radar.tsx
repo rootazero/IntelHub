@@ -19,8 +19,8 @@ import { useSearchParams } from "react-router-dom";
 import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api, streamEvents } from "../api";
-import { useEnum, useHumanizeKind, useT } from "../i18n";
-import { KINDS, kindColor } from "../kindmeta";
+import { useEnum, useHumanizeKind, useHumanizeL1, useT } from "../i18n";
+import { kindColor, PRIMARY_COLOR, PRIMARY_KINDS, primaryOf } from "../kindmeta";
 import { focusOnEvent } from "../lib/eventFocus";
 import { attachEventsLayer, type AttachHandle } from "../lib/mapEventsLayer";
 import { buildStyle, CHAIN, PRIMARY, STADIA_KEY, CARTO_KEY } from "../basemap";
@@ -63,6 +63,7 @@ export default function Radar() {
   const { t } = useT();
   const en = useEnum();
   const humanize = useHumanizeKind();
+  const humanizeL1 = useHumanizeL1();
   const { region, attach, registerOnReset, registerOnRegionJump, setRegion } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const layerRef = useRef<AttachHandle | null>(null);
@@ -189,7 +190,15 @@ export default function Radar() {
     }
   }
 
-  const visible = kind ? events.filter((e) => e.kind === kind) : events;
+  // §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): `kind` state now holds
+  // an L1 (primary) category, not a raw L2 kind. We aggregate the
+  // 70+ L2 kinds stored in geo_events into 15 L1 buckets so the
+  // dropdown / chip row stay concise for human viewing. Agents and
+  // MCP queries continue to read precise L2 kinds via Signal.kind
+  // (unchanged on the backend).
+  const visible = kind
+    ? events.filter((e) => primaryOf(e.kind) === kind)
+    : events;
 
   useEffect(() => {
     load();
@@ -283,26 +292,25 @@ export default function Radar() {
     }
   }
 
+  // §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): counts aggregate by L1
+  // (primary display category) instead of raw L2 kind. The 70+ L2
+  // kinds in geo_events roll up into 15 L1 buckets — e.g. all four
+  // festival_holiday_* L2 kinds contribute to the `holiday` L1 count.
   const counts = events.reduce<Record<string, number>>((acc, e) => {
-    acc[e.kind] = (acc[e.kind] ?? 0) + 1;
+    const primary = primaryOf(e.kind);
+    acc[primary] = (acc[primary] ?? 0) + 1;
     return acc;
   }, {});
 
-  // §FE-RADAR-i18n (2026-09-27): derive the dropdown options from the
-  // current event set so dynamically introduced kinds (e.g.
-  // festival_holiday_past) appear in the filter without a code change.
-  // We merge the observed kinds (by count desc) with the static KINDS
-  // taxonomy — the union keeps the menu ordered by signal activity
-  // while still surfacing well-known kinds even on an empty map.
-  const dropdownKinds = (() => {
-    const seen = new Set(Object.keys(counts));
-    const merged = [
-      ...Object.entries(counts).map(([k, n]) => ({ k, n })),
-      ...KINDS.filter((k) => !seen.has(k)).map((k) => ({ k, n: 0 })),
-    ];
-    merged.sort((a, b) => b.n - a.n || a.k.localeCompare(b.k));
-    return merged.map((m) => m.k);
-  })();
+  // Dropdown options = the 15 L1 categories. Sorted by current event
+  // count desc, then alphabetically, so the most-active bucket leads
+  // the menu. Categories with zero events still appear (PRIMARY_KINDS
+  // is always 15 entries), so users see the full taxonomy on an
+  // empty map.
+  const dropdownKinds = PRIMARY_KINDS.slice().sort((a, b) => {
+    const diff = (counts[b] ?? 0) - (counts[a] ?? 0);
+    return diff !== 0 ? diff : a.localeCompare(b);
+  });
 
   return (
     <div className="flex h-full flex-col">
@@ -323,7 +331,7 @@ export default function Radar() {
         <select className="rounded border border-edge bg-base px-1.5 py-0.5" value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="">{t("radar.allKinds")}</option>
           {dropdownKinds.map((k) => (
-            <option key={k} value={k}>{humanize(k)}</option>
+            <option key={k} value={k}>{humanizeL1(k)}</option>
           ))}
         </select>
         <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
@@ -388,7 +396,7 @@ export default function Radar() {
           <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel p-3 text-xs">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-semibold" style={{ color: SEV_COLOR[selected.severity] ?? SEV_COLOR.info }}>
-                {en("severity", selected.severity).toUpperCase()} · {humanize(selected.kind)}
+                {en("severity", selected.severity).toUpperCase()} · {humanizeL1(primaryOf(selected.kind))} · {humanize(selected.kind)}
               </span>
               <button className="text-dim hover:text-ink" onClick={() => setSelected(null)} title="Close">✕</button>
             </div>
@@ -428,10 +436,10 @@ export default function Radar() {
             className={`flex items-center gap-1 rounded border px-1.5 py-0.5 transition-colors ${
               kind === k ? "border-edge bg-white/10" : "border-transparent hover:bg-white/5"
             }`}
-            title={kind === k ? t("radar.allKinds") : humanize(k)}
+            title={kind === k ? t("radar.allKinds") : humanizeL1(k)}
           >
-            <span className="inline-block h-2 w-2 rounded-full" style={{ background: kindColor(k) }} />
-            <span className={kind === k ? "text-ink" : "text-dim"}>{humanize(k)}</span>
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: PRIMARY_COLOR[k as keyof typeof PRIMARY_COLOR] ?? kindColor(k) }} />
+            <span className={kind === k ? "text-ink" : "text-dim"}>{humanizeL1(k)}</span>
             <span className="text-ink font-medium">{n}</span>
           </button>
         ))}

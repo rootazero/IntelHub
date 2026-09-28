@@ -5,7 +5,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { en, type Dict } from "./en";
 import { zh } from "./zh";
-import { humanizeKind } from "./humanizeKind";
+import { humanizeKind, humanizeL1 } from "./humanizeKind";
 
 export type Lang = "zh" | "en";
 
@@ -80,11 +80,23 @@ export function useEnum() {
   };
 }
 
-/** Resolve a kind value to a human-readable label, with a TitleCase
- *  fallback for kinds whose i18n entry hasn't landed yet. Used by
- *  the Radar page (dropdown / chips / detail drawer) so dynamically
- *  introduced categories never display as raw snake_case. */
+/** Resolve an L2 kind value to a human-readable label, with a
+ *  TitleCase fallback for kinds whose i18n entry hasn't landed yet.
+ *  Used by the Radar page detail drawer + JSON payload + MCP/agent
+ *  surfaces so dynamically introduced categories never display as
+ *  raw snake_case. */
 export function useHumanizeKind() {
   const { lang } = useT();
   return (value: string) => humanizeKind(value, lang);
+}
+
+/** Resolve an L1 (primary display) kind value to a human-readable
+ *  label. L1 = the 15-category OSINT-standard taxonomy that Radar
+ *  chips + dropdown + FilterBar + MonitorMap legend aggregate to.
+ *  Used wherever we display the consolidated categories (one chip
+ *  per category, one dropdown option per category). Falls back to
+ *  TitleCase if the value is not in the L1 dict. */
+export function useHumanizeL1() {
+  const { lang } = useT();
+  return (value: string) => humanizeL1(value, lang);
 }
