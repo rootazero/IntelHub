@@ -1,6 +1,7 @@
 // SP10 FilterBar — kind chips, rel-type chips, confidence slider, time inputs.
 // Sibling control set; parent owns the filter state and re-fetches on change.
 
+import { useHumanizeKind } from "../i18n";
 import { KINDS, kindColor } from "../kindmeta";
 
 export interface FilterState {
@@ -36,6 +37,7 @@ export default function FilterBar({
   totalNodes,
   totalEdges,
 }: Props) {
+  const humanizeKind = useHumanizeKind();
   const toggleKind = (k: string) => {
     const next = new Set(value.kinds);
     if (next.has(k)) next.delete(k);
@@ -93,7 +95,7 @@ export default function FilterBar({
                 style={active ? { background: kindColor(k) } : undefined}
                 title={`filter by kind=${k}`}
               >
-                {k}
+                {humanizeKind(k)}
               </button>
             );
           })}

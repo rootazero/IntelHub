@@ -25,7 +25,7 @@ import { Link } from "react-router-dom";
 import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../../api";
-import { useT } from "../../i18n";
+import { useHumanizeKind, useT } from "../../i18n";
 import { KIND_COLORS } from "../../kindmeta";
 import { buildStyle, CHAIN, PRIMARY } from "../../basemap";
 import type { TileProvider, TilesMode } from "../../basemap";
@@ -62,6 +62,7 @@ export default function MonitorMap({
   onClearSource?: () => void;
 }) {
   const { t } = useT();
+  const humanizeKind = useHumanizeKind();
   const { attach } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const layerRef = useRef<AttachHandle | null>(null);
@@ -257,7 +258,7 @@ export default function MonitorMap({
         ) : legend.map((row) => (
           <div key={row.kind} className="hud-map-legend-row">
             <span className="hud-map-legend-dot" style={{ background: KIND_COLORS[row.kind] ?? "#8a8f98", color: KIND_COLORS[row.kind] ?? "#8a8f98" }} />
-            <span>{row.kind}</span>
+            <span>{humanizeKind(row.kind)}</span>
             <span style={{ color: "var(--hud-ink)", fontWeight: 600 }}>{row.n}</span>
           </div>
         ))}
