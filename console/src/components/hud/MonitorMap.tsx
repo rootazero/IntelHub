@@ -25,8 +25,8 @@ import { Link } from "react-router-dom";
 import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api } from "../../api";
-import { useHumanizeKind, useT } from "../../i18n";
-import { KIND_COLORS } from "../../kindmeta";
+import { useHumanizeKind, useHumanizeL1, useT } from "../../i18n";
+import { KIND_COLORS, PRIMARY_COLOR, primaryOf } from "../../kindmeta";
 import { buildStyle, CHAIN, PRIMARY } from "../../basemap";
 import type { TileProvider, TilesMode } from "../../basemap";
 import { useMapView } from "../../useMapView";
@@ -63,6 +63,11 @@ export default function MonitorMap({
 }) {
   const { t } = useT();
   const humanizeKind = useHumanizeKind();
+  // §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): the legend aggregates
+  // 70+ L2 kinds into 15 L1 buckets so the HUD stays readable. The
+  // circle color on the map still uses the L2 KIND_COLORS palette
+  // (event-level hue); the legend chip uses L1 PRIMARY_COLOR.
+  const humanizeL1Kind = useHumanizeL1();
   const { attach } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const layerRef = useRef<AttachHandle | null>(null);
@@ -211,11 +216,17 @@ export default function MonitorMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  // Top-5 kinds by current event set → legend. Sorted by count desc so the
-  // most active signals surface first (Crucix-style).
+  // Top-5 L1 (primary) categories by current event set → legend.
+  // Sorted by aggregate count desc so the most active signals surface
+  // first (Crucix-style). Multiple L2 kinds roll up into the same L1
+  // bucket, e.g. festival_holiday_imminent_priority + festival_holiday_past
+  // both contribute to the `holiday` count.
   const legend = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const ev of eventsRef.current) counts.set(ev.kind, (counts.get(ev.kind) ?? 0) + 1);
+    for (const ev of eventsRef.current) {
+      const l1 = primaryOf(ev.kind);
+      counts.set(l1, (counts.get(l1) ?? 0) + 1);
+    }
     return Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
@@ -257,8 +268,8 @@ export default function MonitorMap({
           <span style={{ color: "var(--hud-dim)" }}>{t("hud.noEvents")}</span>
         ) : legend.map((row) => (
           <div key={row.kind} className="hud-map-legend-row">
-            <span className="hud-map-legend-dot" style={{ background: KIND_COLORS[row.kind] ?? "#8a8f98", color: KIND_COLORS[row.kind] ?? "#8a8f98" }} />
-            <span>{humanizeKind(row.kind)}</span>
+            <span className="hud-map-legend-dot" style={{ background: PRIMARY_COLOR[row.kind as keyof typeof PRIMARY_COLOR] ?? KIND_COLORS[row.kind] ?? "#8a8f98", color: PRIMARY_COLOR[row.kind as keyof typeof PRIMARY_COLOR] ?? KIND_COLORS[row.kind] ?? "#8a8f98" }} />
+            <span>{humanizeL1Kind(row.kind)}</span>
             <span style={{ color: "var(--hud-ink)", fontWeight: 600 }}>{row.n}</span>
           </div>
         ))}

@@ -98,8 +98,180 @@ export const KIND_COLORS: Record<string, string> = {
   scanner_unknown: "#8a8f98",
 };
 
-export const kindColor = (k: string): string => KIND_COLORS[k] ?? KIND_COLORS.other;
+export const kindColor = (k: string): string =>
+  KIND_COLORS[k] ?? (PRIMARY_COLOR as Record<string, string>)[k] ?? KIND_COLORS.other;
 
 // Severity → size channel (flash biggest, info smallest/dimmest).
 export const sevRadius = (s: string): number =>
   s === "flash" ? 7 : s === "priority" ? 6 : s === "routine" ? 4 : 3;
+
+// ---------------------------------------------------------------------------
+// §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28) — L1 (primary display) taxonomy.
+//
+// Two-level design:
+//   L2 = the granular kind stored in `Signal.kind` / `geo_events.kind`.
+//        ~70+ values, machine-readable, agent/MCP/detail-drawer facing.
+//        Unchanged by this commit.
+//   L1 = a 15-category OSINT-standard taxonomy for human viewing.
+//        Radar chips + dropdown + FilterBar + MonitorMap legend all use L1.
+//
+// Each L2 routes to exactly one L1 via KIND_TO_PRIMARY below. New sources
+// that emit an unknown L2 fall through to `other` so the chip strip never
+// silently grows beyond 15 slots. PRIMARY_KINDS is the canonical ordering
+// (also drives display order in Radar chips + dropdown + legend).
+//
+// L1 colors are picked to be distinct from each other on the dark basemap
+// while staying consistent with the existing L2 palette where the L1 name
+// already had a color (e.g. L1 `conflict` keeps `#ff3355` from L2).
+// ---------------------------------------------------------------------------
+
+export const PRIMARY_KINDS = [
+  "conflict",
+  "political",
+  "disaster",
+  "climate",
+  "health",
+  "cyber",
+  "maritime",
+  "aviation",
+  "economic",
+  "news",
+  "humanitarian",
+  "holiday",
+  "research",
+  "wildlife",
+  "other",
+] as const;
+
+export type PrimaryKind = (typeof PRIMARY_KINDS)[number];
+
+/** L2 → L1 routing table. Every L2 kind emitted by a monitor source must
+ *  appear here; missing entries fall through to `other` via primaryOf().
+ *  Ordered to mirror PRIMARY_KINDS grouping (so additions are easy to spot
+ *  in diffs). */
+export const KIND_TO_PRIMARY: Record<string, PrimaryKind> = {
+  // conflict
+  conflict: "conflict",
+  military: "conflict",
+  // political
+  political: "political",
+  politician_trade_house_large: "political",
+  politician_trade_senate: "political",
+  politician_trade_info: "political",
+  // disaster (quake + fire + flood)
+  disaster: "disaster",
+  quake: "disaster",
+  fire: "disaster",
+  fire_extreme: "disaster",
+  fire_high: "disaster",
+  fire_significant: "disaster",
+  fire_top50: "disaster",
+  flood: "disaster",
+  flood_minor: "disaster",
+  flood_moderate: "disaster",
+  flood_major: "disaster",
+  flood_action: "disaster",
+  // climate (env / atmosphere)
+  climate: "climate",
+  air_quality: "climate",
+  weather_extreme: "climate",
+  // health
+  health: "health",
+  disease_outbreak_priority: "health",
+  disease_outbreak_routine: "health",
+  disease_outbreak_info: "health",
+  // cyber (incl. sanction / threat cluster / scanner / secret-leak / compliance)
+  cyber: "cyber",
+  sanction: "cyber",
+  threatcluster_threat_critical: "cyber",
+  threatcluster_threat_high: "cyber",
+  threatcluster_threat_low: "cyber",
+  threatcluster_vuln_active: "cyber",
+  threatcluster_vuln_background: "cyber",
+  threatcluster_vuln_critical: "cyber",
+  scanner_malicious: "cyber",
+  scanner_benign: "cyber",
+  scanner_unknown: "cyber",
+  secret_leak_broad: "cyber",
+  secret_leak_triggered: "cyber",
+  secret_leak_ignored: "cyber",
+  secret_leak_info: "cyber",
+  compliance_match_exact_priority: "cyber",
+  compliance_match_partial_routine: "cyber",
+  compliance_match_low_confidence: "cyber",
+  // maritime
+  maritime: "maritime",
+  chokepoint_info: "maritime",
+  chokepoint_bulker_routine: "maritime",
+  chokepoint_tanker_priority: "maritime",
+  chokepoint_tanker_routine: "maritime",
+  vessel_sanctions_red: "maritime",
+  vessel_sanctions_yellow: "maritime",
+  vessel_verdict_info: "maritime",
+  vessel_ownership_opaque: "maritime",
+  vessel_vetting_d_e: "maritime",
+  // aviation
+  flight: "aviation",
+  // economic (financial rolled in)
+  economic: "economic",
+  financial: "economic",
+  // news (consolidates the 7 Helium + RSS sub-severities)
+  news: "news",
+  news_priority: "news",
+  news_routine: "news",
+  news_info: "news",
+  news_headline: "news",
+  news_significant: "news",
+  news_peripheral: "news",
+  // humanitarian (HDX HAPI + hdx_humanitarian CKAN catalog)
+  hdx_hapi_national_risk_priority: "humanitarian",
+  hdx_hapi_national_risk_routine: "humanitarian",
+  hdx_hapi_national_risk_info: "humanitarian",
+  hdx_hapi_funding_priority: "humanitarian",
+  hdx_hapi_funding_routine: "humanitarian",
+  hdx_hapi_funding_info: "humanitarian",
+  hdx_humanitarian: "humanitarian",
+  // holiday (consolidates nager_date + festival_holidays)
+  holiday: "holiday",
+  festival_holiday_past: "holiday",
+  festival_holiday_imminent_priority: "holiday",
+  festival_holiday_imminent_routine: "holiday",
+  festival_holiday_upcoming: "holiday",
+  // research (semantic_scholar papers)
+  paper_priority: "research",
+  paper_routine: "research",
+  paper_info: "research",
+  // wildlife (GBIF)
+  wildlife_priority: "wildlife",
+  wildlife_routine: "wildlife",
+  wildlife_info: "wildlife",
+  // other (catch-all bucket for radiation + daylight + future unknowns)
+  radiation: "other",
+  daylight: "other",
+  other: "other",
+};
+
+/** L1 chip / legend colors. Reuses L2 hues where the L1 name already
+ *  had one in KIND_COLORS; introduces fresh hues for new buckets. */
+export const PRIMARY_COLOR: Record<PrimaryKind, string> = {
+  conflict: "#ff3355",
+  political: "#b388ff",
+  disaster: "#ff7a1a",
+  climate: "#2dd4bf",
+  health: "#f72585",
+  cyber: "#00f5d4",
+  maritime: "#3a6ff7",
+  aviation: "#7cc7ff",
+  economic: "#34d399",
+  news: "#c8cdd4",
+  humanitarian: "#80ed99",
+  holiday: "#facc15",
+  research: "#a78bfa",
+  wildlife: "#86efac",
+  other: "#8a8f98",
+};
+
+/** Map an L2 kind to its L1 primary category. Unknown / empty L2 inputs
+ *  fall through to `other` so the chip strip is bounded. */
+export const primaryOf = (kind: string): PrimaryKind =>
+  KIND_TO_PRIMARY[kind] ?? "other";
