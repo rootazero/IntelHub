@@ -1366,5 +1366,75 @@ check(
     f"useHumanizeKind refs in FilterBar.tsx = {filterbar_use_count or '0'}",
 )
 
+# 95-99. §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): consolidate 70+ L2
+# kinds into 15 L1 (primary display) buckets so Radar chips + dropdown +
+# FilterBar + MonitorMap legend stay concise for human viewing while the
+# underlying L2 kinds remain in the data layer for agents / MCP / JSON
+# payloads. Source-level checks pin the L1 taxonomy shape + L2 → L1
+# mapping; dist-level checks pin the L1 labels shipping in the bundle.
+primary_kinds_count = vm(
+    "grep -c 'PRIMARY_KINDS' /home/zou/IntelHub/console/src/kindmeta.ts"
+).strip()
+primary_kinds_present = primary_kinds_count != "" and primary_kinds_count != "0"
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: PRIMARY_KINDS exported from kindmeta.ts",
+    primary_kinds_present,
+    f"PRIMARY_KINDS refs in kindmeta.ts = {primary_kinds_count or '0'}",
+)
+
+primary_of_present = bool(
+    vm(
+        "grep -E 'primaryOf' /home/zou/IntelHub/console/src/kindmeta.ts | head -1"
+    ).strip()
+)
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: primaryOf() helper defined in kindmeta.ts",
+    primary_of_present,
+    "primaryOf found in source" if primary_of_present else "missing — add primaryOf()",
+)
+
+# Radar page must aggregate by L1 (chips + dropdown) and the bundle must
+# include both L1 en + zh labels for at least one unique category.
+radar_primary_count = vm(
+    "grep -F -c 'primaryOf' /home/zou/IntelHub/console/src/pages/Radar.tsx"
+).strip()
+radar_aggregates = radar_primary_count != "" and radar_primary_count != "0"
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: Radar.tsx calls primaryOf() for L1 aggregation",
+    radar_aggregates,
+    f"primaryOf refs in Radar.tsx = {radar_primary_count or '0'}",
+)
+
+# Bundle-level checks — the L1 labels must survive Vite tree-shaking.
+# We grep dist/assets/*.js for both en + zh L1 labels. 'humanitarian' is
+# the L1 enum key (new in this commit, so a clean smoke marker); the
+# matching zh label '人道' is short and unique enough to not be confused
+# with another string in the bundle.
+dist_glob2 = "/home/zou/IntelHub/console/dist/assets/*.js"
+has_l1_key = bool(
+    vm(f"grep -l '\"humanitarian\"\\|'humanitarian' {dist_glob2} 2>/dev/null | head -1").strip()
+)
+has_l1_zh = bool(
+    vm(f"grep -l '人道' {dist_glob2} 2>/dev/null | head -1").strip()
+)
+has_l1_en = bool(
+    vm(f"grep -l 'Humanitarian' {dist_glob2} 2>/dev/null | head -1").strip()
+)
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: L1 key 'humanitarian' ships in console dist",
+    has_l1_key,
+    "found in dist" if has_l1_key else "missing — rebuild console",
+)
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: L1 en label 'Humanitarian' ships in console dist",
+    has_l1_en,
+    "found in dist" if has_l1_en else "missing — rebuild console",
+)
+check(
+    "FE-RADAR-PRIMARY-CATEGORIES: L1 zh label '人道' ships in console dist",
+    has_l1_zh,
+    "found in dist" if has_l1_zh else "missing — rebuild console",
+)
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)

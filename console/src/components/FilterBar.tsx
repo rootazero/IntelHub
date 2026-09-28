@@ -1,8 +1,8 @@
 // SP10 FilterBar — kind chips, rel-type chips, confidence slider, time inputs.
 // Sibling control set; parent owns the filter state and re-fetches on change.
 
-import { useHumanizeKind } from "../i18n";
-import { KINDS, kindColor } from "../kindmeta";
+import { useHumanizeL1 } from "../i18n";
+import { PRIMARY_COLOR, PRIMARY_KINDS } from "../kindmeta";
 
 export interface FilterState {
   kinds: Set<string>;
@@ -37,7 +37,12 @@ export default function FilterBar({
   totalNodes,
   totalEdges,
 }: Props) {
-  const humanizeKind = useHumanizeKind();
+  // §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): chips show L1
+  // (primary display) categories rather than raw L2 kinds. The L2
+  // → L1 mapping lives in kindmeta.KIND_TO_PRIMARY; consumers that
+  // still want L2 (detail drawer, JSON payload, agent/MCP) read
+  // `kind` directly from each entity.
+  const humanizeKind = useHumanizeL1();
   const toggleKind = (k: string) => {
     const next = new Set(value.kinds);
     if (next.has(k)) next.delete(k);
@@ -77,11 +82,11 @@ export default function FilterBar({
         </button>
       </div>
 
-      {/* Kind chips */}
+      {/* Kind chips — L1 (primary display) categories */}
       <div className="mb-2">
         <p className="text-dim uppercase mb-1">kind ({activeKinds || "any"})</p>
         <div className="flex flex-wrap gap-1">
-          {KINDS.map((k) => {
+          {PRIMARY_KINDS.map((k) => {
             const active = value.kinds.has(k);
             return (
               <button
@@ -92,8 +97,8 @@ export default function FilterBar({
                   "px-1.5 py-0.5 border text-[10px] " +
                   (active ? "border-white text-black font-bold" : "border-edge text-dim hover:text-white")
                 }
-                style={active ? { background: kindColor(k) } : undefined}
-                title={`filter by kind=${k}`}
+                style={active ? { background: PRIMARY_COLOR[k] } : undefined}
+                title={`filter by primary kind=${k}`}
               >
                 {humanizeKind(k)}
               </button>
