@@ -36,6 +36,7 @@ export default function FilterBar({
   totalNodes,
   totalEdges,
 }: Props) {
+  const humanizeKind = useHumanizeKind();
   const toggleKind = (k: string) => {
     const next = new Set(value.kinds);
     if (next.has(k)) next.delete(k);
@@ -93,7 +94,7 @@ export default function FilterBar({
                 style={active ? { background: kindColor(k) } : undefined}
                 title={`filter by kind=${k}`}
               >
-                {k}
+                {humanizeKind(k)}
               </button>
             );
           })}
