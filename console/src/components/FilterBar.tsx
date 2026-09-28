@@ -1,6 +1,7 @@
 // SP10 FilterBar — kind chips, rel-type chips, confidence slider, time inputs.
 // Sibling control set; parent owns the filter state and re-fetches on change.
 
+import { useHumanizeKind } from "../i18n";
 import { KINDS, kindColor } from "../kindmeta";
 
 export interface FilterState {

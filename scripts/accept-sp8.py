@@ -1347,5 +1347,24 @@ check(
     f"useHumanizeKind refs in Radar.tsx = {radar_use_count or '0'}",
 )
 
+# 93-94. §FE-RADAR-i18n-widen: extend the humanizeKind() coverage to the
+# MonitorMap legend (top-right command console) and FilterBar kind chips
+# (Graph page). Both previously rendered raw snake_case codes; both now
+# use the same 3-tier fallback as Radar.tsx.
+monitormap_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/components/hud/MonitorMap.tsx").strip()
+monitormap_uses = monitormap_use_count != "" and monitormap_use_count != "0"
+check(
+    "FE-RADAR-i18n-widen: MonitorMap.tsx imports + calls useHumanizeKind",
+    monitormap_uses,
+    f"useHumanizeKind refs in MonitorMap.tsx = {monitormap_use_count or '0'}",
+)
+filterbar_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/components/FilterBar.tsx").strip()
+filterbar_uses = filterbar_use_count != "" and filterbar_use_count != "0"
+check(
+    "FE-RADAR-i18n-widen: FilterBar.tsx imports + calls useHumanizeKind",
+    filterbar_uses,
+    f"useHumanizeKind refs in FilterBar.tsx = {filterbar_use_count or '0'}",
+)
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
