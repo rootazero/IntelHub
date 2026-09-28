@@ -19,7 +19,7 @@ import { useSearchParams } from "react-router-dom";
 import maplibregl, { Map as MlMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { api, streamEvents } from "../api";
-import { useEnum, useT } from "../i18n";
+import { useEnum, useHumanizeKind, useT } from "../i18n";
 import { KINDS, kindColor } from "../kindmeta";
 import { focusOnEvent } from "../lib/eventFocus";
 import { attachEventsLayer, type AttachHandle } from "../lib/mapEventsLayer";
@@ -62,6 +62,7 @@ const WINDOWS: Record<string, number> = { "1h": 1, "24h": 24, "72h": 72, "7d": 1
 export default function Radar() {
   const { t } = useT();
   const en = useEnum();
+  const humanize = useHumanizeKind();
   const { region, attach, registerOnReset, registerOnRegionJump, setRegion } = useMapView();
   const mapRef = useRef<MlMap | null>(null);
   const layerRef = useRef<AttachHandle | null>(null);
@@ -287,6 +288,22 @@ export default function Radar() {
     return acc;
   }, {});
 
+  // §FE-RADAR-i18n (2026-09-27): derive the dropdown options from the
+  // current event set so dynamically introduced kinds (e.g.
+  // festival_holiday_past) appear in the filter without a code change.
+  // We merge the observed kinds (by count desc) with the static KINDS
+  // taxonomy — the union keeps the menu ordered by signal activity
+  // while still surfacing well-known kinds even on an empty map.
+  const dropdownKinds = (() => {
+    const seen = new Set(Object.keys(counts));
+    const merged = [
+      ...Object.entries(counts).map(([k, n]) => ({ k, n })),
+      ...KINDS.filter((k) => !seen.has(k)).map((k) => ({ k, n: 0 })),
+    ];
+    merged.sort((a, b) => b.n - a.n || a.k.localeCompare(b.k));
+    return merged.map((m) => m.k);
+  })();
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-panel px-3 py-2 text-xs">
@@ -305,8 +322,8 @@ export default function Radar() {
         </select>
         <select className="rounded border border-edge bg-base px-1.5 py-0.5" value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="">{t("radar.allKinds")}</option>
-          {KINDS.map((k) => (
-            <option key={k} value={k}>{en("kind", k)}</option>
+          {dropdownKinds.map((k) => (
+            <option key={k} value={k}>{humanize(k)}</option>
           ))}
         </select>
         <span className="text-dim">{t("radar.events", { n: visible.length })}</span>
@@ -371,7 +388,7 @@ export default function Radar() {
           <aside className="w-80 shrink-0 overflow-y-auto border-l border-edge bg-panel p-3 text-xs">
             <div className="mb-2 flex items-center justify-between">
               <span className="font-semibold" style={{ color: SEV_COLOR[selected.severity] ?? SEV_COLOR.info }}>
-                {en("severity", selected.severity).toUpperCase()} · {en("kind", selected.kind)}
+                {en("severity", selected.severity).toUpperCase()} · {humanize(selected.kind)}
               </span>
               <button className="text-dim hover:text-ink" onClick={() => setSelected(null)} title="Close">✕</button>
             </div>
@@ -411,10 +428,10 @@ export default function Radar() {
             className={`flex items-center gap-1 rounded border px-1.5 py-0.5 transition-colors ${
               kind === k ? "border-edge bg-white/10" : "border-transparent hover:bg-white/5"
             }`}
-            title={kind === k ? t("radar.allKinds") : en("kind", k)}
+            title={kind === k ? t("radar.allKinds") : humanize(k)}
           >
             <span className="inline-block h-2 w-2 rounded-full" style={{ background: kindColor(k) }} />
-            <span className={kind === k ? "text-ink" : "text-dim"}>{en("kind", k)}</span>
+            <span className={kind === k ? "text-ink" : "text-dim"}>{humanize(k)}</span>
             <span className="text-ink font-medium">{n}</span>
           </button>
         ))}
