@@ -1277,5 +1277,75 @@ else:
         "hub:nightly:sp8:run hash missing — nightly timer not installed on this VM yet",
     )
 
+# 90. §FE-RADAR-i18n (2026-09-27): humanizeKind helper module exists in
+# source. Single source of truth for displaying kind values (e.g.
+# festival_holiday_past) as human-readable labels with a TitleCase
+# fallback. Without this module, Radar chips fall back to raw snake_case.
+hk_src = vm(
+    "test -f /home/zou/IntelHub/console/src/i18n/humanizeKind.ts && echo present || echo missing"
+).strip()
+check(
+    "FE-RADAR-i18n: humanizeKind module present in console source",
+    hk_src == "present",
+    hk_src,
+)
+
+# 91. §FE-RADAR-i18n: en.ts + zh.ts dictionaries carry the new kind
+# entries. Dict = typeof en means zh.ts must mirror exactly — TypeScript
+# catches missing translations at build time, but sp8 hard-proves the
+# runtime text so a partial revert doesn't ship.
+new_kind_keys = [
+    "festival_holiday_past",
+    "festival_holiday_imminent_priority",
+    "festival_holiday_imminent_routine",
+    "festival_holiday_upcoming",
+    "fire_extreme",
+    "fire_high",
+    "scanner_malicious",
+    "vessel_sanctions_red",
+]
+# grep -F -q exits 0 on match (no stdout); use exit code via a wrapper
+# that echoes "found" / "missing" so vm() can return a non-empty marker.
+en_missing = [k for k in new_kind_keys
+              if vm(f"grep -F -q '{k}:' /home/zou/IntelHub/console/src/i18n/en.ts && echo found || echo missing").strip() != "found"]
+zh_missing = [k for k in new_kind_keys
+              if vm(f"grep -F -q '{k}:' /home/zou/IntelHub/console/src/i18n/zh.ts && echo found || echo missing").strip() != "found"]
+check(
+    "FE-RADAR-i18n: en.ts has all new dynamic kind entries",
+    not en_missing,
+    f"missing in en.ts: {en_missing}" if en_missing else f"all {len(new_kind_keys)} keys present",
+)
+check(
+    "FE-RADAR-i18n: zh.ts has all new dynamic kind entries (mirrors en.ts)",
+    not zh_missing,
+    f"missing in zh.ts: {zh_missing}" if zh_missing else f"all {len(new_kind_keys)} keys present",
+)
+
+# 92. §FE-RADAR-i18n: console bundle includes the new labels AND Radar
+# imports humanizeKind. We grep dist/assets/*.js — Vite splits bundle into
+# many chunks; any chunk containing the literal Chinese label means the
+# Vite tree-shaker preserved it.
+dist_glob = "/home/zou/IntelHub/console/dist/assets/*.js"
+has_zh = bool(vm(f"grep -l '临近节日' {dist_glob} 2>/dev/null | head -1").strip())
+has_en = bool(vm(f"grep -l 'Imminent Holiday (Priority)' {dist_glob} 2>/dev/null | head -1").strip())
+# grep -F -c returns a COUNT, not the matched text — compare to "0".
+radar_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/pages/Radar.tsx").strip()
+radar_uses = radar_use_count != "" and radar_use_count != "0"
+check(
+    "FE-RADAR-i18n: zh label '临近节日' ships in console dist",
+    has_zh,
+    "found in dist" if has_zh else "missing — rebuild console with Vite tree-shake intact",
+)
+check(
+    "FE-RADAR-i18n: en label 'Imminent Holiday (Priority)' ships in console dist",
+    has_en,
+    "found in dist" if has_en else "missing — rebuild console with Vite tree-shake intact",
+)
+check(
+    "FE-RADAR-i18n: Radar.tsx imports + calls useHumanizeKind",
+    radar_uses,
+    f"useHumanizeKind refs in Radar.tsx = {radar_use_count or '0'}",
+)
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)
