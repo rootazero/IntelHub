@@ -5,6 +5,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { en, type Dict } from "./en";
 import { zh } from "./zh";
+import { humanizeKind } from "./humanizeKind";
 
 export type Lang = "zh" | "en";
 
@@ -77,4 +78,13 @@ export function useEnum() {
     const s = t(key);
     return s === key ? value : s;
   };
+}
+
+/** Resolve a kind value to a human-readable label, with a TitleCase
+ *  fallback for kinds whose i18n entry hasn't landed yet. Used by
+ *  the Radar page (dropdown / chips / detail drawer) so dynamically
+ *  introduced categories never display as raw snake_case. */
+export function useHumanizeKind() {
+  const { lang } = useT();
+  return (value: string) => humanizeKind(value, lang);
 }
