@@ -1304,8 +1304,12 @@ new_kind_keys = [
     "scanner_malicious",
     "vessel_sanctions_red",
 ]
-en_missing = [k for k in new_kind_keys if not vm(f"grep -q '{k}:' /home/zou/IntelHub/console/src/i18n/en.ts").strip()]
-zh_missing = [k for k in new_kind_keys if not vm(f"grep -q '{k}:' /home/zou/IntelHub/console/src/i18n/zh.ts").strip()]
+# grep -F -q exits 0 on match (no stdout); use exit code via a wrapper
+# that echoes "found" / "missing" so vm() can return a non-empty marker.
+en_missing = [k for k in new_kind_keys
+              if vm(f"grep -F -q '{k}:' /home/zou/IntelHub/console/src/i18n/en.ts && echo found || echo missing").strip() != "found"]
+zh_missing = [k for k in new_kind_keys
+              if vm(f"grep -F -q '{k}:' /home/zou/IntelHub/console/src/i18n/zh.ts && echo found || echo missing").strip() != "found"]
 check(
     "FE-RADAR-i18n: en.ts has all new dynamic kind entries",
     not en_missing,
@@ -1324,7 +1328,9 @@ check(
 dist_glob = "/home/zou/IntelHub/console/dist/assets/*.js"
 has_zh = bool(vm(f"grep -l '临近节日' {dist_glob} 2>/dev/null | head -1").strip())
 has_en = bool(vm(f"grep -l 'Imminent Holiday (Priority)' {dist_glob} 2>/dev/null | head -1").strip())
-radar_uses = "useHumanizeKind" in vm(f"grep -c 'useHumanizeKind' /home/zou/IntelHub/console/src/pages/Radar.tsx").strip()
+# grep -F -c returns a COUNT, not the matched text — compare to "0".
+radar_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/pages/Radar.tsx").strip()
+radar_uses = radar_use_count != "" and radar_use_count != "0"
 check(
     "FE-RADAR-i18n: zh label '临近节日' ships in console dist",
     has_zh,
@@ -1338,7 +1344,7 @@ check(
 check(
     "FE-RADAR-i18n: Radar.tsx imports + calls useHumanizeKind",
     radar_uses,
-    f"useHumanizeKind refs in Radar.tsx = {radar_uses}",
+    f"useHumanizeKind refs in Radar.tsx = {radar_use_count or '0'}",
 )
 
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
