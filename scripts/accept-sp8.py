@@ -1351,19 +1351,26 @@ check(
 # MonitorMap legend (top-right command console) and FilterBar kind chips
 # (Graph page). Both previously rendered raw snake_case codes; both now
 # use the same 3-tier fallback as Radar.tsx.
-monitormap_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/components/hud/MonitorMap.tsx").strip()
+#
+# Post-§FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): MonitorMap legend and
+# FilterBar chips surface the 15-category L1 taxonomy, so they call
+# useHumanizeL1() rather than useHumanizeKind() — the L2 helper still
+# exists (used by Radar's detail drawer + JSON payloads + MCP) but the
+# consolidated UI surfaces read from the L1 dict. The check below is
+# updated accordingly.
+monitormap_use_count = vm(f"grep -F -c 'useHumanizeL1' /home/zou/IntelHub/console/src/components/hud/MonitorMap.tsx").strip()
 monitormap_uses = monitormap_use_count != "" and monitormap_use_count != "0"
 check(
-    "FE-RADAR-i18n-widen: MonitorMap.tsx imports + calls useHumanizeKind",
+    "FE-RADAR-PRIMARY-CATEGORIES: MonitorMap.tsx imports + calls useHumanizeL1",
     monitormap_uses,
-    f"useHumanizeKind refs in MonitorMap.tsx = {monitormap_use_count or '0'}",
+    f"useHumanizeL1 refs in MonitorMap.tsx = {monitormap_use_count or '0'}",
 )
-filterbar_use_count = vm(f"grep -F -c 'useHumanizeKind' /home/zou/IntelHub/console/src/components/FilterBar.tsx").strip()
+filterbar_use_count = vm(f"grep -F -c 'useHumanizeL1' /home/zou/IntelHub/console/src/components/FilterBar.tsx").strip()
 filterbar_uses = filterbar_use_count != "" and filterbar_use_count != "0"
 check(
-    "FE-RADAR-i18n-widen: FilterBar.tsx imports + calls useHumanizeKind",
+    "FE-RADAR-PRIMARY-CATEGORIES: FilterBar.tsx imports + calls useHumanizeL1",
     filterbar_uses,
-    f"useHumanizeKind refs in FilterBar.tsx = {filterbar_use_count or '0'}",
+    f"useHumanizeL1 refs in FilterBar.tsx = {filterbar_use_count or '0'}",
 )
 
 # 95-99. §FE-RADAR-PRIMARY-CATEGORIES (2026-09-28): consolidate 70+ L2
@@ -1412,13 +1419,13 @@ check(
 # with another string in the bundle.
 dist_glob2 = "/home/zou/IntelHub/console/dist/assets/*.js"
 has_l1_key = bool(
-    vm(f"grep -l '\"humanitarian\"\\|'humanitarian' {dist_glob2} 2>/dev/null | head -1").strip()
+    vm(f"grep -lF humanitarian {dist_glob2} 2>/dev/null | head -1").strip()
 )
 has_l1_zh = bool(
     vm(f"grep -l '人道' {dist_glob2} 2>/dev/null | head -1").strip()
 )
 has_l1_en = bool(
-    vm(f"grep -l 'Humanitarian' {dist_glob2} 2>/dev/null | head -1").strip()
+    vm(f"grep -l Humanitarian {dist_glob2} 2>/dev/null | head -1").strip()
 )
 check(
     "FE-RADAR-PRIMARY-CATEGORIES: L1 key 'humanitarian' ships in console dist",
