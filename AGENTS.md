@@ -1,6 +1,6 @@
 # IntelHub — Agent 操作手册
 
-> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-27 04:40，main @a7a2650）。
+> 给后续会话的直接使用手册。所有命令均在实际部署中验证过（最后更新 2026-09-30，main @fb96eac）。
 
 ## 主机与路径
 
@@ -8,7 +8,7 @@
 |---|---|
 | **生产宿主机** | PVE40（Proxmox），VM 410（4 vCPU，8G RAM，balloon 0）。**生产环境，严禁测试** |
 | 生产 VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
-| **测试宿主机** | PVE30 节点上 VM 315（4 vCPU，8G RAM，UEFI，OVMF）。从模板 9000 (debian-13-cloud) 全量克隆（用户/密钥/Mac 地址与原 415 保持一致） |
+| **测试宿主机** | **PVE40** 节点上 VM（4 vCPU，8G RAM，UEFI，OVMF；新 VMID 占位待用户补入）。**2026-09-30 由 PVE30 上的 VM 315 重部署到 PVE40**：IP/MAC/hostname/SSH 用户+密钥全部不变；ssh host key 因 fresh clone 自然换；与 IntelHub (VM 410) **共享同一 PVE 宿主机**——host-isolation 已失效（详见下方「规则 3」）。从模板 9000 (debian-13-cloud) 全量克隆。 |
 | 测试 VM 地址 | `10.10.10.35`，ssh 别名 **`Debian-test`**（免密已配），用户 `zou` |
 | VM 部署目录 | `/home/zou/IntelHub`（rsync 目标 + 构建现场） |
 | Mac 主仓库 | `/Volumes/TBU/Workspace/IntelHub`（网络盘，有同步延迟） |
@@ -29,16 +29,18 @@
 
 ## 开发流程（铁律）
 
-> **生产 / 测试隔离**：所有改动先在 **`Debian-test`** 验证通过，再合并到 main 并部署到 **`IntelHub`**。410 是生产服务，绝对不允许测试用——任何 `ssh IntelHub` 之前必须确认改动已在 315 验收全绿。
+> **生产 / 测试隔离**（2026-09-30 后已弱化）：所有改动先在 **`Debian-test`** 验证通过，再合并到 main 并部署到 **`IntelHub`**。410 是生产服务，绝对不允许测试用——任何 `ssh IntelHub` 之前必须确认改动已在 Debian-test 上验收全绿。
+>
+> **⚠️ 2026-09-30 起变化**：Debian-test 已迁移到 PVE40，与 IntelHub (VM 410) **共享同一宿主机**——以前"测试机崩了不影响生产"的假设已失效。两台 VM 现在共用 PVE40 的 bridge fdb / openclash NAT / conntrack 表，stampede risk 会同时影响两者（详见下方「规则 3」）。
 
 1. **worktree 隔离**：`cd /Volumes/TBU/Workspace/IntelHub && git worktree add ../IntelHub-<suffix> -b feat/<name>`（网络盘有同步延迟，紧接着操作前 `sleep 4`；失败的 worktree → `rm -rf ../IntelHub-<suffix> && git branch -D feat/<name> && git worktree prune`）
 2. 在 worktree 里改代码
-3. **代码改动完成后，在 Debian-test（315）上完整验收**（命令见下）—— **全在 Debian-test 上**
-4. 315 验收全绿 → `git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d`
-5. **再次部署 IntelHub 生产**（远端 ssh 进 410，**在 410 本机跑 `update.sh`**，与 315 同样的编译/重启序列；详见下方"🔴 部署铁律"规则 2）
+3. **代码改动完成后，在 Debian-test（PVE40 上的测试 VM）上完整验收**（命令见下）—— **全在 Debian-test 上**
+4. 测试 VM 验收全绿 → `git add -A && git commit` → 主仓库 `git merge --no-ff` → `git worktree remove` + `git branch -d`
+5. **再次部署 IntelHub 生产**（远端 ssh 进 410，**在 410 本机跑 `update.sh`**，与 Debian-test 同样的编译/重启序列；详见下方"🔴 部署铁律"规则 2）
 6. 生产验收（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）
 7. **`git push origin main`**
-8. **绝不**：① 直接在 main 工作区改；② 跳过 315 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
+8. **绝不**：① 直接在 main 工作区改；② 跳过 Debian-test 验收直接动 410；③ 在 410 上跑 `build-*` / `restart hub-core` 当作测试；④ 提交 secrets；⑤ 在 pve40 宿主机上装包/改配置/留垃圾文件（VM 内部 disk 操作仅限 losetup 临时挂载修复 SSH 这种例外场景，事后立刻清理 losetup + 卸载 + rm 临时文件）
 
 ## 🔴 重启 hub-core 后必须等 5 分钟（2026-09-20 PVE40 崩溃教训）
 
@@ -69,7 +71,9 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 - 03:57–04:39 — 持续 ssh timeout，PVE40 10.10.10.40 端口 22/8006 都不通，10.10.10.41 (IntelHub VM) 也不通
 - 04:39+ — 仍在 down（postmortem 说 38-min host outages，但这次超出）
 
-**Debian-test**（315，pve30 上的 VM）**完全正常**——同样的代码、同样的 key、同样的 build/restart 序列，sp6 36/5/32，Phase 1 全部 PASS。所以**问题不是 hub-core 代码**，而是 PVE40 host 的网络栈被击穿。
+**Debian-test**（**2026-09-27 时**仍是 PVE30 上的 VM 315）**完全正常**——同样的代码、同样的 key、同样的 build/restart 序列，sp6 36/5/32，Phase 1 全部 PASS。所以**问题不是 hub-core 代码**，而是 PVE40 host 的网络栈被击穿。
+
+> **2026-09-30 历史标注**：本节描述的是 2026-09-27 stampede 复发事件。当时 PVE40 上**只有 VM 410（IntelHub）一个 VM**——Debian-test 在 PVE30 上不受影响，纯属 host-isolation 兜底。2026-09-30 起 Debian-test 已迁到 PVE40，如果今天再发生同样的 stampede，Debian-test 也会一并 down，没有 fallback。
 
 **与上次区别**：上次的 stampede 发生在 74 sources，本次是 82 sources（+8 Phase 1）。pool_max_idle_per_host(8) + scheduler stagger (idx*3)/2 + cctv Semaphore(3) 都已部署 (cd07a7b)。cctv-refresh 91s 完成证明 stampede 修复**对 cctv-refresh 这一层生效**。
 
@@ -91,14 +95,39 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 - 后续每次大规模加 source（>5/批次）都应该考虑“分批 restart”（先 restart hub-core，让前 N 个 sources 首轮 sweep 完成，再 add 下一批）
 - **接受 retry-restart-on-PVE40-down 场景**，但在代码层提供 `--max-fanout` 参数，给运营留手动 ramp-up 能力
 
+## ⚠️ 2026-09-30 Debian-test 迁回 PVE40 + 初始化快照
+
+**事件**：Debian-test（VM 315）从 PVE30 节点重新部署到 PVE40 节点。IP `10.10.10.35` / MAC / hostname / SSH 用户+密钥全部保留。ssh host key 因 fresh clone 自然换（首连需 `ssh-keygen -R 10.10.10.35`）。新 VMID 占位待用户补入 PVE UI。
+
+**清理后的快照状态**（为后续新 install 提供的已知干净基线）：
+- 磁盘 7G used / 88G avail（原 32G 减到 7G，省 25G）
+- 零 IntelHub 痕迹：`find / -iname '*intelhub*'` 与 `find / -name 'hub' -type f` 均返回空
+- Docker 状态：0 容器、3 个默认网络（bridge/host/none）、0 卷、2 张基础镜像（alpine + curlimages/curl）
+- 监听端口：22/53/5355（无 8800）
+- 保留：Debian 13 base + zou 用户 + qemu-guest-agent + docker engine 29.8.1（buildx + compose v5.5.1 + containerd）+ cloud-init + sshd/journald 默认配置
+- `/etc/docker/daemon.json` 删了（IntelHub-tuned 172.30.0.0/16 pool 没了，docker 回默认 172.17.0.0/16）
+- 两个 IntelHub drop-in 也清：`/etc/systemd/journald.conf.d/60-intelhub.conf` + `/etc/ssh/sshd_config.d/60-intelhub.conf`（base sshd_config 仍 PasswordAuthentication no）
+- 用户选择：仅清应用层，保留 docker engine/buildx/compose（下次 install.sh 会重装所有东西）
+- 重启 sshd + journald service 验证为 active
+
+**host-isolation 后果（最关键）**：Debian-test 与 IntelHub (VM 410) 现在共享 PVE40。后果 1：`pve40 down = 两台 VM 同时 down，没有 fallback`——PVE40 bridge fdb / openclash NAT / conntrack 表被击穿时两台一起没。后果 2：测试机上的 stampede 现在也会把生产一起带崩。后果 3：PVE40 是单点，所有 VM 操作都要更谨慎。
+
+**行动项**：
+1. **本次提交后**：本文件已同步更新（头表、rule 3、阶段 1、测试 VM 基础设施、pve40 宿主机禁令）
+2. **下次 install.sh**：在快照基础上跑，会自动重装 docker、写 drop-in、配置 service——与原始路径一致
+3. **VMID 待补**：用户打快照时记录 PVE UI 上 Debian-test 的新 ID，更新本文中 `<新ID>` 占位
+4. **memory 已记**：参见 long-term memory 中 `intelhub.testvm-relocation-2026-09-30` + `intelhub.host-isolation-gone-pve40` + `intelhub.testvm-current-state-2026-09-30`
+
 ## 🔴 部署铁律（2026-09-27 PVE40 二次崩溃后确立）
 
 ### 规则 1：IntelHub（VM 410, 生产）**绝不允许测试**
 
-VM 410 是**生产服务**——任何对 hub-core 的 `restart` / `build` 操作都直接冲击生产。2026-09-27 实测：Phase 1 +8 sources 后 `restart hub-core` 击穿 PVE40 宿主机网络栈 → PVE40 物理断网 → 85+ min 才恢复。PVE40 上只有 VM 410 一个 VM，bridge fdb / openclash NAT 表被击穿后**没有 fallback**，只能等硬件/网络恢复。
+VM 410 是**生产服务**——任何对 hub-core 的 `restart` / `build` 操作都直接冲击生产。2026-09-27 实测：Phase 1 +8 sources 后 `restart hub-core` 击穿 PVE40 宿主机网络栈 → PVE40 物理断网 → 85+ min 才恢复。
+
+**2026-09-30 注**：当时 PVE40 上只有 VM 410 一个 VM，所以"没有 fallback"指的是"IntelHub 单点没 VM 兜底"。2026-09-30 起 Debian-test 也迁到了 PVE40——现在 PVE40 上有 **VM 410 + Debian-test 两个 VM**，bridge fdb / openclash NAT 表被击穿后**仍然没有 fallback**（只是现在影响范围从 1 个变 2 个：IntelHub 和 Debian-test 一起 down）。
 
 **铁律**：
-1. **任何**代码改动先在 **Debian-test（VM 315, pve30）** 完整测试（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）
+1. **任何**代码改动先在 **Debian-test（PVE40 上的新克隆 VM）** 完整测试（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）。VMID 占位待补。
 2. **只有全部 sp 验收通过**后才允许在 410 上跑 `update.sh`
 3. **永远不要**在 410 上跑 `bash scripts/build-hub.sh` 当成"试一下能不能编译"——这就是"在生产上测试"
 4. **永远不要**因为"小改动"跳过 Debian-test 验证直接部署到 410
@@ -141,16 +170,22 @@ ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
   && sudo cp -a /tmp/intelhub-core-backup-* core && sudo chown -R zou:zou core'
 ```
 
-### 规则 3：Debian-test（VM 315）允许任何测试
+### 规则 3：Debian-test（PVE40）允许任何测试——但不再与 IntelHub host-isolation
 
-Debian-test 在 pve30 上——即使它被 stampede 击穿，影响的也只是 pve30 上的其他 VM，**不会扩散到 IntelHub / pve40**。所以：
-- 第一次 build、压力测试、调试、playground 都允许在 315
-- 同样要 sleep 300（避免在同一台 VM 上重复踩 stampede）
-- sp 全绿后才允许进 410
+**2026-09-30 之前**（旧规则）：Debian-test 在 PVE30 上——即使它被 stampede 击穿，影响的也只是 PVE30 上的其他 VM，**不会扩散到 IntelHub / PVE40**。那时候这是兜底层。
+
+**2026-09-30 之后**（v2）：Debian-test 已迁到 PVE40，与 IntelHub (VM 410) **共享同一 PVE 宿主机**。后果 1：`pve40 down = 两台 VM 同时 down，没有 fallback`——PVE40 bridge fdb / openclash NAT 表被击穿时两台一起没。后果 2：测试机上的 stampede 现在也会把生产一起带崩。host-isolation 假设已失效，**生产 / 测试隔离现在只能靠流程纪律，不能靠宿主机隔离**。
+
+所以现在的"允许"列表要收紧：
+- **仍然允许**：第一次 build、单元测试、低流量调试、playground、单源 sweep 测试
+- **仍要 sleep 300**（避免在同一 PVE 节点上背靠背 restart；2026-09-20/27 的 stampede 在 PVE40 上确证过击穿模式）
+- **sp 全绿后才允许进 410**——这条没变
+- **新增软限制**：Debian-test 上任何 restart hub-core / 大规模 source fanout 都要先评估"对 IntelHub 的连带影响"，必要时改用 update.sh 走 GitHub HTTPS（避免 LAN rsync 与 restart 叠加，详见规则 2）
+- **新增兜底**：PVE40 物理断网时无法远程恢复，必须等硬件层恢复——所以**保持 PVE40 单点稳定的优先级现在比 Debian-test 本身的吞吐更重要**
 
 ## 部署命令（每次必走的完整序列）
 
-### 阶段 1：Debian-test（VM 315）验收（必做）
+### 阶段 1：Debian-test（PVE40）验收（必做）
 
 ```bash
 # 1. rsync 到测试 VM（exclude 清单固定，照搬） — ⚠️ **废弃，改用 update.sh**（见下方新流程）
@@ -169,14 +204,14 @@ ssh -o BatchMode=yes Debian-test 'cd /home/zou/IntelHub \
   && bash scripts/build-console.sh 2>&1 | tail -1 \
   && sudo systemctl restart hub-core && sleep 4 && systemctl is-active hub-core'
 
-# 3. 315 验收全绿
+# 3. 测试 VM 验收全绿
 KEY=$(ssh -o BatchMode=yes Debian-test 'grep -o "ihk_[a-f0-9]*" /home/zou/IntelHub/core/agent-keys.txt | head -1')
 for a in sp8 sp6 sp7 sp3; do
   python3 scripts/accept-$a.py "$KEY" 2>&1 | grep -E '==.*(passed|failed)' | tail -1
 done
 ```
 
-### 阶段 2：合并 main → 部署 IntelHub（仅 315 全绿后）
+### 阶段 2：合并 main → 部署 IntelHub（仅测试 VM 全绿后）
 
 ```bash
 git add -A && git commit
@@ -184,7 +219,7 @@ cd /Volumes/TBU/Workspace/IntelHub && git merge --no-ff feat/<name> && git workt
 
 # ⚠️ 以下 rsync + 重启流程**废弃**。详见上方"规则 2"。仅保留为迁移参考。
 cd /Volumes/TBU/Workspace/IntelHub && rsync -az --delete \
-  --exclude '.git/' ...（同 315 exclude 清单）
+  --exclude '.git/' ...（同测试 VM exclude 清单）
   ./ IntelHub:/home/zou/IntelHub/
 
 ssh -o BatchMode=yes IntelHub 'cd /home/zou/IntelHub \
@@ -236,26 +271,28 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 - **上游 API 探测一律从 VM 发**（采集器真实出口路径，走 openclash 代理），Mac 直测会得出错误结论
 - openclash 诊断：`ssh ImmortalWrt`（10.10.10.1）；runtime yaml 在 `/etc/openclash/`；controller 127.0.0.1:9090（secret 在 yaml 里）；切节点 `PUT /proxies/<urlencoded-group> {"name":X}`；日志 `/tmp/openclash.log`
 
-## 测试 VM 基础设施（VM 315 Debian-test）
+## 测试 VM 基础设施（Debian-test on PVE40）
 
-> 所有会话在动 410 之前必须用 315 验过；下面是后续会话直接拿来用的全部信息。
+> 所有会话在动 410 之前必须用 Debian-test 验过；下面是后续会话直接拿来用的全部信息。
 >
-> **2026-09-17 切换说明**：原 VM 415（pve40，10.10.10.45，alias `IntelHub-test`）已被替换为 VM 315（pve30，10.10.10.35，alias `Debian-test`）。用户/密码/SSH key/Mac 地址全部保持不变，只是换了一台更近的 Proxmox 节点。所有 `IntelHub-test` 引用改为 `Debian-test`，所有 `10.10.10.45` 改为 `10.10.10.35`，所有 `pve40` 改为 `pve30`。
+> **2026-09-17 切换说明**：原 VM 415（pve40，10.10.10.45，alias `IntelHub-test`）被替换为 VM 315（pve30，10.10.10.35，alias `Debian-test`）。用户/密码/SSH key/Mac 地址全部保持不变，只是换了一台更近的 Proxmox 节点。所有 `IntelHub-test` 引用改为 `Debian-test`，所有 `10.10.10.45` 改为 `10.10.10.35`，所有 `pve40` 改为 `pve30`。
+>
+> **2026-09-30 重部署**：PVE30 上的 VM 315 已重新部署到 PVE40 节点（新 VMID 占位待补；暂以「PVE40 <新ID>」指代）。IP 10.10.10.35 / MAC / hostname / SSH 用户+密钥全部保留——只 ssh host key 因 fresh clone 自然换（首次连接需 `ssh-keygen -R 10.10.10.35`）。**与 IntelHub (VM 410) 现在共享 PVE40 宿主机**——详见上方「规则 3」中 host-isolation 已失效的说明。所有下方命令示例里的 VMID `315` 应替换为新 ID 后才能直接跑；`10.10.10.35` / `Debian-test` ssh alias 不变。
 
 ### 创建与配置（首次会话已完成，复用即可）
 
 ```bash
-# 从模板 9000 (debian-13-cloud) 全量克隆（pve30 节点上）
-ssh root@10.10.10.30 'qm clone 9000 315 --name Debian-tester --full true --storage local-lvm'
-ssh root@10.10.10.30 'qm set 315 --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
+# 从模板 9000 (debian-13-cloud) 全量克隆（PVE40 节点上，新 VMID 占位待补——下面以 <ID> 表示）
+ssh root@10.10.10.40 'qm clone 9000 <ID> --name Debian-tester --full true --storage local-lvm'
+ssh root@10.10.10.40 'qm set <ID> --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
   --efidisk0 local-lvm:1,efitype=4m,ms-cert=2023k,pre-enrolled-keys=1,size=4M \
   --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
 
 # cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP
-ssh root@10.10.10.30 'qm set 315 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
+ssh root@10.10.10.40 'qm set <ID> --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
   --ipconfig0 ip=10.10.10.35/24,gw=10.10.10.1'
-ssh root@10.10.10.30 'qm cloudinit update 315'
-ssh root@10.10.10.30 'qm start 315'
+ssh root@10.10.10.40 'qm cloudinit update <ID>'
+ssh root@10.10.10.40 'qm start <ID>'
 
 # VM 起来后装 qemu-guest-agent（agent 是 static unit，需手动 enable）
 ssh Debian-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent \
@@ -272,7 +309,7 @@ Host Debian-test
     StrictHostKeyChecking accept-new
     UserKnownHostsFile ~/.ssh/known_hosts Debian-test
 
-# IntelHub-test alias kept for reference (old VM 415 — pve40, 10.10.10.45 — is offline; can be removed if no longer needed)
+# IntelHub-test alias kept for reference (old VM 415 — was pve40, 10.10.10.45 — replaced 2026-09-17 by VM 315/Debian-test; since 2026-09-30 Debian-test is also on pve40 but at .35, not .45; can be removed if no longer needed)
 Host IntelHub-test
     HostName 10.10.10.45
     User zou
@@ -285,7 +322,7 @@ Host IntelHub-test
 
 - **路径**：`~/.ssh/intelhub-test/id_ed25519`（Mac 本地）
 - **公钥指纹**：`SHA256:1clCZK3NaxqR1lQhZQ/q2qSyzdwi99CKkDafWv9fr80`（comment: `intelhub-test-mac-pi`）
-- **私钥内容**（仅 315 测试用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 315 的 authorized_keys）：
+- **私钥内容**（仅 PVE40 Debian-test 用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 Debian-test 的 authorized_keys）：
 
 ```
 -----BEGIN OPENSSH PRIVATE KEY-----
@@ -305,10 +342,10 @@ LXRlc3QtbWFjLXBp
 
 ### 已知边界
 
-- VM 315 **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
+- PVE40 Debian-test **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
 - cloud-init 默认 **禁用密码登录**（`ssh_pwauth: false`）——cipassword 不会生效，必须靠 SSH key
 - qemu-guest-agent 包安装后服务是 **static unit**（`/usr/lib/systemd/system/qemu-guest-agent.service`），必须 `systemctl enable --now` 手动起
-- PVE 端 `qm guest cmd 415 ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/415/agent/ping`（pve30 代理）总是稳
+- PVE 端 `qm guest cmd <新ID> ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/<新ID>/agent/ping`（同节点代理）总是稳
 
 ### pve40 宿主机操作禁令（血泪）
 
@@ -316,7 +353,7 @@ LXRlc3QtbWFjLXBp
 - **不改配置**：不动 `/etc/network/interfaces`、`/etc/ssh/`、`/etc/fstab` 等
 - **不留垃圾文件**：所有写到 pve40 `/tmp` 的临时文件（公钥、log、qemu screendump 等）**用完立即 `rm`**
 - **不破坏 VM**：losetup/lvm 操作仅限修 SSH 这种阻塞场景，事后必须 `losetup -d` + `umount` + 清零 `/tmp`
-- 唯一允许：经 qm/pvesh/qemu-monitor 操作 VM 410/415/9000——这些是 PVE 标准运维
+- 唯一允许：经 qm/pvesh/qemu-monitor 操作 VM 410/Debian-test（新 VMID 占位待补）/9000——这些是 PVE 标准运维
 
 ## 已知坑（血泪）
 
