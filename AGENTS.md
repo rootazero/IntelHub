@@ -8,7 +8,7 @@
 |---|---|
 | **生产宿主机** | PVE40（Proxmox），VM 410（4 vCPU，8G RAM，balloon 0）。**生产环境，严禁测试** |
 | 生产 VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
-| **测试宿主机** | **PVE40** 节点上 VM（4 vCPU，8G RAM，UEFI，OVMF；新 VMID 占位待用户补入）。**2026-09-30 由 PVE30 上的 VM 315 重部署到 PVE40**：IP/MAC/hostname/SSH 用户+密钥全部不变；ssh host key 因 fresh clone 自然换；与 IntelHub (VM 410) **共享同一 PVE 宿主机**——host-isolation 已失效（详见下方「规则 3」）。从模板 9000 (debian-13-cloud) 全量克隆。 |
+| **测试宿主机** | **PVE40** 节点上 **VM 415**（4 vCPU，8G RAM，UEFI，OVMF；复用了旧 VM 415 的 ID——旧那个 10.10.10.45 IntelHub-test 已销毁，新机器 10.10.10.35 Debian-test 拿到同一 VMID 槽）。**2026-09-30 由 PVE30 上的 VM 315 重部署到 PVE40**：IP/MAC/hostname/SSH 用户+密钥全部不变；ssh host key 因 fresh clone 自然换；与 IntelHub (VM 410) **共享同一 PVE 宿主机**——host-isolation 已失效（详见下方「规则 3」）。从模板 9000 (debian-13-cloud) 全量克隆。 |
 | 测试 VM 地址 | `10.10.10.35`，ssh 别名 **`Debian-test`**（免密已配），用户 `zou` |
 | VM 部署目录 | `/home/zou/IntelHub`（rsync 目标 + 构建现场） |
 | Mac 主仓库 | `/Volumes/TBU/Workspace/IntelHub`（网络盘，有同步延迟） |
@@ -97,7 +97,7 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 
 ## ⚠️ 2026-09-30 Debian-test 迁回 PVE40 + 初始化快照
 
-**事件**：Debian-test（VM 315）从 PVE30 节点重新部署到 PVE40 节点。IP `10.10.10.35` / MAC / hostname / SSH 用户+密钥全部保留。ssh host key 因 fresh clone 自然换（首连需 `ssh-keygen -R 10.10.10.35`）。新 VMID 占位待用户补入 PVE UI。
+**事件**：Debian-test（VM 315）从 PVE30 节点重新部署到 PVE40 节点。IP `10.10.10.35` / MAC / hostname / SSH 用户+密钥全部保留。ssh host key 因 fresh clone 自然换（首连需 `ssh-keygen -R 10.10.10.35`）。**新 VMID = 415**（复用了 PVE40 上旧 VM 415 的 ID 槽——旧那个 10.10.10.45 IntelHub-test 已于 2026-09-17 切换时销毁，新 Debian-test 10.10.10.35 拿到同一 ID）。注意：MAC 与旧 VM 415 相同，但 IP/hostname 不同——不要把新 VM 415 当成 .45 那台机器访问。
 
 **清理后的快照状态**（为后续新 install 提供的已知干净基线）：
 - 磁盘 7G used / 88G avail（原 32G 减到 7G，省 25G）
@@ -115,7 +115,7 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 **行动项**：
 1. **本次提交后**：本文件已同步更新（头表、rule 3、阶段 1、测试 VM 基础设施、pve40 宿主机禁令）
 2. **下次 install.sh**：在快照基础上跑，会自动重装 docker、写 drop-in、配置 service——与原始路径一致
-3. **VMID 待补**：用户打快照时记录 PVE UI 上 Debian-test 的新 ID，更新本文中 `<新ID>` 占位
+3. ~~**VMID 待补**：用户打快照时记录 PVE UI 上 Debian-test 的新 ID~~（已完成：VMID = **415**，在 PVE UI 上可看到）
 4. **memory 已记**：参见 long-term memory 中 `intelhub.testvm-relocation-2026-09-30` + `intelhub.host-isolation-gone-pve40` + `intelhub.testvm-current-state-2026-09-30`
 
 ## 🔴 部署铁律（2026-09-27 PVE40 二次崩溃后确立）
@@ -127,7 +127,7 @@ VM 410 是**生产服务**——任何对 hub-core 的 `restart` / `build` 操�
 **2026-09-30 注**：当时 PVE40 上只有 VM 410 一个 VM，所以"没有 fallback"指的是"IntelHub 单点没 VM 兜底"。2026-09-30 起 Debian-test 也迁到了 PVE40——现在 PVE40 上有 **VM 410 + Debian-test 两个 VM**，bridge fdb / openclash NAT 表被击穿后**仍然没有 fallback**（只是现在影响范围从 1 个变 2 个：IntelHub 和 Debian-test 一起 down）。
 
 **铁律**：
-1. **任何**代码改动先在 **Debian-test（PVE40 上的新克隆 VM）** 完整测试（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）。VMID 占位待补。
+1. **任何**代码改动先在 **Debian-test（VM 415 on PVE40）** 完整测试（sp2a/sp2b/sp3/sp6/sp7/sp8/sp9 全绿）。
 2. **只有全部 sp 验收通过**后才允许在 410 上跑 `update.sh`
 3. **永远不要**在 410 上跑 `bash scripts/build-hub.sh` 当成"试一下能不能编译"——这就是"在生产上测试"
 4. **永远不要**因为"小改动"跳过 Debian-test 验证直接部署到 410
@@ -277,22 +277,24 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 >
 > **2026-09-17 切换说明**：原 VM 415（pve40，10.10.10.45，alias `IntelHub-test`）被替换为 VM 315（pve30，10.10.10.35，alias `Debian-test`）。用户/密码/SSH key/Mac 地址全部保持不变，只是换了一台更近的 Proxmox 节点。所有 `IntelHub-test` 引用改为 `Debian-test`，所有 `10.10.10.45` 改为 `10.10.10.35`，所有 `pve40` 改为 `pve30`。
 >
-> **2026-09-30 重部署**：PVE30 上的 VM 315 已重新部署到 PVE40 节点（新 VMID 占位待补；暂以「PVE40 <新ID>」指代）。IP 10.10.10.35 / MAC / hostname / SSH 用户+密钥全部保留——只 ssh host key 因 fresh clone 自然换（首次连接需 `ssh-keygen -R 10.10.10.35`）。**与 IntelHub (VM 410) 现在共享 PVE40 宿主机**——详见上方「规则 3」中 host-isolation 已失效的说明。所有下方命令示例里的 VMID `315` 应替换为新 ID 后才能直接跑；`10.10.10.35` / `Debian-test` ssh alias 不变。
+> **⚠️ VMID 复用警告**：2026-09-30 起，新 Debian-test（10.10.10.35）复用了上面说的旧 VM 415 的 PVE ID 槽。所以现在 PVE40 上的 "VM 415" 指的是 Debian-test（.35），不是当年的 IntelHub-test（.45，那个已销毁）。MAC 跟旧 VM 415 相同——别按 MAC 在 Proxmox 里误以为找回了 .45 那台。
+>
+> **2026-09-30 重部署**：PVE30 上的 VM 315 已重新部署到 PVE40 节点，**新 VMID = 415**（复用了 PVE40 上旧 VM 415 的 ID 槽——旧那个 10.10.10.45 IntelHub-test 已于 2026-09-17 切换时销毁；MAC 与旧 VM 415 相同但 IP/hostname 不同）。IP 10.10.10.35 / hostname / SSH 用户+密钥全部保留——只 ssh host key 因 fresh clone 自然换（首次连接需 `ssh-keygen -R 10.10.10.35`）。**与 IntelHub (VM 410) 现在共享 PVE40 宿主机**——详见上方「规则 3」中 host-isolation 已失效的说明。下方命令示例里的 VMID 现在已统一替换为 `415`，可直接跑；`10.10.10.35` / `Debian-test` ssh alias 不变。
 
 ### 创建与配置（首次会话已完成，复用即可）
 
 ```bash
-# 从模板 9000 (debian-13-cloud) 全量克隆（PVE40 节点上，新 VMID 占位待补——下面以 <ID> 表示）
-ssh root@10.10.10.40 'qm clone 9000 <ID> --name Debian-tester --full true --storage local-lvm'
-ssh root@10.10.10.40 'qm set <ID> --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
+# 从模板 9000 (debian-13-cloud) 全量克隆（PVE40 节点上，VMID = 415）
+ssh root@10.10.10.40 'qm clone 9000 415 --name Debian-tester --full true --storage local-lvm'
+ssh root@10.10.10.40 'qm set 415 --cores 4 --memory 8192 --balloon 0 --boot order=scsi0 --bios ovmf \
   --efidisk0 local-lvm:1,efitype=4m,ms-cert=2023k,pre-enrolled-keys=1,size=4M \
   --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
 
 # cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP
-ssh root@10.10.10.40 'qm set <ID> --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
+ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
   --ipconfig0 ip=10.10.10.35/24,gw=10.10.10.1'
-ssh root@10.10.10.40 'qm cloudinit update <ID>'
-ssh root@10.10.10.40 'qm start <ID>'
+ssh root@10.10.10.40 'qm cloudinit update 415'
+ssh root@10.10.10.40 'qm start 415'
 
 # VM 起来后装 qemu-guest-agent（agent 是 static unit，需手动 enable）
 ssh Debian-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent \
@@ -345,7 +347,7 @@ LXRlc3QtbWFjLXBp
 - PVE40 Debian-test **BIOS = ovmf（UEFI）**——模板 9000 默认 legacy BIOS 启动会卡（无 OVMF pflash），必须显式 `--bios ovmf` + `--efidisk0`
 - cloud-init 默认 **禁用密码登录**（`ssh_pwauth: false`）——cipassword 不会生效，必须靠 SSH key
 - qemu-guest-agent 包安装后服务是 **static unit**（`/usr/lib/systemd/system/qemu-guest-agent.service`），必须 `systemctl enable --now` 手动起
-- PVE 端 `qm guest cmd <新ID> ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/<新ID>/agent/ping`（同节点代理）总是稳
+- PVE 端 `qm guest cmd 415 ...` 偶发空响应；改用 `pvesh create /nodes/pve40/qemu/415/agent/ping`（同节点代理）总是稳
 
 ### pve40 宿主机操作禁令（血泪）
 
@@ -353,7 +355,7 @@ LXRlc3QtbWFjLXBp
 - **不改配置**：不动 `/etc/network/interfaces`、`/etc/ssh/`、`/etc/fstab` 等
 - **不留垃圾文件**：所有写到 pve40 `/tmp` 的临时文件（公钥、log、qemu screendump 等）**用完立即 `rm`**
 - **不破坏 VM**：losetup/lvm 操作仅限修 SSH 这种阻塞场景，事后必须 `losetup -d` + `umount` + 清零 `/tmp`
-- 唯一允许：经 qm/pvesh/qemu-monitor 操作 VM 410/Debian-test（新 VMID 占位待补）/9000——这些是 PVE 标准运维
+- 唯一允许：经 qm/pvesh/qemu-monitor 操作 VM 410/415/9000（注意：VM 415 = Debian-test on PVE40 @.35；不是旧那个 .45 IntelHub-test，已销毁）——这些是 PVE 标准运维
 
 ## 已知坑（血泪）
 
