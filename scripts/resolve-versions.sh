@@ -153,6 +153,7 @@ NEO4J_PASSWORD=$(rand)
 QDRANT_VERSION=${QDRANT_VERSION}
 
 SEARXNG_VERSION=${SEARXNG_VERSION}
+SEARXNG_SECRET=$(rand)
 CRAWL4AI_VERSION=${CRAWL4AI_VERSION}
 CRAWL4AI_API_TOKEN=$(rand)
 
@@ -189,6 +190,7 @@ NEO4J_PASSWORD=$(rand)
 QDRANT_VERSION=${QDRANT_VERSION}
 
 SEARXNG_VERSION=${SEARXNG_VERSION}
+SEARXNG_SECRET=$(rand)
 CRAWL4AI_VERSION=${CRAWL4AI_VERSION}
 CRAWL4AI_API_TOKEN=$(rand)
 
@@ -214,9 +216,35 @@ else
   sed "s/@HUGINN_DB_PASSWORD@/$(grep '^HUGINN_DB_PASSWORD=' "$ENV_FILE" | cut -d= -f2)/" \
     "$HUB_DIR/config/postgres/init/01-huginn.sql.tmpl" > "$HUB_DIR/config/postgres/init/01-huginn.sql"
 
-  # SearXNG refuses the default "ultrasecretkey" — inject a real random secret
-  sed -i "s/secret_key: \"ultrasecretkey\"/secret_key: \"$(rand)\"/" \
-    "$HUB_DIR/config/searxng/settings.yml"
+  echo "==> done. .env written (0600), huginn init sql rendered."
+  echo "    SEARXNG_SECRET is now resolved into the SearXNG container via"
+  echo "    compose/compose.sensor.yml (no file mutation needed; bind-mounted"
+  echo "    config/searxng/settings.yml is deployment-local, gitignored)."
 
-  echo "==> done. .env written (0600), huginn init sql rendered, searxng secret injected."
+  # SearXNG image entrypoint does NOT honour $SEARXNG_SECRET (verified
+  # 2026-10-01 vs searxng/searxng:2026.9.30 entrypoint.sh: only handles the
+  # 'file does not exist' case, then writes a fresh random key). Our bind-
+  # mounted settings.yml is gitignored (per m00119 + m00125), so we rotate
+  # the secret here on every install. Matches the historical pre-refactor
+  # behaviour — but the file is no longer tracked, so the rotation never
+  # touches history.
+  SEARXNG_SETTINGS="$HUB_DIR/config/searxng/settings.yml"
+  if [[ -f "$SEARXNG_SETTINGS" ]]; then
+    if ! grep -qE '^[[:space:]]*secret_key[[:space:]]*:' "$SEARXNG_SETTINGS"; then
+      echo "WARN: $SEARXNG_SETTINGS has no secret_key line; skipping rotation" >&2
+    else
+      sed -i -E "s|(^[[:space:]]*secret_key[[:space:]]*:[[:space:]]*).*|\\1\"$(rand)\"|" \
+        "$SEARXNG_SETTINGS"
+      chmod 600 "$SEARXNG_SETTINGS"
+      # Reconcile compose/.env's SEARXNG_SECRET with the file's current value
+      # so they stay in sync.
+      CUR_KEY=$(grep -E '^[[:space:]]*secret_key[[:space:]]*:' "$SEARXNG_SETTINGS" \
+                | sed -E 's/.*"([^"]+)".*/\1/')
+      if [[ -n "$CUR_KEY" ]] && grep -q '^SEARXNG_SECRET=' "$ENV_FILE"; then
+        sed -i "s|^SEARXNG_SECRET=.*|SEARXNG_SECRET=$CUR_KEY|" "$ENV_FILE"
+      fi
+    fi
+  else
+    echo "WARN: $SEARXNG_SETTINGS missing (install.sh step_secrets should have seeded it)" >&2
+  fi
 fi
