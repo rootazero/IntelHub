@@ -184,7 +184,7 @@ pub(crate) fn alert_channels_summary_cfg(cfg: &crate::config::Config) -> Value {
     let telegram_chat = cfg.alert_telegram_chat_id.as_deref();
     build_channels_snapshot(
         webhook_url,
-        cfg.alert_webhook_min_severity,
+        &cfg.alert_webhook_min_severity,
         telegram_token,
         telegram_chat,
     )
@@ -218,7 +218,7 @@ pub(crate) fn build_channels_snapshot(
     let telegram = json!({
         "enabled": telegram_on,
         "chat_id_masked": if telegram_on {
-            Some(mask_chat_id(telegram_chat.unwrap_or("")))
+            Value::String(mask_chat_id(telegram_chat.unwrap_or("")))
         } else {
             Value::Null
         },
