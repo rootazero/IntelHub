@@ -299,7 +299,7 @@ ssh root@10.10.10.40 'qm set 415 --cores 4 --memory 8192 --balloon 0 --boot orde
   --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
 
 # cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP（2026-10-01 起 .45）
-ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
+ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/Debian-test/id_ed25519.pub) \
   --ipconfig0 ip=10.10.10.45/24,gw=10.10.10.1'
 ssh root@10.10.10.40 'qm cloudinit update 415'
 ssh root@10.10.10.40 'qm start 415'
@@ -315,24 +315,28 @@ ssh Debian-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive a
 Host Debian-test
     HostName 10.10.10.45
     User zou
-    IdentityFile ~/.ssh/intelhub-test/id_ed25519
+    IdentityFile ~/.ssh/Debian-test/id_ed25519
     StrictHostKeyChecking accept-new
     UserKnownHostsFile ~/.ssh/known_hosts Debian-test
 
-# IntelHub-test alias kept for reference (old VM 415 — was pve40, 10.10.10.45 — replaced 2026-09-17 by VM 315/Debian-test; since 2026-09-30 Debian-test is also on pve40 at .35, and since 2026-10-01 that IP has been reclaimed for Debian-test, so this alias is now redundant with Debian-test but kept for grep/legacy access to old ssh keys for the destroyed VM; can be removed if no longer needed)
+# IntelHub-test — legacy alias for the same machine (Debian-test IS the renamed
+# IntelHub-test, same VM 415 / MAC / hostname / IP .45). Use this alias when
+# reading archived docs/investigations that say `ssh IntelHub-test` (e.g.
+# docs/investigation/2026-09-15-e2e-audit/*); semantically identical to
+# Debian-test now (was pointing to the old destroyed VM 415 pre-2026-09-17).
 Host IntelHub-test
     HostName 10.10.10.45
     User zou
-    IdentityFile ~/.ssh/intelhub-test/id_ed25519
+    IdentityFile ~/.ssh/Debian-test/id_ed25519
     StrictHostKeyChecking accept-new
     UserKnownHostsFile ~/.ssh/known_hosts IntelHub-test
 ```
 
 ### 测试 VM 专用密钥对（Debian-test 专用，不用于 410）
 
-- **路径**：`~/.ssh/intelhub-test/id_ed25519`（Mac 本地）
+- **路径**：`~/.ssh/Debian-test/id_ed25519`（Mac 本地；2026-09-17 之前曾用 `~/.ssh/intelhub-test/id_ed25519`，但 2026-09-17 重命名后旧路径已删除）
 - **公钥指纹**：`***FINGERPRINT-REDACTED***`（comment: `intelhub-test-mac-pi`）
-- **私钥内容**（仅 PVE40 Debian-test 用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/intelhub-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 Debian-test 的 authorized_keys）：
+- **私钥内容**（仅 PVE40 Debian-test 用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/Debian-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 Debian-test 的 authorized_keys）：
 
 ```
 ***REMOVED***
