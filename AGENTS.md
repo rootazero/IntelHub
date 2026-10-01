@@ -334,25 +334,13 @@ Host IntelHub-test
 
 ### 测试 VM 专用密钥对（Debian-test 专用，不用于 410）
 
-- **路径**：`~/.ssh/Debian-test/id_ed25519`（Mac 本地；2026-09-17 之前曾用 `~/.ssh/intelhub-test/id_ed25519`，但 2026-09-17 重命名后旧路径已删除）
-- **公钥指纹**：`***FINGERPRINT-REDACTED***`（comment: `intelhub-test-mac-pi`）
-- **私钥内容**（仅 PVE40 Debian-test 用，泄露立即 `ssh-keygen -t ed25519 -f ~/.ssh/Debian-test/id_ed25519 -C intelhub-test-mac-pi-NEW` 重生成 + 替换 Debian-test 的 authorized_keys）：
-
-```
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***KEY-CONTENT-REDACTED***
-***REMOVED***
-```
-
-- **公钥**（已注入 415 authorized_keys）：
-  `ssh-ed25519 ***PUBLIC-KEY-REDACTED*** intelhub-test-mac-pi`
+> **密钥仅存在于两个地方**，不在 AGENTS.md / 仓库 / 任何文档里写明：
+  - Mac 本地：`~/.ssh/Debian-test/id_ed25519`（2026-09-17 重命名时 rekey 过一次；2026-10-01 又 rekey 过一次，因为 2026-09-13 commit 6d9754d 错误地把私钥写进 AGENTS.md 并 push 到了私有仓库）
+  - Debian-test VM：`~/.ssh/authorized_keys`（由 `qm set 415 --sshkeys` 注入，或 `ssh-copy-id` 后追加）
+>
+> **未来再写文档时**——只写 key 路径（`~/.ssh/Debian-test/id_ed25519`）+ 写入流程（`qm set --sshkeys <(cat .pub)` 或 `ssh-copy-id`），绝不抄 base64 body / fingerprint / 公钥。Fingerprint 是公钥的 hash，公开也算 sensitive（缩小攻击面 + 防止 MITM 探测）。
+>
+> **已执行的清理（2026-10-01）**：`git filter-repo --force --replace-text` 把所有 commit 的 private key 块（markers + base64 body）+ 旧 fingerprint + 旧公钥替换成 `***REDACTED***`；然后 force-push 到 origin。Debian-test authorized_keys 先 add-new（新 key）防 lockout，再 revoke-old。Mac 本地 `~/.ssh/Debian-test/id_ed25519` 整体覆盖为新生成 keypair。
 
 ### 已知边界
 
