@@ -1209,12 +1209,14 @@ else:
 
 # The startup dispatcher warn (alerts.rs::run_dispatcher entry log). When
 # the telegram env vars are empty, hub-core must have logged a warning on
-# startup naming the missing env vars. Pin by searching for the
-# distinctive log string in the last 24h of journald output.
-log_warn = vm('sudo journalctl -u hub-core --since "24 hours ago" --no-pager 2>/dev/null | grep -F "telegram channel disabled" | head -1')
+# startup naming the missing env vars. The log line is a structured
+# tracing::warn! so we grep for the message field ("alert dispatcher:")
+# rather than the full string — the warn text varies by configuration
+# (telegram only / webhook only / neither) but the prefix is stable.
+log_warn = vm('sudo journalctl -u hub-core --since "24 hours ago" --no-pager 2>/dev/null | grep -F "alert dispatcher" | head -1')
 if not bot_token_env or not chat_id_env:
     check("§ALERT-CH-VIS: startup warns when telegram env vars empty",
-          "telegram channel disabled" in log_warn
+          bool(log_warn) and "alert dispatcher" in log_warn
           and "HUB_ALERT_TELEGRAM" in log_warn,
           log_warn[:120] if log_warn else "no warning logged in last 24h")
 else:
