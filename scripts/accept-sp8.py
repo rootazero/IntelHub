@@ -1443,5 +1443,43 @@ check(
     "found in dist" if has_l1_zh else "missing — rebuild console",
 )
 
+# ---------------------------------------------------------------------------
+# §ALERT-CH-VIS (2026-10-01): visibility layer for alert delivery channels.
+# Three checks pin the new source contracts — alert channel status endpoint,
+# startup dispatcher warning, channel snapshot helper. The endpoint + warn
+# are tested live in accept-sp6.py; here we pin the source surface so a future
+# refactor that renames the snapshot helper or moves the warn line trips
+# these immediately.
+# ---------------------------------------------------------------------------
+
+# 100. /api/v1/alert_channels route is registered in api.rs.
+ach_route = vm('grep -cF "/api/v1/alert_channels" /home/zou/IntelHub/hub-core/crates/hub-core/src/api.rs 2>/dev/null | head -1')
+check("§ALERT-CH-VIS: /api/v1/alert_channels route registered in api.rs",
+      ach_route.strip() not in ("", "0"),
+      f"route_refs={ach_route.strip()}")
+
+# 101. console.rs declares the snapshot helper.
+ach_helper = vm('grep -cF "build_channels_snapshot" /home/zou/IntelHub/hub-core/crates/hub-core/src/console.rs 2>/dev/null | head -1')
+check("§ALERT-CH-VIS: build_channels_snapshot helper declared in console.rs",
+      ach_helper.strip() not in ("", "0"),
+      f"helper_refs={ach_helper.strip()}")
+
+# 102. alerts.rs::run_dispatcher has the 4-case startup warn logic. We pin
+# the warning string content (rather than the function structure) so the
+# accept-trip is independent of any future refactor that splits the case
+# into a helper.
+ach_warn = vm('grep -cF "telegram channel disabled" /home/zou/IntelHub/hub-core/crates/hub-core/src/alerts.rs 2>/dev/null | head -1')
+check("§ALERT-CH-VIS: alerts.rs::run_dispatcher warns on telegram disabled",
+      ach_warn.strip() not in ("", "0"),
+      f"warn_refs={ach_warn.strip()}")
+
+# 103. Tests directory pins the snapshot shape — a regression that drops
+# the `any_enabled` field or the `telegram.reason` field will fire at the
+# integration test in tests/alert_channels.rs.
+ach_test = vm("grep -cF 'snapshot_both_channels_enabled' /home/zou/IntelHub/hub-core/crates/hub-core/tests/alert_channels.rs 2>/dev/null | head -1")
+check("§ALERT-CH-VIS: tests/alert_channels.rs pins snapshot shape",
+      ach_test.strip() not in ("", "0"),
+      f"test_refs={ach_test.strip()}")
+
 print(f"\n== {passed} passed, {shelved} shelved, {deferred} deferred, {failed} failed ==")
 sys.exit(1 if failed else 0)

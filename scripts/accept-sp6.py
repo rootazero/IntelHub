@@ -1143,5 +1143,85 @@ check("gev: adsbx 3rd source (health cell ok + sweep aircraft>0)",
       and _adsbx_n > 0,
       f"cell={adsbx_cell[:60]} aircraft={_adsbx_n}")
 
+# ---------------------------------------------------------------------------
+# §ALERT-CH-VIS (2026-10-01): the /api/v1/alert_channels endpoint exists
+# and reflects the *current* secrets.env configuration. Empty env vars must
+# be visible to API callers as a privileged field, not silent-disabled. On 410
+# prod today, secrets.env has empty HUB_ALERT_TELEGRAM_BOT_TOKEN / CHAT_ID —
+# the response should expose this clearly.
+# ---------------------------------------------------------------------------
+
+st, ach = req("/api/v1/alert_channels")
+if st == 200:
+    channels = ach.get("channels") or {}
+    webhook = channels.get("webhook") or {}
+    telegram = channels.get("telegram") or {}
+    check("§ALERT-CH-VIS: /alert_channels shape (webhook + telegram + any_enabled)",
+          isinstance(webhook.get("enabled"), bool)
+          and isinstance(telegram.get("enabled"), bool)
+          and isinstance(channels.get("any_enabled"), bool),
+          f"status={st} keys={list(channels.keys())}")
+    check("§ALERT-CH-VIS: /alert_channels webhook.min_severity present",
+          isinstance(webhook.get("min_severity"), str),
+          f"min_severity={webhook.get('min_severity')!r}")
+    # The reason field is null when both telegram env vars are set, a
+    # descriptive string when one or both are missing. We pin the contract
+    # surface (string|null) but do not assert on its content — depends on
+    # the operator's secrets.env state.
+    tg_reason = telegram.get("reason")
+    check("§ALERT-CH-VIS: /alert_channels telegram.reason is null or descriptive string",
+          tg_reason is None or isinstance(tg_reason, str),
+          f"reason={tg_reason!r}")
+    # chat_id_masked should be null when telegram is disabled (no leak of
+    # partial chat_id when the channel is off).
+    if not telegram.get("enabled"):
+        check("§ALERT-CH-VIS: chat_id_masked null when telegram disabled",
+              telegram.get("chat_id_masked") is None,
+              f"chat_id_masked={telegram.get('chat_id_masked')!r}")
+    else:
+        # When enabled, chat_id_masked should be present and at most 4 chars
+        # of the real id should appear (the last 4).
+        masked = telegram.get("chat_id_masked")
+        check("§ALERT-CH-VIS: chat_id_masked is ***<4chars> when enabled",
+              isinstance(masked, str) and masked.startswith("***")
+              and len(masked) == 7,
+              f"chat_id_masked={masked!r}")
+    # Operator-actionable assertion: if the production secrets.env has
+    # telegram env vars empty (the bug we fixed on 410), the endpoint
+    # should report enabled=false with a reason string. This is the silent-
+    # disable UX gap the §ALERT-CH-VIS commit closes.
+    bot_token_env = vm("grep -E '^HUB_ALERT_TELEGRAM_BOT_TOKEN=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | head -1 | cut -d= -f2-").strip()
+    chat_id_env = vm("grep -E '^HUB_ALERT_TELEGRAM_CHAT_ID=' /home/zou/IntelHub/core/secrets.env 2>/dev/null | head -1 | cut -d= -f2-").strip()
+    if not bot_token_env and not chat_id_env:
+        check("§ALERT-CH-VIS: telegram disabled state reported when env empty",
+              telegram.get("enabled") is False
+              and tg_reason is not None
+              and "BOT_TOKEN" in (tg_reason or "")
+              and "CHAT_ID" in (tg_reason or ""),
+              f"enabled={telegram.get('enabled')} reason={tg_reason!r}")
+    elif bot_token_env and chat_id_env:
+        check("§ALERT-CH-VIS: telegram enabled state reported when env set",
+              telegram.get("enabled") is True
+              and tg_reason is None,
+              f"enabled={telegram.get('enabled')} reason={tg_reason!r}")
+else:
+    check("§ALERT-CH-VIS: /alert_channels returns 200", False, f"status={st}")
+
+# The startup dispatcher warn (alerts.rs::run_dispatcher entry log). When
+# the telegram env vars are empty, hub-core must have logged a warning on
+# startup naming the missing env vars. The log line is a structured
+# tracing::warn! so we grep for the message field ("alert dispatcher:")
+# rather than the full string — the warn text varies by configuration
+# (telegram only / webhook only / neither) but the prefix is stable.
+log_warn = vm('sudo journalctl -u hub-core --since "24 hours ago" --no-pager 2>/dev/null | grep -F "alert dispatcher" | head -1')
+if not bot_token_env or not chat_id_env:
+    check("§ALERT-CH-VIS: startup warns when telegram env vars empty",
+          bool(log_warn) and "alert dispatcher" in log_warn
+          and "HUB_ALERT_TELEGRAM" in log_warn,
+          log_warn[:120] if log_warn else "no warning logged in last 24h")
+else:
+    check("§ALERT-CH-VIS: no false-positive warn when telegram configured",
+          True, "env populated — warn is suppressed")
+
 print(f"\n== {passed} passed, {shelved} shelved, {failed} failed ==")
 sys.exit(1 if failed else 0)

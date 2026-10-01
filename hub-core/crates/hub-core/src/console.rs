@@ -135,7 +135,7 @@ pub async fn overview(state: &AppState, tier: crate::config::Tier) -> Result<Val
         "ts": chrono::Utc::now(),
         "health": health,
         "investigations": { "active": active_inv, "items": inv_items },
-        "alerts": { "open": open_alerts, "recent": recent_alerts },
+        "alerts": { "open": open_alerts, "recent": recent_alerts, "channels": alert_channels_summary(state) },
         "agents": agent_items,
         "evidence": { "docs_today": docs_today, "docs_total": docs_total },
         "graph": { "entities": entities_total, "relationships": rels_total, "changes_today": graph_today },
@@ -145,6 +145,100 @@ pub async fn overview(state: &AppState, tier: crate::config::Tier) -> Result<Val
             "est_cost_usd": (embed_tokens * 0.02 / 1_000_000.0 * 10000.0).round() / 10000.0,
         },
         "radar": { "geo_events_24h": geo_24h, "monitor": monitor_meta },
+    }))
+}
+
+// ---------- §ALERT-CH-VIS: alert channel configuration status ----------
+//
+// Surfaces webhook + telegram channel state so an operator can see from the
+// console (and /api/v1/alert_channels) whether alerts are actually being
+// delivered. Fixes the silent-disablement UX gap: when secrets.env is
+// missing HUB_ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID, the dispatcher never logs
+// a warning and the alert_deliveries table simply doesn't get rows for the
+// telegram endpoint. This function is the cheap, read-only visibility layer.
+//
+// `mask_chat_id` keeps the full chat_id out of API responses. Chat IDs are
+// not secret in the same way bot tokens are, but exposing them broadly
+// defeats the purpose of bearer-key auth on the channel.
+
+fn mask_chat_id(raw: &str) -> String {
+    let n = raw.chars().count();
+    if n <= 4 {
+        // @-handles, very short IDs: show a fixed redaction.
+        "***".to_string()
+    } else {
+        let tail: String = raw.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+        format!("***{tail}")
+    }
+}
+
+fn alert_channels_summary(state: &AppState) -> Value {
+    alert_channels_summary_cfg(&state.config)
+}
+
+/// Pure helper exposed for unit tests — takes `&Config` directly so a
+/// minimal stub (no DB / Redis) is enough.
+pub(crate) fn alert_channels_summary_cfg(cfg: &crate::config::Config) -> Value {
+    let webhook_url = cfg.alert_webhook_url.as_deref();
+    let telegram_token = cfg.alert_telegram_bot_token.as_deref();
+    let telegram_chat = cfg.alert_telegram_chat_id.as_deref();
+    build_channels_snapshot(
+        webhook_url,
+        &cfg.alert_webhook_min_severity,
+        telegram_token,
+        telegram_chat,
+    )
+}
+
+/// Inner pure function — takes the four raw fields and returns the snapshot.
+/// Exposed for unit tests in tests/alert_channels.rs to avoid needing Config
+/// or env-var seeding.
+pub(crate) fn build_channels_snapshot(
+    webhook_url: Option<&str>,
+    webhook_min_severity: &str,
+    telegram_token: Option<&str>,
+    telegram_chat: Option<&str>,
+) -> Value {
+    let webhook_on = webhook_url.is_some();
+    let telegram_token_on = telegram_token.is_some();
+    let telegram_chat_on = telegram_chat.is_some();
+    let telegram_on = telegram_token_on && telegram_chat_on;
+
+    let webhook = json!({
+        "enabled": webhook_on,
+        "min_severity": webhook_min_severity,
+    });
+
+    let telegram_reason = match (telegram_token_on, telegram_chat_on) {
+        (true, true) => Value::Null,
+        (false, true) => json!("HUB_ALERT_TELEGRAM_BOT_TOKEN not set in secrets.env"),
+        (true, false) => json!("HUB_ALERT_TELEGRAM_CHAT_ID not set in secrets.env"),
+        (false, false) => json!("HUB_ALERT_TELEGRAM_BOT_TOKEN and HUB_ALERT_TELEGRAM_CHAT_ID not set in secrets.env"),
+    };
+    let telegram = json!({
+        "enabled": telegram_on,
+        "chat_id_masked": if telegram_on {
+            Value::String(mask_chat_id(telegram_chat.unwrap_or("")))
+        } else {
+            Value::Null
+        },
+        "reason": telegram_reason,
+    });
+
+    json!({
+        "webhook": webhook,
+        "telegram": telegram,
+        "any_enabled": webhook_on || telegram_on,
+    })
+}
+
+/// Standalone channel-status snapshot. Returned at GET /api/v1/alert_channels
+/// and embedded in /api/v1/overview under `alerts.channels`. Pure read —
+/// state.config is the only input, no DB / Redis calls.
+pub async fn alert_channels(state: &AppState) -> Result<Value> {
+    Ok(json!({
+        "ts": chrono::Utc::now(),
+        "channels": alert_channels_summary_cfg(&state.config),
     }))
 }
 
