@@ -8,8 +8,8 @@
 |---|---|
 | **生产宿主机** | PVE40（Proxmox），VM 410（4 vCPU，8G RAM，balloon 0）。**生产环境，严禁测试** |
 | 生产 VM 地址 | `10.10.10.41`，ssh 别名 **`IntelHub`**（免密已配），用户 `zou` |
-| **测试宿主机** | **PVE40** 节点上 **VM 415**（4 vCPU，8G RAM，UEFI，OVMF；复用了旧 VM 415 的 ID——旧那个 10.10.10.45 IntelHub-test 已销毁，新机器 10.10.10.35 Debian-test 拿到同一 VMID 槽）。**2026-09-30 由 PVE30 上的 VM 315 重部署到 PVE40**：IP/MAC/hostname/SSH 用户+密钥全部不变；ssh host key 因 fresh clone 自然换；与 IntelHub (VM 410) **共享同一 PVE 宿主机**——host-isolation 已失效（详见下方「规则 3」）。从模板 9000 (debian-13-cloud) 全量克隆。 |
-| 测试 VM 地址 | `10.10.10.35`，ssh 别名 **`Debian-test`**（免密已配），用户 `zou` |
+| **测试宿主机** | **PVE40** 节点上 **VM 415**（4 vCPU，8G RAM，UEFI，OVMF；复用了旧 VM 415 的 ID——旧那个 10.10.10.45 IntelHub-test 已销毁，新机器 10.10.10.45 Debian-test 拿到同一 VMID 槽且复用同一 IP）。**2026-09-30 由 PVE30 上的 VM 315 重部署到 PVE40**：IP/MAC/hostname/SSH 用户+密钥全部不变；ssh host key 因 fresh clone 自然换；与 IntelHub (VM 410) **共享同一 PVE 宿主机**——host-isolation 已失效（详见下方「规则 3」）。**2026-10-01 IP 重映射**：测试 VM IP 从 `.35` 切换到 `.45`（reclaim 旧 IntelHub-test 的 .45 槽——该 IP 自 2026-09-17 销毁起未使用），hostname/MAC/VMID 不变，ssh host key 不变（PVE40 端 vm config + netplan 内同时改）。从模板 9000 (debian-13-cloud) 全量克隆。 |
+| 测试 VM 地址 | `10.10.10.45`，ssh 别名 **`Debian-test`**（免密已配），用户 `zou` |
 | VM 部署目录 | `/home/zou/IntelHub`（rsync 目标 + 构建现场） |
 | Mac 主仓库 | `/Volumes/TBU/Workspace/IntelHub`（网络盘，有同步延迟） |
 | GitHub | `https://github.com/rootazero/IntelHub`（**PRIVATE**，push over HTTPS） |
@@ -18,7 +18,7 @@
 
 ## ⚠️ 网络可达性（2026-09-27 校正）
 
-**老假设**（已过时）：Windows 环境 (10.10.10.5) 不能 ssh 到 Debian-test (10.10.10.35) / IntelHub (10.10.10.41)，Mac (10.10.10.4) 也到不了 VM，必须用户亲自跑部署。
+**老假设**（已过时）：Windows 环境 (10.10.10.5) 不能 ssh 到 Debian-test (10.10.10.45) / IntelHub (10.10.10.41)，Mac (10.10.10.4) 也到不了 VM，必须用户亲自跑部署。
 
 **新事实**（2026-09-27 验证）：Windows 环境用 ssh-key + ssh config（`Debian-test` / `IntelHub`）**可以直接**到两台 VM，**Mac 同样可以**（之前是 Mac→VM 的网络限制，与 Windows↔VM 路径无关）。Windows env / Mac 都和用户一样可以执行全流程——`worktree → rsync/scp → build → restart → sp6 → git push`。
 
@@ -97,7 +97,7 @@ ssh -o BatchMode=yes IntelHub 'sudo journalctl -u hub-core --since "3 minutes ag
 
 ## ⚠️ 2026-09-30 Debian-test 迁回 PVE40 + 初始化快照
 
-**事件**：Debian-test（VM 315）从 PVE30 节点重新部署到 PVE40 节点。IP `10.10.10.35` / MAC / hostname / SSH 用户+密钥全部保留。ssh host key 因 fresh clone 自然换（首连需 `ssh-keygen -R 10.10.10.35`）。**新 VMID = 415**（复用了 PVE40 上旧 VM 415 的 ID 槽——旧那个 10.10.10.45 IntelHub-test 已于 2026-09-17 切换时销毁，新 Debian-test 10.10.10.35 拿到同一 ID）。注意：MAC 与旧 VM 415 相同，但 IP/hostname 不同——不要把新 VM 415 当成 .45 那台机器访问。
+**事件**：Debian-test（VM 315）从 PVE30 节点重新部署到 PVE40 节点。IP `10.10.10.45` / MAC / hostname / SSH 用户+密钥全部保留。ssh host key 因 fresh clone 自然换（首连需 `ssh-keygen -R 10.10.10.45`）。**新 VMID = 415**（复用了 PVE40 上旧 VM 415 的 ID 槽——旧那个 10.10.10.45 IntelHub-test 已于 2026-09-17 切换时销毁，新 Debian-test 拿到同一 ID + 同一 IP）。注意：MAC 与旧 VM 415 相同，但 ssh host key 不同——不要把新 VM 415 当成 .45 那台旧机器访问（用 ssh-host-key 区分，不要按 IP）。
 
 **清理后的快照状态**（为后续新 install 提供的已知干净基线）：
 - 磁盘 7G used / 88G avail（原 32G 减到 7G，省 25G）
@@ -280,6 +280,14 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 > **⚠️ VMID 复用警告**：2026-09-30 起，新 Debian-test（10.10.10.35）复用了上面说的旧 VM 415 的 PVE ID 槽。所以现在 PVE40 上的 "VM 415" 指的是 Debian-test（.35），不是当年的 IntelHub-test（.45，那个已销毁）。MAC 跟旧 VM 415 相同——别按 MAC 在 Proxmox 里误以为找回了 .45 那台。
 >
 > **2026-09-30 重部署**：PVE30 上的 VM 315 已重新部署到 PVE40 节点，**新 VMID = 415**（复用了 PVE40 上旧 VM 415 的 ID 槽——旧那个 10.10.10.45 IntelHub-test 已于 2026-09-17 切换时销毁；MAC 与旧 VM 415 相同但 IP/hostname 不同）。IP 10.10.10.35 / hostname / SSH 用户+密钥全部保留——只 ssh host key 因 fresh clone 自然换（首次连接需 `ssh-keygen -R 10.10.10.35`）。**与 IntelHub (VM 410) 现在共享 PVE40 宿主机**——详见上方「规则 3」中 host-isolation 已失效的说明。下方命令示例里的 VMID 现在已统一替换为 `415`，可直接跑；`10.10.10.35` / `Debian-test` ssh alias 不变。
+>
+> **⚠️ 2026-10-01 IP 重映射（reclaim）**：Debian-test IP 从 `.35` 改回 `.45`（reclaim 旧 IntelHub-test 销毁后空出来的 IP 槽——是 2026-09-17 那次切换中最早 `.45` 那台机器的地址）。hostname/MAC/VMID 不变，ssh host key 不变（不是 fresh clone）。同步修改了 4 处：
+>   1. PVE40 端 `qm set 415 --ipconfig0 ip=10.10.10.45/24,gw=10.10.10.1`
+>   2. VM 内 `/etc/netplan/50-cloud-init.yaml`（Debian 13 默认网络栈是 netplan+systemd-networkd，**不是** `/etc/network/interfaces`——后者是 ifupdown 旧栈，Debian 12 起已弃用）。`sudo netplan apply` 会瞬断 SSH session（IP 变了），属预期行为。
+>   3. Mac `~/.ssh/config`：`HostName` 改为 `.45`；首连可能仍报 "Host key changed"（旧 .45 那台 IntelHub-test 的 ed25519 指纹残留）→ `ssh-keygen -R 10.10.10.45` 一次
+>   4. VM 内 `/home/zou/IntelHub/core/hub.env` + `/home/zou/IntelHub/compose/.env`：LAN_IP / HUB_LISTEN_ADDR / SEARXNG_URL / CRAWL4AI_URL / HUB_MCP_ALLOWED_HOSTS 全部从 `.35` 改为 `.45`，然后 `sudo systemctl restart hub-core` + `docker compose --profile optional up -d`（stampede 规则 sleep 300）
+>
+> **副作用**：`ssh-keygen -R 10.10.10.35` 一次清掉旧 IP 的 host key entry。重新接上 Debian-test 必须用 `ssh Debian-test`（现在走 .45），不要再用 `.35`——它现在 ping 不通。
 
 ### 创建与配置（首次会话已完成，复用即可）
 
@@ -290,9 +298,9 @@ ssh root@10.10.10.40 'qm set 415 --cores 4 --memory 8192 --balloon 0 --boot orde
   --efidisk0 local-lvm:1,efitype=4m,ms-cert=2023k,pre-enrolled-keys=1,size=4M \
   --net0 virtio,bridge=vmbr0,firewall=1 --onboot 1'
 
-# cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP
+# cloud-init：用户 zou + 我的 ed25519 pub key + 静态 IP（2026-10-01 起 .45）
 ssh root@10.10.10.40 'qm set 415 --ciuser zou --sshkeys <(cat ~/.ssh/intelhub-test/id_ed25519.pub) \
-  --ipconfig0 ip=10.10.10.35/24,gw=10.10.10.1'
+  --ipconfig0 ip=10.10.10.45/24,gw=10.10.10.1'
 ssh root@10.10.10.40 'qm cloudinit update 415'
 ssh root@10.10.10.40 'qm start 415'
 
@@ -305,13 +313,13 @@ ssh Debian-test 'sudo apt-get update -y && sudo DEBIAN_FRONTEND=noninteractive a
 
 ```
 Host Debian-test
-    HostName 10.10.10.35
+    HostName 10.10.10.45
     User zou
     IdentityFile ~/.ssh/intelhub-test/id_ed25519
     StrictHostKeyChecking accept-new
     UserKnownHostsFile ~/.ssh/known_hosts Debian-test
 
-# IntelHub-test alias kept for reference (old VM 415 — was pve40, 10.10.10.45 — replaced 2026-09-17 by VM 315/Debian-test; since 2026-09-30 Debian-test is also on pve40 but at .35, not .45; can be removed if no longer needed)
+# IntelHub-test alias kept for reference (old VM 415 — was pve40, 10.10.10.45 — replaced 2026-09-17 by VM 315/Debian-test; since 2026-09-30 Debian-test is also on pve40 at .35, and since 2026-10-01 that IP has been reclaimed for Debian-test, so this alias is now redundant with Debian-test but kept for grep/legacy access to old ssh keys for the destroyed VM; can be removed if no longer needed)
 Host IntelHub-test
     HostName 10.10.10.45
     User zou
