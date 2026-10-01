@@ -268,6 +268,7 @@ echo "SELECT ..." | base64 | ssh IntelHub 'base64 -d | docker exec -i intelhub-p
 
 - **secrets 只在 VM**：`core/secrets.env`（0600）、`compose/.env`——rsync exclude 已挡，永远不要 `git add` 它们
 - console-build.env 含 VITE_CARTO_KEY，同样 VM-only
+- **SearXNG settings.yml 同样 VM-only（2026-10-01 教训）**：仓库内只有 `settings.yml.template`（placeholder `change-me-at-deploy`，无任何密钥），运行时配置由 install.sh `step_secrets` 从模板 bootstrap 到 `config/searxng/settings.yml`（gitignored）。resolve-versions.sh 在 write 模式下用 `$(rand)` sed-inject 新 `secret_key`（带前导空格保护的捕获组 `(^[[:space:]]*secret_key[[:space:]]*:[[:space:]]*).*`）并同步到 `compose/.env` 的 `SEARXNG_SECRET=`。**环境变量 SEARXNG_SECRET 不可信**——SearXNG image entrypoint 只在 settings.yml 不存在时生成随机值；不替换已存在的值。要换密钥必须直接 sed 改文件后 `docker compose restart searxng`。**任何 update / pull 后 settings.yml 不应被覆盖**：仓库里只有 .template，gitignore 已挡 settings.yml，但更新前要先 `sudo chmod 0777 config/searxng/` 让 zou 写得过（容器重启后权限恢复 977:977）。
 - **上游 API 探测一律从 VM 发**（采集器真实出口路径，走 openclash 代理），Mac 直测会得出错误结论
 - openclash 诊断：`ssh ImmortalWrt`（10.10.10.1）；runtime yaml 在 `/etc/openclash/`；controller 127.0.0.1:9090（secret 在 yaml 里）；切节点 `PUT /proxies/<urlencoded-group> {"name":X}`；日志 `/tmp/openclash.log`
 
@@ -360,6 +361,7 @@ Host IntelHub-test
 ## 已知坑（血泪）
 
 - **edit 工具**：一次调用里多个 edits 指向同一路径时，若 oldText 跨文件混淆会静默失败——改完务必 `grep` 验证；TSX 深度嵌套 JSX 属性会触发 TS1381（在 map 块体里预计算）
+- **SearXNG secret_key 已外泄并清理（2026-10-01）**：`e44e26a` commit 把 settings.yml 里 `secret_key` 从默认占位符改成自定义 64 字符 hex；GitHub 发"internal confidential event"邮件告警（secret-scanning 实际 disabled，但 push-protection/其他内部扫描器仍能触发）。**修法（4 步 + 1 条铁律）**：(1) `git mv config/searxng/settings.yml config/searxng/settings.yml.template`，把模板中 hex 替换为 `change-me-at-deploy` placeholder；(2) `.gitignore` 加 `config/searxng/settings.yml` 和 `config/searxng/logs/`，避免 update.sh 的 git pull 覆盖 VM 运行时配置（m00125 教训）；(3) `install.sh step_secrets` 加 bootstrap 块——首次安装时把模板 cp 到 `config/searxng/settings.yml`（写一保护，0600），后续 update 不动；(4) `resolve-versions.sh` write-mode 末尾 sed-inject 新 `secret_key`（关键：捕获组 `(^[[:space:]]*secret_key[[:space:]]*:[[:space:]]*).*` 保留前导空格，否则缩进被吃光 YAML 解析报错）；(5) **铁律**：SearXNG image entrypoint **不读 SEARXNG_SECRET 环境变量**——只看 `if [ ! -f settings.yml ]` 决定是否生成随机密钥，**已存在的 settings.yml 不会被替换**。所有密钥轮换必须 `sudo sed -i ...` 改文件 + `docker compose restart searxng`，env-var 注入是死路。最后 `git filter-repo --force --replace-text` scrub 历史后 force-push。**新 PR 含密钥 → 立即检查 settings.yml 的 secret_key 行 + git grep `secret_key:` 跟本地对照**，避免重复犯。
 - **雷达默认窗口 24h**：旧日期事件不可见，排查先看 `occurred_at`，验收用 `?from=2026-01-01T00:00:00Z`
 - **Signal::new 的 kind 要 `&'static str`**：动态字符串走 `textclass::static_kind()` 桥
 - **HubError 没有 From<serde_json::Error>**：JSON 解析用 `.map_err(|e| HubError::sensor(...))?`
