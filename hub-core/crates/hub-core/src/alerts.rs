@@ -245,6 +245,31 @@ pub async fn set_status(state: &AppState, alert_id: Uuid, status: &str, actor: &
 // ---------- webhook dispatcher worker ----------
 
 pub async fn run_dispatcher(state: AppState, ct: tokio_util::sync::CancellationToken) {
+    // §ALERT-CH-VIS: surface channel configuration on every dispatcher
+    // startup so a missing secrets.env entry doesn't silently disable
+    // delivery. Operator sees this in journalctl immediately on restart,
+    // rather than waiting days for "no notifications received" feedback.
+    let cfg = &state.config;
+    let webhook_on = cfg.alert_webhook_url.is_some();
+    let telegram_on = cfg.alert_telegram_bot_token.is_some() && cfg.alert_telegram_chat_id.is_some();
+    match (webhook_on, telegram_on) {
+        (true, true) => tracing::info!(
+            webhook = "enabled", telegram = "enabled",
+            min_severity = %cfg.alert_webhook_min_severity,
+            "alert dispatcher: both channels active"),
+        (true, false) => tracing::warn!(
+            webhook = "enabled",
+            telegram = "DISABLED — HUB_ALERT_TELEGRAM_BOT_TOKEN and/or HUB_ALERT_TELEGRAM_CHAT_ID not set in secrets.env",
+            "alert dispatcher: telegram channel disabled — alerts will only go to webhook"),
+        (false, true) => tracing::warn!(
+            webhook = "DISABLED — HUB_ALERT_WEBHOOK_URL not set in hub.env",
+            telegram = "enabled",
+            "alert dispatcher: webhook channel disabled — alerts will only go to telegram"),
+        (false, false) => tracing::warn!(
+            webhook = "DISABLED — HUB_ALERT_WEBHOOK_URL not set in hub.env",
+            telegram = "DISABLED — HUB_ALERT_TELEGRAM_BOT_TOKEN/CHAT_ID not set in secrets.env",
+            "alert dispatcher: NO channels active — alerts will be recorded but NEVER delivered"),
+    }
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         tokio::select! {

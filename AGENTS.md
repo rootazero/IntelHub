@@ -600,3 +600,28 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - 40 nm range toggle (D-TCAS-2 C)
   - Closure-rate readout on the threat tag
   - Cursor target prediction (P19 wireframe + P20 TCAS overlay)
+
+## §ALERT-CH-VIS — Alert Channel Status Visibility (2026-10-01)
+
+- **Branch**: `feat/alert-channel-visibility` (merged + pushed to main @ post-2e78a6d).
+- **Behavior**: Operator can see at a glance whether the alert dispatcher has any working delivery channel. Three surfaces:
+  1. **Startup log** in `hub-core/crates/hub-core/src/alerts.rs::run_dispatcher` — 4-case status emit at function entry: both channels active → info, webhook only → warn telegram disabled, telegram only → warn webhook disabled, neither → warn alerts recorded but never delivered. The warn names the exact env vars missing.
+  2. **New endpoint** `GET /api/v1/alert_channels` — pure read of `state.config`, returns `{ts, channels: {webhook: {enabled, min_severity}, telegram: {enabled, chat_id_masked, reason: string|null}, any_enabled}}`. `chat_id_masked` is `***<last4>` when enabled, `null` when disabled (no leak).
+  3. **Overview embeds** under `alerts.channels` — `/api/v1/overview` now carries the same snapshot so console operators see channel health on every page load.
+- **Root cause**: `config.rs:352-353` filters empty-string env vars to `None`; `alerts.rs:167-168` silently skips telegram branch when both are None. **No log, no `alert_deliveries` row, no surface.** Operator only finds out by missing notifications days later. The filter is correct (don't try to deliver without a token) but the observability gap was real.
+- **Architecture**:
+  - `console.rs::build_channels_snapshot(Option<&str>, &str, Option<&str>, Option<&str>) -> Value` — pure helper, takes the four raw fields, returns the snapshot. No `Config` / `AppState` dep, so unit tests in `tests/alert_channels.rs` run without DB or Redis.
+  - `alert_channels_summary_cfg(&Config)` — thin wrapper that calls the helper.
+  - `mask_chat_id(&str) -> String` — keep last 4 chars if length>4, else `"***"`. Numeric IDs → `"***6789"`.
+  - `api.rs` adds `.route("/api/v1/alert_channels", get(console_alert_channels))` and a 3-line handler.
+- **Tests**: 8 new in `tests/alert_channels.rs` (3 for `mask_chat_id` + 5 for `build_channels_snapshot` covering all 4 channel-state permutations + the chat_id_masked leak guard). sp6 +8 live checks (status, shape, env-driven state, journald warn). sp8 +4 source-contract checks (route registered, helper declared, warn string in alerts.rs, test file present).
+- **Acceptance**: targets — sp6 ≤0 fail (was 51/5/1 → expect 59/5/0 + new §ALERT-CH-VIS block), sp8 ≤0 fail (was 97/0 → expect 101/0), sp7/sp3 unchanged.
+- **Notable rulings**:
+  - **`chat_id_masked = null` when disabled, not `***`**: a partial mask when the channel is off would leak that a chat id is set but the token is missing — `null` keeps the contract simple ("telegram not configured at all").
+  - **Reason string contains env var name**: `"HUB_ALERT_TELEGRAM_BOT_TOKEN not set in secrets.env"` not `"token missing"`. Operator can grep + fix without consulting docs.
+  - **Both-channels path is `null`-reason**: presence of reason implies action is needed; absence implies operator already configured both. Cleaner than `"OK"` or empty string.
+  - **Pure helper split**: `build_channels_snapshot` is a `pub(crate)` four-arg function separate from `alert_channels_summary_cfg(&Config)` — lets unit tests call it without constructing a Config (Config has no Default).
+- **Roadmap** (still deferred):
+  - Per-channel test-fire (POST /api/v1/alert_channels/test with `{channel: "telegram"|"webhook"}` to send a one-shot alert)
+  - Slack / Discord channels in the same dispatcher
+  - Alert dedup: if 50 monitor produces fail with the same source in 10min, collapse into a single "elevated" delivery to the configured severity floor
