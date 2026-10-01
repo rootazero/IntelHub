@@ -267,6 +267,23 @@ EOF
     echo "    wrote core/secrets.env (empty key slots)"
     # <<<INTELHUB_SECRETS_TEMPLATE_V1<<<
   fi
+
+  # SearXNG settings.yml is gitignored (deployment-local, per m00119 + m00125).
+  # On first install, seed it from the tracked template so docker-compose has
+  # a file to bind-mount. The real `secret_key` is rewritten on every container
+  # start by the SearXNG image entrypoint from $SEARXNG_SECRET (compose/.env).
+  local sxt="$HOME_DIR/config/searxng/settings.yml"
+  local sxtpl="$HOME_DIR/config/searxng/settings.yml.template"
+  if [[ -f "$sxt" ]]; then
+    echo "    exists, keeping: $sxt"
+  elif [[ ! -f "$sxtpl" ]]; then
+    die "SearXNG template missing: $sxtpl (re-clone the repo or restore from backups)"
+  else
+    mkdir -p "$HOME_DIR/config/searxng"
+    cp "$sxtpl" "$sxt"
+    chmod 600 "$sxt"
+    echo "    wrote $sxt (from template; SEARXNG_SECRET entrypoint will rewrite secret_key)"
+  fi
 }
 
 step_keys() {

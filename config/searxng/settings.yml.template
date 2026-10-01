@@ -13,14 +13,27 @@
 # shortcut: -" because built-in engines reserve certain shortcut symbols
 # even when not selected, and the override parser then collides.
 #
-# The official image entrypoint replaces "ultrasecretkey" with a random
-# secret on first start (requires the config volume to be writable).
-# Don't use that literal — SearXNG refuses to start otherwise.
+# Secret key handling (2026-10-01, fix/security/searxng-secret-scrub):
+#   - The SearXNG image entrypoint ALWAYS rewrites the `secret_key:` line on
+#     container start (sed into /etc/searxng/settings.yml, bind-mounted :rw).
+#   - Resolution order:
+#       1. $SEARXNG_SECRET env var (set in compose/.env by resolve-versions.sh,
+#          32-byte hex via openssl rand -hex 32) — used verbatim. STABLE
+#          across restarts so SearXNG session cookies persist.
+#       2. Otherwise the entrypoint generates a fresh python3
+#          `secrets.token_hex(32)` at every restart — unstable (cookies
+#          invalidate on every restart). Acceptable for LAN-only dev.
+#   - The literal `"ultrasecretkey"` is the historical placeholder SearXNG
+#     shipped with. The entrypoint DOES replace it on first start IF the
+#     config volume is writable. We no longer rely on that path because it
+#     couples the secret to the image, not the deployment.
+#   - This file MUST NEVER contain a real value. Real secrets live only in
+#     compose/.env (gitignored, per-deployment) on Debian-test / IntelHub.
 
 use_default_settings: true
 
 server:
-  secret_key: "REDACTED-searxng-secret-2026-10-01"  # static dev key — LAN-only; change per deployment
+  secret_key: "change-me-at-deploy"  # placeholder; SearXNG entrypoint rewrites from $SEARXNG_SECRET on every container start
   limiter: false          # no redis-backed limiter in SP1; Hub Gateway enforces policy in SP2
   image_proxy: true
   method: "GET"

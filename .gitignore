@@ -12,3 +12,17 @@ __pycache__/
 .superpowers/
 console/node_modules
 console/node_modules
+
+# SearXNG local config (deployment-specific, per m00119 + m00125).
+#   - settings.yml is bind-mounted into the SearXNG container at /etc/searxng
+#     (compose/compose.sensor.yml). It MUST be deployment-specific because
+#     the SearXNG entrypoint rewrites `secret_key` on every restart from
+#     $SEARXNG_SECRET (set in compose/.env). If we tracked this file,
+#     `git pull` (via scripts/update.sh) would overwrite production's local
+#     value with the repo template — which violates the
+#     "production server config not overwritten by updates" policy.
+#   - settings.yml.template is the canonical template committed for fresh
+#     installs (install.sh step_secrets bootstraps settings.yml from it).
+#   - Logs/ are SearXNG container logs bind-mounted for ops access.
+config/searxng/settings.yml
+config/searxng/logs/

@@ -16,6 +16,12 @@ services:
     <<: [*restart-policy, *security]
     environment:
       SEARXNG_BASE_URL: http://${LAN_IP}:8080/
+      # Resolved into SearXNG's `secret_key:` by the image entrypoint on every
+      # container start (sed into the bind-mounted settings.yml). Empty default
+      # falls back to entrypoint-generated `secrets.token_hex(32)` (unstable
+      # across restarts). Set in compose/.env by resolve-versions.sh for stable
+      # cookie persistence. NEVER commit a real value to config/searxng/.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
     volumes:
       - ../config/searxng:/etc/searxng:rw
     networks: [sensor-net, egress-net]
