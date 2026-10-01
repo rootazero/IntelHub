@@ -43,6 +43,9 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/v1/alerts", get(list_alerts))
         .route("/api/v1/alerts/{id}/ack", axum::routing::post(ack_alert))
         .route("/api/v1/alerts/{id}/mute", axum::routing::post(mute_alert))
+        // §ALERT-CH-VIS: channel-status snapshot. Pure read of state.config;
+        // no DB / Redis calls. Safe to call before any alert exists.
+        .route("/api/v1/alert_channels", get(console_alert_channels))
         .route("/api/v1/traces/{trace_id}", get(get_trace))
         .route("/api/v1/components", get(list_components))
         .route("/api/v1/components/{name}/actions", axum::routing::post(component_action))
@@ -885,6 +888,13 @@ async fn console_metrics_summary(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Value>, Response> {
     crate::console::metrics_summary(&state).await.map(Json).map_err(hub_err)
+}
+
+// §ALERT-CH-VIS: alert channel status (webhook + telegram). L1 (default).
+async fn console_alert_channels(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, Response> {
+    crate::console::alert_channels(&state).await.map(Json).map_err(hub_err)
 }
 
 // ---------- Globe P1: live layers ----------
