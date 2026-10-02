@@ -243,6 +243,37 @@ if [[ -n "$template" ]]; then
   else
     echo "    secrets.env template up-to-date"
   fi
+
+  # Empty-value trap detector (postmortem: telegram alerts on VM 410 went dark
+  # 2026-09-14 → 2026-10-02 because secrets.env held `HUB_ALERT_TELEGRAM_*=`
+  # with length 0 — treated as configured by the loop above because `^KEY=` is
+  # already in the file). We alert loud (non-fatal) rather than patch the file
+  # ourselves: the empty slot may be a half-finished edit the operator wants
+  # to fill themselves, and the reconciler is intentionally non-overwriting.
+  EMPTY_KEYS=()
+  while IFS= read -r key; do
+    [[ -z "$key" ]] && continue
+    EMPTY_KEYS+=("$key")
+  done < <(grep -E '^[A-Z_][A-Z0-9_]+=$' "$SECRETS" 2>/dev/null | cut -d= -f1 | sort -u)
+  if (( ${#EMPTY_KEYS[@]} > 0 )); then
+    warn "$SECRETS has ${#EMPTY_KEYS[@]} EMPTY value(s) — affected components will DEGRADE-BY-DESIGN:"
+    for k in "${EMPTY_KEYS[@]}"; do
+      case "$k" in
+        HUB_ALERT_TELEGRAM_BOT_TOKEN|HUB_ALERT_TELEGRAM_CHAT_ID)
+          echo "      $k → telegram alert channel DISABLED (alerts::run_dispatcher record-only mode, no deliveries)"
+          ;;
+        HUB_ALERT_WEBHOOK_URL|HUB_ALERT_WEBHOOK_MIN_SEVERITY)
+          echo "      $k → webhook alert channel DISABLED"
+          ;;
+        *)
+          echo "      $k → empty value ignored by Config::load (None); populate or delete the line"
+          ;;
+      esac
+    done
+    echo "  → to populate each KEY (replace YOUR_VALUE):"
+    echo "       sudo sed -i 's|^KEY=\$|KEY=YOUR_VALUE|' $SECRETS"
+    echo "       sudo systemctl restart hub-core"
+  fi
 fi
 
 # VITE_CARTO_KEY is the one console-build env worth tracking across updates.
