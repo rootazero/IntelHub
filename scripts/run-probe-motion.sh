@@ -1,21 +1,30 @@
 #!/usr/bin/env bash
-# run-probe-motion.sh — run console/probe-motion.mjs inside the node:22-trixie
-# docker container with the hub repo bind-mounted.
+# run-probe-motion.sh — run console/probe-motion.mjs inside the prebuilt
+# probe image (intelhub/probe:playwright-<version>).
 #
-# Why a wrapper (GEV P21 T1):
-#   * Host 315 has no node in PATH and no chromium system libs.
-#   * `console/node_modules/playwright` (used by `probe-gev.mjs`) is already
-#     installed in the repo tree; mounting the repo into the container makes
-#     that wrapper resolvable without re-installing.
-#   * `npx playwright install chromium --with-deps` downloads the browser
-#     (~200 MB, one-time) into the container's own cache layer so nothing
-#     leaks onto the host.
-#   * `--network=host` is required because the probe hits the hub's LAN IP
-#     (10.10.10.35:8800) — docker's default bridge network would isolate it.
+# Why a wrapper (GEV P21 T1) and why a prebuilt image:
+#   * The hub VM has no node in PATH and no chromium system libs, so the
+#     probe must run inside a container.
+#   * The old wrapper ran `npx playwright install chromium --with-deps`
+#     inside a throwaway node:22-trixie container on EVERY run — the
+#     container was removed afterwards, so ~0.6-1.2 GB of apt packages +
+#     chromium were re-downloaded every time (one sp8 run with
+#     SP8_MOTION_PROBE=1 pulled ~4 GB). The image bakes that once.
+#   * The old wrapper mounted the WHOLE repo read-write at /ws, exposing
+#     core/secrets.env (and every other runtime secret) to third-party
+#     npm code running as root. Now only the single .mjs file is mounted,
+#     read-only.
+#   * `--network=host` used to be required because the probe hits the
+#     hub's LAN IP; the docker bridge reaches that URL just as well, and
+#     keeps the container out of the host's network namespace.
 #
 # Usage:
-#   bash scripts/run-probe-motion.sh [URL]                  # default: globe on 315
+#   bash scripts/run-probe-motion.sh [URL]                  # default: globe on Debian-test
 #   PROBE_OUT=/some/path bash scripts/run-probe-motion.sh    # override screenshot dir
+#
+# Env:
+#   PROBE_API_KEY      ihk_<hex> for the SPA auth gate
+#   PROBE_NETWORK      docker network mode (default: bridge)
 #
 # Exit codes mirror probe-motion.mjs:
 #   0  motion verified (≥0.5% pixel diff)
@@ -24,38 +33,45 @@
 #   3  minimal motion (<0.5%)
 set -euo pipefail
 
-URL="${1:-${PROBE_URL:-http://10.10.10.35:8800/}}"
+URL="${1:-${PROBE_URL:-http://10.10.10.45:8800/}}"
 OUT="${PROBE_OUT:-/tmp/probe-motion}"
 mkdir -p "$OUT"
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."  # repo root
 
+SCRIPT_SRC="$(pwd)/console/probe-motion.mjs"
+if [[ ! -f "$SCRIPT_SRC" ]]; then
+  echo "[run-probe-motion] ERROR: $SCRIPT_SRC not found" >&2
+  exit 1
+fi
+
+# --- prebuilt image (build once, then free) ------------------------------
+BUILD_LOG="${PROBE_IMAGE_BUILD_LOG:-/tmp/probe-image-build.log}"
+TAG_FILE="$(mktemp)"
+if ! bash scripts/build-probe-image.sh >"$TAG_FILE" 2>"$BUILD_LOG"; then
+  echo "[run-probe-motion] ERROR: probe image build failed — see $BUILD_LOG" >&2
+  tail -n 20 "$BUILD_LOG" >&2 || true
+  rm -f "$TAG_FILE"
+  exit 1
+fi
+IMAGE="$(tail -n 1 "$TAG_FILE")"
+rm -f "$TAG_FILE"
+echo "[run-probe-motion] image=$IMAGE network=${PROBE_NETWORK:-bridge}" >&2
+
+ENV_ARGS=()
+if [[ -n "${PROBE_API_KEY:-}" ]]; then
+  ENV_ARGS+=(-e "PROBE_API_KEY=$PROBE_API_KEY")
+fi
+
 docker run --rm \
-  --network=host \
-  -v "$(pwd):/ws" \
+  --network="${PROBE_NETWORK:-bridge}" \
+  -v "$SCRIPT_SRC:/opt/probe/probe-motion.mjs:ro" \
   -v "$OUT:/out" \
   -e PROBE_URL="$URL" \
   -e PROBE_OUT=/out \
   -e PROBE_WAIT_INITIAL="${PROBE_WAIT_INITIAL:-30000}" \
   -e PROBE_WAIT_BETWEEN="${PROBE_WAIT_BETWEEN:-10000}" \
-  ${PROBE_API_KEY:+-e PROBE_API_KEY="$PROBE_API_KEY"} \
-  -w /ws/console \
-  node:22-trixie \
-  bash -c '
-    set -euo pipefail
-    echo "[run-probe-motion] installing playwright chromium (one-time, ~200MB)"
-    npx --yes playwright install chromium --with-deps
-    # Install playwright + pngjs in /tmp so the bind-mounted
-    # /ws/console/node_modules/ stays untouched on the host. probe-motion.mjs
-    # runs from /tmp/probe-deps so module resolution finds both packages.
-    PROBE_DEPS=/tmp/probe-deps
-    mkdir -p "$PROBE_DEPS" && cd "$PROBE_DEPS"
-    if [[ ! -d node_modules/playwright ]]; then
-      npm init -y >/dev/null 2>&1
-      npm install --silent --no-audit --no-fund playwright pngjs >/dev/null 2>&1
-    fi
-    cp /ws/console/probe-motion.mjs "$PROBE_DEPS/probe-motion.mjs"
-    cd "$PROBE_DEPS"
-    echo "[run-probe-motion] running probe"
-    node ./probe-motion.mjs
-  '
+  "${ENV_ARGS[@]+"${ENV_ARGS[@]}"}" \
+  -w /opt/probe \
+  "$IMAGE" \
+  node ./probe-motion.mjs

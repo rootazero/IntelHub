@@ -27,7 +27,7 @@ import { PNG } from "pngjs";
 
 const URL = (() => {
   const a = process.argv.find((x) => x.startsWith("--url="));
-  return a ? a.slice("--url=".length) : (process.env.PROBE_URL ?? "http://10.10.10.35:8800/globe");
+  return a ? a.slice("--url=".length) : (process.env.PROBE_URL ?? "http://10.10.10.45:8800/globe");
 })();
 const LAYER = (() => {
   const a = process.argv.find((x) => x.startsWith("--layer="));

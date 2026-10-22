@@ -28,7 +28,7 @@ import { PNG } from "pngjs";
 import fs from "node:fs";
 import path from "node:path";
 
-const URL = process.env.PROBE_URL || "http://10.10.10.35:8800/";
+const URL = process.env.PROBE_URL || "http://10.10.10.45:8800/";
 const OUT_DIR = process.env.PROBE_OUT || "/tmp/probe-motion";
 const WAIT_MS_INITIAL = Number(process.env.PROBE_WAIT_INITIAL || 30_000);
 const WAIT_MS_BETWEEN = Number(process.env.PROBE_WAIT_BETWEEN || 10_000);

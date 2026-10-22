@@ -1107,14 +1107,15 @@ else:
 # interpolation moves aircraft every frame. Observed normal: 1.3-1.5%
 # pixel change across 10s on a hub with ≥100 cached aircraft.
 #
-# Gated by SP8_MOTION_PROBE=1 — the probe runs inside node:22-trixie docker
-# on the hub VM (no node/chromium on the host), takes ~50s warm / ~3min cold
-# (chromium download), and shells out. Default: shelved. Opt-in for periodic
+# Gated by SP8_MOTION_PROBE=1 — the probe runs inside the prebuilt
+# intelhub/probe:playwright-<ver> docker image on the hub VM (no
+# node/chromium on the host), takes ~50s warm / ~3min cold (first run
+# builds the image), and shells out. Default: shelved. Opt-in for periodic
 # deep validation against the regression.
 if not os.environ.get("SP8_MOTION_PROBE"):
     check_shelved(
         "P21: headless motion probe — ≥0.3% pixels change across 10s on /globe",
-        "SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + pulls chromium on first run)",
+        "SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + builds the probe image on first run)",
     )
 else:
     # Run on the hub VM (where docker + chromium are available). Auth via the
@@ -1122,12 +1123,12 @@ else:
     # the console SPA's localStorage auth gate.
     probe_url = f"{BASE.rstrip('/')}/globe"
     # `vm()` doesn't cd into the repo root; use absolute path so the wrapper
-    # resolves regardless of the ssh session's cwd. timeout=600 covers the
-    # cold path (chromium ~200MB download + npm install + apt-get --with-deps
-    # + ~50s probe = ~5-9 min on prod — observed); warm path is ~50s.
+    # resolves regardless of the ssh session's cwd. timeout=1200 covers the
+    # cold path (first run builds the probe image: ~0.6-1.2 GB download +
+    # docker build) and the warm path (~50s probe).
     probe_out = vm(
         f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-motion.sh '{probe_url}' 2>&1 | tail -25",
-        timeout=600,
+        timeout=1200,
     )
     # Parse the structured tail. The wrapper prints:
     #   byte_identical: false
@@ -1184,13 +1185,13 @@ for layer_id, threshold_pct, label in LAYER_MOTION_PROBES:
     if not os.environ.get("SP8_MOTION_PROBE"):
         check_shelved(
             label,
-            f"SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + pulls chromium on first run)",
+            f"SP8_MOTION_PROBE=1 not set; motion probe opt-in (doubles sp8 runtime + builds the probe image on first run)",
         )
         continue
     probe_url = f"{BASE.rstrip('/')}/globe"
     probe_out = vm(
         f"PROBE_API_KEY='{KEY}' bash /home/zou/IntelHub/scripts/run-probe-layer.sh '{layer_id}' '{probe_url}' 2>&1 | tail -25",
-        timeout=600,
+        timeout=1200,
     )
     pct_match = re.search(
         r"pixels_with_chan_delta_gt_5:\s+\d+\s+/\s+\d+\s+\(([\d.]+)%\)",

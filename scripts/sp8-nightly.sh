@@ -62,22 +62,21 @@ if [[ "$RC" -ne 0 ]] || [[ "${FAILED:-0}" -ne 0 ]]; then
   STATUS="fail"
 fi
 
-# Write Redis heartbeat. Password extracted from compose/.env (same pattern
-# as scripts/_remote.py uses for its redis() helper).
-REDIS_PASS=$(grep '^REDIS_PASSWORD=' /home/zou/IntelHub/compose/.env 2>/dev/null | cut -d= -f2-)
-if [[ -n "$REDIS_PASS" ]]; then
-  docker exec -e REDIS_PASSWORD="$REDIS_PASS" intelhub-redis \
-    redis-cli --no-auth-warning -a "$REDIS_PASS" HSET hub:nightly:sp8:run \
-      ts "$END_TS" \
-      host "$(hostname)" \
-      passed "${PASSED:-?}" \
-      shelved "${SHELVED:-?}" \
-      deferred "${DEFERRED:-?}" \
-      failed "${FAILED:-?}" \
-      status "$STATUS" \
-      log "$LOG_FILE" \
-    >/dev/null
-fi
+# Write Redis heartbeat. Auth happens inside the redis container
+# (REDISCLI_AUTH sourced from the container's own REDIS_PASSWORD env var),
+# so the password never appears in the host's argv.
+docker exec intelhub-redis sh -c \
+  'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning "$@"' sh \
+  HSET hub:nightly:sp8:run \
+    ts "$END_TS" \
+    host "$(hostname)" \
+    passed "${PASSED:-?}" \
+    shelved "${SHELVED:-?}" \
+    deferred "${DEFERRED:-?}" \
+    failed "${FAILED:-?}" \
+    status "$STATUS" \
+    log "$LOG_FILE" \
+  >/dev/null
 
 rm -f "$RAW_OUT"
 echo "[sp8-nightly] end=$END_TS summary=\"$SUMMARY\" status=$STATUS" | tee -a "$LOG_FILE"
