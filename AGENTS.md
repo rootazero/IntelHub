@@ -669,6 +669,7 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
     - `--network=host` 让下载直接计入宿主机网卡（docker stats 的 NetIO 显示 0B，流量全落在 eth0 上，所以从容器侧完全看不出这 35 GB）。
     - `-v "$(pwd):/ws"` 是 **RW** 挂载 + 容器以 root 运行 → 容器内 `head -3 /ws/core/secrets.env` 可读全部运行时密钥（含 telegram bot token 与各 API key），且可改写。已实测确认。
   - 旧凭据路径：`redis-cli -a '<pw>'` / `cypher-shell -p '<pw>'` 把明文口令写进宿主机的进程表；`docker events` 里可直接读到 `cypher-shell -u neo4j -p '<pw>'`。
+  - **36 GB 的引擎是 `sp8-nightly.service` 的重启循环**（不是一次性手跑）：该 unit 是 `Type=oneshot` + `Restart=on-failure` + `RestartSec=300` + `TimeoutStartSec=900`，而探针在旧 wrapper 下要先下载 chromium+apt（≈1 GB/次，链路慢时 15 分钟下不完）→ 每次都撞 timeout 被 kill → `Restart=on-failure` 再拉一次 → 再下 1 GB。2026-10-22 的日志：`start=14:05 / 14:21 / 14:43 / 14:59 / 15:19 / 15:38 / 15:54 / 16:08 …`（部分行没有 `end=`，就是被 timeout 砍掉的），`NRestarts=1287`。而 `StartLimitBurst=2` / `StartLimitIntervalSec=1800` 当时被写在 **[Service]** 段里 → systemd 忽略（它们是 [Unit] 指令）→ 重启次数无上限。bandix 看到的 10.10.10.41 每小时 1–9 GB 尖峰，就是这个循环（旧 wrapper 的 `node:22-trixie` 探针容器带 `--network=host`，下载量直接落在 eth0 上，docker stats 显示 0B 所以从容器侧看不出来）。
 - **Architecture**:
   - 新增 `scripts/probe.Dockerfile`（`ARG PLAYWRIGHT_VERSION` / `ARG PNGJS_VERSION`，`ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`）与 `scripts/build-probe-image.sh`（从 `console/package-lock.json` 取 playwright 版本 → tag `intelhub/probe:playwright-<ver>`；**tag 打 stdout、构建日志打 stderr**，调用方用 `tail -1` 取 tag）。
   - 重写 `scripts/run-probe-layer.sh` / `scripts/run-probe-motion.sh`：先确保镜像存在（失败则 tail 构建日志并 exit 1）→ 打印一行 `[run-probe-*] image=… network=…` 到 stderr → `docker run --rm --network=host`（`PROBE_NETWORK=bridge` 可覆盖）带最小挂载面；默认 base-url 改为**本机自省**：`ip -4 route get 1.1.1.1` 取 src IP（容器内 `os.networkInterfaces()` 兜底），不再写死任何对端 IP。
@@ -683,6 +684,7 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - **探针默认 URL = 本机自省地址**（wrapper 用 `ip -4 route get 1.1.1.1` 的 src，.mjs 用 `os.networkInterfaces()`）：探针跑在哪台 VM 就打哪台，不存在“默认指向另一台”的坑；跨机测试显式传 base-url 参数。
   - **bandix 重复计数教训（流量取证时必须记住）**：单臂旁路由（10.10.10.1 只有 eth0、客户端网关=路由器）下，bandix 把「进路由器的字节」记成路由器自己的 `w_rx`，再把「转发出去的同一批字节」记成客户端的 `w_rx` → 各设备求和 ≈ 2× 真实 WAN 流量（本次：各设备求和 82.3 GB vs OPNsense pppoe0 实测 47.3 GB）。做流量取证以 **OPNsense (10.10.10.11) 的 pppoe0 计数**与 `/proc/net/dev` 为准，bandix 只用来定位「谁在下载」的相对排序。
   - **Debian-test 主机密钥**：VM 重建后 `~/.ssh/known_hosts` 里的 10.10.10.45 条目会失效 → `ssh-keygen -R 10.10.10.45` 后用 `qm guest exec 415` 取出 guest agent 内的公钥核对（**指纹不得写入本仓库任何文档**）。
+  - **systemd 的 `StartLimit*` 必须写在 `[Unit]`**：写在 `[Service]` 里会被忽略（`Unknown key name`），`Restart=on-failure` 就变成无上限重启循环。410 上已修（`/etc/systemd/system/sp8-nightly.service`，备份 `sp8-nightly.service.bak-20261023`）：两个键移到 `[Unit]` → 30 分钟内最多 2 次重启，之后等 03:00 的 timer。**该 unit 在 VM 上、不在仓库里**，重建 VM 需重做此修正。
 - **Acceptance**:
   - **Debian-test (10.10.10.45)** — 2026-10-23 实跑，`INTELHUB_SSH=Debian-test`、`BASE=http://10.10.10.45:8800`；**新代码与基线 01320b7 逐套件对照**（同一台 VM、同一时段）：
 
@@ -698,7 +700,17 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 
   - 探针单独复验（Debian-test，宿主机自省 URL 生效）：`PROBE_API_KEY=<ihk_…> bash scripts/run-probe-layer.sh satellites` → `MOTION VERIFIED (satellites) — 12.824%`；`PROBE_API_KEY=<ihk_…> bash scripts/run-probe-motion.sh` → `MOTION VERIFIED — 1.102%`；两者 URL 均自省为 `http://10.10.10.45:8800/...`（不再写死对端 IP）。
   - 凭据不入 argv 复验（410）：`redis('PING')`→`PONG`、`cypher('RETURN 1 AS ok')`→`ok/1`；宿主机 `ps` / `docker events` 不再出现明文口令。
-  - **410 生产** (10.10.10.41): 见本节末「验收记录」。
+  - **410 生产** (10.10.10.41) — 2026-10-22 16:12 UTC 部署（`update.sh` 在 410 本机跑，仓库到 `2722bfc`）：
+    | 套件 | 结果 | 说明 |
+    |---|---|---|
+    | sp2a | 18P/1F | `semantic_search mode=None`（外部 embedding 服务） |
+    | sp3 | 19P/0F | |
+    | sp7 | 16P/11S/0F | |
+    | sp2b | 23P/10F | embed→语义搜索→告警链（同为外部 embedding 服务） |
+    | sp6 | 95P/6S/4F | 4 个 FAIL 全是上游：aircraft snapshot count=0、flights envelope（adsb）、starlink proxied TLE（celestrak 502，AGENTS.md 已记的已知 flake）、overpass 代理超时 |
+    | sp8（不启用探针） | 117P/7S/3D/1F | 1 个 FAIL = `radar kind=military events exist`（数据检查，与本次改动无关）；4 个探针检查按设计 shelved（生产不构建 1 GB 探针镜像） |
+    | sp8-nightly（`SP8_MOTION_PROBE=1`，生产真实路径） | 121P/2S/3D/2F，耗时 9m40s（16:28:23→16:38:03） | **旧代码下同一 job 反复撞 15 min timeout 被 kill（无 `end=` 行）；预构建镜像后一次跑完**，heartbeat（redis `hub:nightly:sp8:run`）写入正常，证明新凭据路径（`REDISCLI_AUTH`）可用 |
+  - 410 部署后额外修正：`sp8-nightly.service` 的 `StartLimit*` 移到 `[Unit]`（见 Notable rulings），并确认 `intelhub/probe:playwright-1.63.0` 在 410 已构建（3.28 GB，一次性下载，后续复用）。
 - **Roadmap** (still deferred):
   - 轮换已暴露过的密钥：telegram bot token 需用 BotFather 重生成；`EMBEDDING_API_KEY` 属外部 ai.t8star.org 需在对方侧换；neo4j 口令本地可轮换。
   - 把探针镜像预热纳入 `scripts/install.sh`（新装 VM 自动构建一次）。
