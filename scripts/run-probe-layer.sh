@@ -17,24 +17,34 @@
 #     Now only the single .mjs file is mounted, read-only: /ws no longer
 #     exists inside the container.
 #   * The old wrapper used `--network=host`, putting the container in the
-#     host's network namespace (it could reach 127.0.0.1 services such as
-#     redis/postgres/neo4j admin and bind host ports). The default is now
-#     the docker bridge; the probe only needs the hub's LAN URL, which is
-#     reachable from the bridge. Override with PROBE_NETWORK=host if a
-#     future setup needs host networking.
+#     host's network namespace. We tried to flip the default to the
+#     docker bridge, but that cannot work on this deployment: the host
+#     firewall (scripts/bootstrap-host.sh) is `table inet filter` with
+#     `input` policy DROP and a single allow rule for LAN sources
+#     (`ip saddr 10.10.10.0/24 tcp dport { 22,3000,5001,8080,8800,11235 }`).
+#     A bridge container's source is 172.x, so *every* packet it sends to
+#     the host — including the hub's own LAN listener 10.10.10.45:8800 —
+#     is dropped (verified: bridge curl to the hub times out after 8s,
+#     host-network curl answers in 1.5ms). Host networking is therefore
+#     the default again; the container's blast radius against the host is
+#     capped by the same allow-list any LAN host has. Set
+#     PROBE_NETWORK=bridge on hosts whose firewall permits it.
 #
 # Usage:
 #   bash scripts/run-probe-layer.sh <layer> [base-url]
 #
 #   layer     aircraft | satellites | vessels | traffic (case-insensitive)
-#   base-url  default http://10.10.10.45:8800/globe  (override to test 410)
+#   base-url  default http://<this host's own LAN IP>:8800/globe
+#              (the probe runs on the hub VM itself, so it must target
+#               *this* VM — a hardcoded peer IP silently screenshots the
+#               other VM's globe; the old default 10.10.10.35 is dead)
 #
 # Env (forwarded to the container):
 #   PROBE_API_KEY        ihk_<hex> for the SPA auth gate
 #   PROBE_WAIT_INITIAL   ms to settle after load (default 30000)
 #   PROBE_WAIT_BETWEEN   ms between t0/t1 (default 10000)
 #   PROBE_OUT            host dir for screenshots (default /tmp/probe-layer)
-#   PROBE_NETWORK        docker network mode (default: bridge)
+#   PROBE_NETWORK        docker network mode (default: host — see above)
 #
 # The first invocation on a fresh VM builds the image (~0.6-1.2 GB, a few
 # minutes). Build it ahead of time with:
@@ -43,7 +53,15 @@ set -euo pipefail
 
 LAYER="${1:-aircraft}"
 LAYER="$(echo "$LAYER" | tr '[:upper:]' '[:lower:]')"
-URL="${2:-${PROBE_URL:-http://10.10.10.45:8800/globe}}"
+
+# LAN IP of this host (source address of the default route). Falls back to
+# loopback when the route lookup is unavailable.
+local_ip() {
+  ip -4 route get 1.1.1.1 2>/dev/null \
+    | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}'
+}
+LOCAL_IP="$(local_ip || true)"
+URL="${2:-${PROBE_URL:-http://${LOCAL_IP:-127.0.0.1}:8800/globe}}"
 OUT="${PROBE_OUT:-/tmp/probe-layer}"
 mkdir -p "$OUT"
 
@@ -66,7 +84,7 @@ if ! bash scripts/build-probe-image.sh >"$TAG_FILE" 2>"$BUILD_LOG"; then
 fi
 IMAGE="$(tail -n 1 "$TAG_FILE")"
 rm -f "$TAG_FILE"
-echo "[run-probe-layer] image=$IMAGE network=${PROBE_NETWORK:-bridge}" >&2
+echo "[run-probe-layer] image=$IMAGE network=${PROBE_NETWORK:-host}" >&2
 
 ENV_ARGS=()
 if [[ -n "${PROBE_API_KEY:-}" ]]; then
@@ -74,7 +92,7 @@ if [[ -n "${PROBE_API_KEY:-}" ]]; then
 fi
 
 docker run --rm \
-  --network="${PROBE_NETWORK:-bridge}" \
+  --network="${PROBE_NETWORK:-host}" \
   -v "$SCRIPT_SRC:/opt/probe/probe-layer.mjs:ro" \
   -v "$OUT:/out" \
   -e PROBE_URL="$URL" \

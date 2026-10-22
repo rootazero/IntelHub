@@ -14,17 +14,20 @@
 #     core/secrets.env (and every other runtime secret) to third-party
 #     npm code running as root. Now only the single .mjs file is mounted,
 #     read-only.
-#   * `--network=host` used to be required because the probe hits the
-#     hub's LAN IP; the docker bridge reaches that URL just as well, and
-#     keeps the container out of the host's network namespace.
+#   * `--network=host` stays the default: the host firewall
+#     (scripts/bootstrap-host.sh) is `table inet filter` with `input`
+#     policy DROP and a LAN-source-only allow rule, so a bridge
+#     container cannot reach the hub's LAN listener 10.10.10.45:8800 at
+#     all (verified: bridge curl times out, host curl answers). Set
+#     PROBE_NETWORK=bridge on hosts whose firewall permits it.
 #
 # Usage:
-#   bash scripts/run-probe-motion.sh [URL]                  # default: globe on Debian-test
+#   bash scripts/run-probe-motion.sh [URL]                  # default: this host's own globe
 #   PROBE_OUT=/some/path bash scripts/run-probe-motion.sh    # override screenshot dir
 #
 # Env:
 #   PROBE_API_KEY      ihk_<hex> for the SPA auth gate
-#   PROBE_NETWORK      docker network mode (default: bridge)
+#   PROBE_NETWORK      docker network mode (default: host)
 #
 # Exit codes mirror probe-motion.mjs:
 #   0  motion verified (≥0.5% pixel diff)
@@ -33,7 +36,16 @@
 #   3  minimal motion (<0.5%)
 set -euo pipefail
 
-URL="${1:-${PROBE_URL:-http://10.10.10.45:8800/}}"
+# LAN IP of this host (source address of the default route) — the probe
+# runs on the hub VM itself, so it must target *this* VM. A hardcoded peer
+# IP silently screenshots the other VM's globe (the old default
+# 10.10.10.35 is dead).
+local_ip() {
+  ip -4 route get 1.1.1.1 2>/dev/null \
+    | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}'
+}
+LOCAL_IP="$(local_ip || true)"
+URL="${1:-${PROBE_URL:-http://${LOCAL_IP:-127.0.0.1}:8800/}}"
 OUT="${PROBE_OUT:-/tmp/probe-motion}"
 mkdir -p "$OUT"
 
@@ -56,7 +68,7 @@ if ! bash scripts/build-probe-image.sh >"$TAG_FILE" 2>"$BUILD_LOG"; then
 fi
 IMAGE="$(tail -n 1 "$TAG_FILE")"
 rm -f "$TAG_FILE"
-echo "[run-probe-motion] image=$IMAGE network=${PROBE_NETWORK:-bridge}" >&2
+echo "[run-probe-motion] image=$IMAGE network=${PROBE_NETWORK:-host}" >&2
 
 ENV_ARGS=()
 if [[ -n "${PROBE_API_KEY:-}" ]]; then
@@ -64,7 +76,7 @@ if [[ -n "${PROBE_API_KEY:-}" ]]; then
 fi
 
 docker run --rm \
-  --network="${PROBE_NETWORK:-bridge}" \
+  --network="${PROBE_NETWORK:-host}" \
   -v "$SCRIPT_SRC:/opt/probe/probe-motion.mjs:ro" \
   -v "$OUT:/out" \
   -e PROBE_URL="$URL" \

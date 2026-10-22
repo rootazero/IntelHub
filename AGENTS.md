@@ -661,7 +661,7 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
 - **Behavior**:
   1. **预构建探针镜像** `intelhub/probe:playwright-<version>`（版本号从 `console/package-lock.json` 锁定，镜像内烘焙 chromium + headless-shell + ffmpeg + `--with-deps` 的 apt 依赖 + playwright/pngjs 的 npm 包）。之后每次探针只做 `docker run --rm`，**零下载**。首次构建约 0.6-1.2 GB，由 `scripts/build-probe-image.sh` 完成（`PROBE_FORCE_BUILD=1` 强制重建）。
   2. **最小挂载面**：容器只挂载单个 `.mjs`（`:ro`，到 `/opt/probe/<probe>.mjs`）+ 输出目录（rw，到 `/out`）。**不再挂载仓库根目录** → `core/secrets.env` / `core/hub.env` / `core/agent-keys.txt` / `compose/.env` 对容器不可见。
-  3. **默认 bridge 网络**（原 `--network=host`）：容器不再共享宿主机网络命名空间，够不到宿主机 `127.0.0.1` 上的 redis/postgres/neo4j admin 端口。需要 host 网络时显式 `PROBE_NETWORK=host` 回退。
+  3. **网络模式保持 `--network=host`（实测无法改桥接）**：主机的防火墙（`scripts/bootstrap-host.sh` 写下的 `table inet filter`，`input` 策略 DROP + 仅放行 LAN 源的 `ip saddr 10.10.10.0/24 tcp dport { 22,3000,5001,8080,8800,11235 }`）会把桥接容器（源地址 172.x）的所有回宿流量丢弃，**包括探针真正需要的 hub LAN 监听 10.10.10.45:8800**。实测：桥接容器 curl hub 超时 8s，host 网络 curl 1.5ms 返回。容器对宿主的影响面因此被同一份 allow-list 限死（= 任意 LAN 主机都能访问的端口集），而密钥/仓库挂载面已经被上一条堵死。`PROBE_NETWORK=bridge` 保留给防火墙允许的主机。
   4. **凭据不进 argv**：redis 走容器内 `REDISCLI_AUTH`（源自容器自身的 `REDIS_PASSWORD`），neo4j 走容器内 `NEO4J_PASSWORD`（由容器自身的 `NEO4J_AUTH` 派生），cypher 查询以位置参数 `$1` 传入。宿主机上 `ps` / `docker events` 都不再出现明文口令。
 - **Root cause (36 GB + 密钥暴露，两件事同一个容器)**:
   - 旧 wrapper：`docker run --rm --network=host -v "$(pwd):/ws" ... node:22-trixie bash -c 'npx --yes playwright install chromium --with-deps; ... npm install playwright pngjs; ...'`。
@@ -671,19 +671,33 @@ GitHub Issues on https://github.com/rootazero/IntelHub （public repo，使用 `
   - 旧凭据路径：`redis-cli -a '<pw>'` / `cypher-shell -p '<pw>'` 把明文口令写进宿主机的进程表；`docker events` 里可直接读到 `cypher-shell -u neo4j -p '<pw>'`。
 - **Architecture**:
   - 新增 `scripts/probe.Dockerfile`（`ARG PLAYWRIGHT_VERSION` / `ARG PNGJS_VERSION`，`ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`）与 `scripts/build-probe-image.sh`（从 `console/package-lock.json` 取 playwright 版本 → tag `intelhub/probe:playwright-<ver>`；**tag 打 stdout、构建日志打 stderr**，调用方用 `tail -1` 取 tag）。
-  - 重写 `scripts/run-probe-layer.sh` / `scripts/run-probe-motion.sh`：先确保镜像存在（失败则 tail 构建日志并 exit 1）→ 打印一行 `[run-probe-*] image=… network=…` 到 stderr → `docker run --rm --network=bridge` 带最小挂载面。
+  - 重写 `scripts/run-probe-layer.sh` / `scripts/run-probe-motion.sh`：先确保镜像存在（失败则 tail 构建日志并 exit 1）→ 打印一行 `[run-probe-*] image=… network=…` 到 stderr → `docker run --rm --network=host`（`PROBE_NETWORK=bridge` 可覆盖）带最小挂载面；默认 base-url 改为**本机自省**：`ip -4 route get 1.1.1.1` 取 src IP（容器内 `os.networkInterfaces()` 兜底），不再写死任何对端 IP。
   - 改 `scripts/_remote.py`：`redis()` / `cypher()` 改为容器内取密，删除 `_redis_password()` / `_neo4j_password()` 两个取密 helper 及其缓存；模块 docstring 同步更新。
   - 改 `scripts/health-check.sh`（删掉 `REDIS_PW=$(grep …)` 分支）、`scripts/sp8-nightly.sh`（删掉 `REDIS_PASS` 传递）、`scripts/accept-sp9.py`（neo4j 清理语句改容器内取密）。
-  - 修 `console/probe-layer.mjs` / `console/probe-motion.mjs` 里写死的旧 IP `10.10.10.35` → `10.10.10.45`（测试 VM 已迁址，旧 IP 早已失效）。
+  - 修 `console/probe-layer.mjs` / `console/probe-motion.mjs` 里写死的旧 IP `10.10.10.35` → 改为**本机自省**（`os.networkInterfaces()` 优先取 10./192.168. 的 LAN 地址，排除 docker 172.16/12 池），探针永远打**自己这台 VM** 的 hub，不会误拓另一台。
   - `scripts/accept-sp8.py`：两处探针调用的 `timeout=600` → `1200`（首次构建镜像要下载 0.6-1.2 GB），shelved 文案 "pulls chromium on first run" → "builds the probe image on first run"。
 - **Notable rulings**:
   - **不改 compose/.env 结构**：redis 的 `REDIS_PASSWORD` 与 neo4j 的 `NEO4J_AUTH` 本来就在容器 env 里（`compose.data.yml`），直接利用即可，不需要新增 secret 文件、不需要宿主机读口令、不需要环境变量桥接。
   - **探针容器暂不改非 root**：最小改动面；容器已无任何 secret 可读，non-root 还要解决 chromium sandbox 权限，收益低、风险高，留待后续。
-  - **探针默认 URL 指向 Debian-test (10.10.10.45)**；要跑 410 必须显式传 base-url 参数，否则探针会去 410 取图。
+  - **探针必须带 `PROBE_API_KEY`**：console SPA 有 auth gate，不带 key 时页面不渲染 canvas，探针会报 `PROBE_ERROR: canvas never appeared` —— 那是「没登录」，不是探针坏了。
+  - **探针默认 URL = 本机自省地址**（wrapper 用 `ip -4 route get 1.1.1.1` 的 src，.mjs 用 `os.networkInterfaces()`）：探针跑在哪台 VM 就打哪台，不存在“默认指向另一台”的坑；跨机测试显式传 base-url 参数。
   - **bandix 重复计数教训（流量取证时必须记住）**：单臂旁路由（10.10.10.1 只有 eth0、客户端网关=路由器）下，bandix 把「进路由器的字节」记成路由器自己的 `w_rx`，再把「转发出去的同一批字节」记成客户端的 `w_rx` → 各设备求和 ≈ 2× 真实 WAN 流量（本次：各设备求和 82.3 GB vs OPNsense pppoe0 实测 47.3 GB）。做流量取证以 **OPNsense (10.10.10.11) 的 pppoe0 计数**与 `/proc/net/dev` 为准，bandix 只用来定位「谁在下载」的相对排序。
   - **Debian-test 主机密钥**：VM 重建后 `~/.ssh/known_hosts` 里的 10.10.10.45 条目会失效 → `ssh-keygen -R 10.10.10.45` 后用 `qm guest exec 415` 取出 guest agent 内的公钥核对（**指纹不得写入本仓库任何文档**）。
 - **Acceptance**:
-  - **Debian-test** (10.10.10.45): 见本节末「验收记录」。
+  - **Debian-test (10.10.10.45)** — 2026-10-23 实跑，`INTELHUB_SSH=Debian-test`、`BASE=http://10.10.10.45:8800`；**新代码与基线 01320b7 逐套件对照**（同一台 VM、同一时段）：
+
+    | 套件 | 基线 01320b7 | 本次改动 | 说明 |
+    |---|---|---|---|
+    | sp2a | 18P/1F | 18P/1F | 同一项 `semantic_search labeled \| mode=None`（外部 embedding 服务 ai.t8star.org 不可用） |
+    | sp3 | — | 19P/0F | 与基线 19 一致 |
+    | sp6 | 85P/11S/3F | 84P/11S/4F | 多出的 1 项 `gev: adsbx 3rd source`：adsbexchange 8 个 hub 全 429 的上游抖动（journal 实证），非回归 |
+    | sp7 | — | 16P/11S/0F | 与基线 16+11S 一致 |
+    | sp8 (`SP8_MOTION_PROBE=1`) | 116P/7S/3D/2F（探针 shelved） | 118P/3S/3D/4F | 探针从「shelved 默认关」变成真跑：motion 12.487%、satellites 12.502%、traffic PASS；vessels `PREFLIGHT_FAIL`（Debian-test 未配 `AISSTREAM_API_KEY` → ais-live 0 行，探针**如实报缺数据**而不是假通过）。另 2 个 FAIL（CARTO key、adsbx/aircraft envelope）基线也有 |
+    | sp9 | 14P/2F | 14P/2F | 同样 2 项：`03 search_entity alias path`（图谱空，embed 链断）+ `11 baseline regression bar`（汇总其他套件失败） |
+    | sp2b | 17P/16F | 17P/16F | 同样 16 项：crawl→embed→语义搜索→告警链整链断，根因同为外部 embedding 服务不可用 |
+
+  - 探针单独复验（Debian-test，宿主机自省 URL 生效）：`PROBE_API_KEY=<ihk_…> bash scripts/run-probe-layer.sh satellites` → `MOTION VERIFIED (satellites) — 12.824%`；`PROBE_API_KEY=<ihk_…> bash scripts/run-probe-motion.sh` → `MOTION VERIFIED — 1.102%`；两者 URL 均自省为 `http://10.10.10.45:8800/...`（不再写死对端 IP）。
+  - 凭据不入 argv 复验（410）：`redis('PING')`→`PONG`、`cypher('RETURN 1 AS ok')`→`ok/1`；宿主机 `ps` / `docker events` 不再出现明文口令。
   - **410 生产** (10.10.10.41): 见本节末「验收记录」。
 - **Roadmap** (still deferred):
   - 轮换已暴露过的密钥：telegram bot token 需用 BotFather 重生成；`EMBEDDING_API_KEY` 属外部 ai.t8star.org 需在对方侧换；neo4j 口令本地可轮换。

@@ -22,12 +22,27 @@
 //   3  PROBE_ERROR (chromium/timeout/runtime)
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { chromium } from "playwright";
 import { PNG } from "pngjs";
 
+// LAN IP of the machine running the probe. The probe always targets the
+// hub on its own host, so the default must be host-local — a hardcoded
+// peer IP would silently probe the *other* VM (the old default
+// 10.10.10.35 is dead; 10.10.10.45 is only the test VM).
+const LOCAL_IPV4 = (() => {
+  const list = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((n) => n && n.family === "IPv4" && !n.internal);
+  const isDockerPool = (a) => /^172\.(1[6-9]|2\d|3[01])\./.test(a);
+  const lan = list.find((n) => /^(10\.|192\.168\.)/.test(n.address));
+  const other = list.find((n) => !isDockerPool(n.address));
+  return (lan || other || { address: "127.0.0.1" }).address;
+})();
+
 const URL = (() => {
   const a = process.argv.find((x) => x.startsWith("--url="));
-  return a ? a.slice("--url=".length) : (process.env.PROBE_URL ?? "http://10.10.10.45:8800/globe");
+  return a ? a.slice("--url=".length) : (process.env.PROBE_URL ?? `http://${LOCAL_IPV4}:8800/globe`);
 })();
 const LAYER = (() => {
   const a = process.argv.find((x) => x.startsWith("--layer="));
