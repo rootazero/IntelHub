@@ -17,13 +17,12 @@ echo "-- resources (snapshot) --"
 docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}'
 echo
 echo "-- monitor sources (hub-core built-in) --"
-REDIS_PW=$(grep '^REDIS_PASSWORD=' "$HUB_DIR/compose/.env" 2>/dev/null | cut -d= -f2)
-if [[ -n "$REDIS_PW" ]]; then
-  docker exec intelhub-redis redis-cli --no-auth-warning -a "$REDIS_PW" HGETALL hub:monitor:health 2>/dev/null \
-    | paste - - | sed -E 's/\{"state":"([a-z]+)".*/[\1]/' | sort || echo "monitor health cells unavailable"
-else
-  echo "(redis password not found)"
-fi
+# Auth happens inside the redis container (REDISCLI_AUTH sourced from the
+# container's own REDIS_PASSWORD env var) — the password never lands in
+# the host's argv, and nothing on the host has to read it at all.
+docker exec intelhub-redis sh -c \
+  'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning HGETALL hub:monitor:health' 2>/dev/null \
+  | paste - - | sed -E 's/\{"state":"([a-z]+)".*/[\1]/' | sort || echo "monitor health cells unavailable"
 echo
 echo "-- compose config check --"
 "$HUB_DIR/scripts/hub-compose.sh" config --quiet && echo "compose files: OK"

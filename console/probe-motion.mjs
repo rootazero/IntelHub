@@ -27,8 +27,21 @@ import { chromium } from "playwright";
 import { PNG } from "pngjs";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
-const URL = process.env.PROBE_URL || "http://10.10.10.35:8800/";
+// LAN IP of the machine running the probe — the probe targets the hub on
+// its own host, so the default is host-local (see probe-layer.mjs).
+const LOCAL_IPV4 = (() => {
+  const list = Object.values(os.networkInterfaces())
+    .flat()
+    .filter((n) => n && n.family === "IPv4" && !n.internal);
+  const isDockerPool = (a) => /^172\.(1[6-9]|2\d|3[01])\./.test(a);
+  const lan = list.find((n) => /^(10\.|192\.168\.)/.test(n.address));
+  const other = list.find((n) => !isDockerPool(n.address));
+  return (lan || other || { address: "127.0.0.1" }).address;
+})();
+
+const URL = process.env.PROBE_URL || `http://${LOCAL_IPV4}:8800/`;
 const OUT_DIR = process.env.PROBE_OUT || "/tmp/probe-motion";
 const WAIT_MS_INITIAL = Number(process.env.PROBE_WAIT_INITIAL || 30_000);
 const WAIT_MS_BETWEEN = Number(process.env.PROBE_WAIT_BETWEEN || 10_000);

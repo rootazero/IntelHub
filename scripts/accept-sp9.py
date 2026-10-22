@@ -822,8 +822,13 @@ def check_14_neo4j_mirror_lag():
         # them to PG entities on some code path), then Neo4j DETACH DELETE.
         sql("DELETE FROM entities WHERE name LIKE 'Accept9Smoke%'")
         # Neo4j: detach delete by (kind, name) prefix.
+        # Auth happens inside the container (NEO4J_PASSWORD derived from
+        # the container's own NEO4J_AUTH) so the password stays out of the
+        # host's argv; the query is passed as $1.
         neo_out = ssh(
-            "docker exec intelhub-neo4j cypher-shell -u neo4j -p \"$(docker inspect intelhub-neo4j --format '{{range .Config.Env}}{{println .}}{{end}}' | grep NEO4J_AUTH=neo4j/ | head -1 | sed 's|NEO4J_AUTH=neo4j/||')\" "
+            "docker exec intelhub-neo4j sh -c "
+            "'NEO4J_PASSWORD=\"${NEO4J_AUTH#neo4j/}\" "
+            "cypher-shell -u neo4j --format plain \"$1\"' sh "
             "\"MATCH (e:Entity) WHERE e.name STARTS WITH 'Accept9Smoke' DETACH DELETE e\""
         )
     except Exception:

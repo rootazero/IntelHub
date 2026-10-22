@@ -24,7 +24,8 @@ Helpers:
   pg_params(sql, *params) — like pg() but substitutes $1/$2 placeholders
   pg_stdin(sql)         — multi-statement psql via base64 stdin
   redis(*args, timeout=30) — str, redis-cli output
-  cypher(query, timeout=30) — str, cypher-shell output (auto-extracts NEO4J_AUTH)
+  cypher(query, timeout=30) — str, cypher-shell output (auth via the
+                              container's own NEO4J_AUTH env var)
   docker_exec(container, *args) — generic docker exec, returns stripped stdout
   grafana_creds()       — (user, password) tuple, password from compose/.env
   grafana_request(path) — GET {GRAFANA_URL}{path} with admin auth, returns JSON
@@ -153,27 +154,11 @@ def pg_stdin(sql: str, timeout: int = 60) -> str:
 
 
 # ─── redis ─────────────────────────────────────────────────────────────
-# Password lives in compose/.env as REDIS_PASSWORD. We extract it on
-# demand via docker exec (works locally) or sh-eval over ssh (works
-# remotely) — both fall through :func:`sh`.
-_REDIS_PASSWORD_CACHE = None
-
-
-def _redis_password() -> str:
-    global _REDIS_PASSWORD_CACHE
-    if _REDIS_PASSWORD_CACHE is not None:
-        return _REDIS_PASSWORD_CACHE
-    # Read via sh() so it routes through ssh on a remote Mac (where the
-    # compose/.env file doesn't exist locally).
-    env_path = os.path.join(HOME_DIR, "compose", ".env")
-    out = sh(
-        f"grep '^REDIS_PASSWORD=' '{env_path}' | head -1 | cut -d= -f2-",
-        timeout=10,
-    )
-    _REDIS_PASSWORD_CACHE = out.strip()
-    return _REDIS_PASSWORD_CACHE
-
-
+# The redis container already carries REDIS_PASSWORD in its own env
+# (compose.data.yml). We therefore authenticate *inside* the container
+# via REDISCLI_AUTH instead of passing `-a <password>` on the command
+# line: the old form put the plaintext password into the host's process
+# table (visible in `ps` and in `docker events`).
 def redis(*args, timeout=30) -> str:
     """Run a redis-cli command, return stripped stdout.
 
@@ -182,40 +167,26 @@ def redis(*args, timeout=30) -> str:
         redis("HKEYS", "hub:monitor:health")
         redis("HGET", "hub:monitor:health", "firms")
 
-    The redis password is auto-extracted from compose/.env on first
-    call and cached.
+    Authentication happens inside the container (REDISCLI_AUTH sourced
+    from the container's own REDIS_PASSWORD env var), so the password
+    never appears in the host's argv.
     """
-    pw = _redis_password()
     quoted_args = " ".join(f"'{a}'" for a in args)
     cmd = (
-        f"docker exec intelhub-redis redis-cli "
-        f"-a '{pw}' --no-auth-warning {quoted_args}"
+        "docker exec intelhub-redis sh -c "
+        "'REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli --no-auth-warning \"$@\"' sh "
+        f"{quoted_args}"
     )
     return sh(cmd, timeout=timeout)
 
 
 # ─── neo4j ─────────────────────────────────────────────────────────────
 # NEO4J_AUTH lives in the neo4j container's env as ``neo4j/<password>``,
-# NOT in compose/.env. We extract it via docker inspect once per process.
-_NEO4J_PASSWORD_CACHE = None
-
-
-def _neo4j_password() -> str:
-    global _NEO4J_PASSWORD_CACHE
-    if _NEO4J_PASSWORD_CACHE is not None:
-        return _NEO4J_PASSWORD_CACHE
-    # Read via sh() so it routes through ssh on a remote Mac (where the
-    # neo4j container isn't accessible locally). Format: NEO4J_AUTH=neo4j/<password>
-    out = sh(
-        "docker inspect intelhub-neo4j "
-        "--format '{{range .Config.Env}}{{println .}}{{end}}' "
-        "| grep '^NEO4J_AUTH=neo4j/' | head -1 | sed 's|^NEO4J_AUTH=neo4j/||'",
-        timeout=15,
-    )
-    _NEO4J_PASSWORD_CACHE = out.strip()
-    return _NEO4J_PASSWORD_CACHE
-
-
+# NOT in compose/.env. We authenticate *inside* the container: the
+# password is derived from the container's own NEO4J_AUTH env var and
+# handed to cypher-shell through NEO4J_PASSWORD, so it never appears in
+# the host's argv (the old `cypher-shell -p <password>` form exposed it
+# in `ps` and in `docker events`).
 def cypher(query: str, timeout: int = 30) -> str:
     """Run a cypher-shell query against intelhub-neo4j.
 
@@ -225,14 +196,14 @@ def cypher(query: str, timeout: int = 30) -> str:
 
     Single quotes inside the query are escaped for shell safety.
     """
-    pw = _neo4j_password()
     escaped = query.replace("'", "'\\''")
-    # ``bash -c`` lets us use single quotes around the cypher that
-    # survive shell expansion on both the local /bin/bash and remote ssh
-    # paths (ssh invokes the user's login shell which is also bash).
+    # The query is passed as a positional parameter ($1) so no amount of
+    # quoting inside it can break out of the container's shell.
     cmd = (
-        f"docker exec intelhub-neo4j bash -c "
-        f'"cypher-shell -u neo4j -p \'{pw}\' --format plain \'{escaped}\'"'
+        "docker exec intelhub-neo4j sh -c "
+        "'NEO4J_PASSWORD=\"${NEO4J_AUTH#neo4j/}\" "
+        "cypher-shell -u neo4j --format plain \"$1\"' sh "
+        f"'{escaped}'"
     )
     return sh(cmd, timeout=timeout)
 
